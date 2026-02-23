@@ -21,7 +21,7 @@ fn build_http_args(version: &str) -> DataArgs {
 
     DataArgs {
         http: Some(config),
-        version: Some(version.to_string()),
+        versions: Some(version.to_string()),
         ..Default::default()
     }
 }

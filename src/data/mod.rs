@@ -25,11 +25,6 @@ pub trait DataSource: Sync {
 ///
 /// Returns `None` if no data source is configured (e.g., no `--xlsx` provided).
 pub fn create_data_source(args: &args::DataArgs) -> Result<Option<Box<dyn DataSource>>, DataError> {
-    // Handle fallback from deprecated --variant flag
-    if args.variant.is_some() && args.version.is_none() {
-        eprintln!("Warning: --variant is deprecated, use --version instead");
-    }
-
     match (&args.xlsx, &args.postgres, &args.http, &args.json) {
         (Some(_), _, _, _) => Ok(Some(Box::new(ExcelDataSource::new(args)?))),
         (_, Some(_), _, _) => Ok(Some(Box::new(JsonDataSource::from_postgres(args)?))),

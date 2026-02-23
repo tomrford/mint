@@ -42,7 +42,7 @@ ok.int_exact_to_f32   = { value = 16777216, type = "f32" }
 
     let ver_args = mint_cli::data::args::DataArgs {
         xlsx: Some("tests/data/data.xlsx".to_string()),
-        version: Some("Default".to_string()),
+        versions: Some("Default".to_string()),
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
@@ -90,7 +90,7 @@ bad.frac_to_u8 = { value = 1.5, type = "u8" }
 
     let ver_args = mint_cli::data::args::DataArgs {
         xlsx: Some("tests/data/data.xlsx".to_string()),
-        version: Some("Default".to_string()),
+        versions: Some("Default".to_string()),
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
@@ -139,7 +139,7 @@ bad.large_int_to_f64 = { value = 9007199254740993, type = "f64" }
 
     let ver_args = mint_cli::data::args::DataArgs {
         xlsx: Some("tests/data/data.xlsx".to_string()),
-        version: Some("Default".to_string()),
+        versions: Some("Default".to_string()),
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
