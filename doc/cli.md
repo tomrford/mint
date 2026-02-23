@@ -37,11 +37,11 @@ mint header@layout.toml calibration.toml --xlsx data.xlsx -v Default -o combined
 
 ## Data Source Options
 
-You can specify exactly one data source (`--xlsx`, `--postgres`, `--http`, or `--json`) along with a variant (`-v`).
+You can specify exactly one data source (`--xlsx`, `--postgres`, `--http`, or `--json`) along with versions (`-v`).
 
 ### `--xlsx <FILE>`
 
-Path to Excel workbook containing variant data.
+Path to Excel workbook containing versioned data.
 
 ```bash
 mint layout.toml --xlsx data.xlsx -v Default -o output.hex
@@ -87,7 +87,7 @@ See [Data Sources](sources.md#http---http) for config format details.
 
 Use raw JSON as the data source. Accepts a JSON file path or inline JSON string.
 
-The JSON format is an object with variant names as top-level keys. Each variant contains an object with name:value pairs.
+The JSON format is an object with version names as top-level keys. Each version contains an object with name:value pairs.
 
 ```bash
 # Using a JSON file
@@ -115,12 +115,12 @@ mint layout.toml --json '{"Default":{"key1":123,"key2":"value"},"Debug":{"key1":
 
 See [Data Sources](sources.md#json---json) for format details.
 
-### `-v, --variant <NAME[/NAME...]>`
+### `-v, --versions <NAME[/NAME...]>`
 
-Variant columns to query, in priority order. The first non-empty value found wins.
+Version columns to query, in priority order. The first non-empty value found wins.
 
 ```bash
-# Single variant
+# Single version
 mint layout.toml --xlsx data.xlsx -v Default -o output.hex
 
 # Fallback chain: try Debug first, then Default

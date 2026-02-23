@@ -99,27 +99,15 @@ fn test_factory_returns_none_without_datasource() {
         "create_data_source should return None when no datasource provided"
     );
 
-    // Test with deprecated variant flag but no datasource (should produce warning)
-    let args_variant_no_datasource = mint_cli::data::args::DataArgs {
-        variant: Some("VarA".to_string()),
-        ..Default::default()
-    };
-
-    let result = create_data_source(&args_variant_no_datasource).expect("should return Ok(None)");
-    assert!(
-        result.is_none(),
-        "create_data_source should return None when no datasource provided, even with deprecated variant flag"
-    );
-
-    // Test with version flag but no datasource
+    // Test with versions flag but no datasource
     let args_version_no_datasource = mint_cli::data::args::DataArgs {
-        version: Some("Default".to_string()),
+        versions: Some("Default".to_string()),
         ..Default::default()
     };
 
     let result = create_data_source(&args_version_no_datasource).expect("should return Ok(None)");
     assert!(
         result.is_none(),
-        "create_data_source should return None when no datasource provided, even with version flag"
+        "create_data_source should return None when no datasource provided, even with versions flag"
     );
 }

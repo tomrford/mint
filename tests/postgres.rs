@@ -63,7 +63,7 @@ fn build_pg_args(version: &str) -> DataArgs {
 
     DataArgs {
         postgres: Some(config),
-        version: Some(version.to_string()),
+        versions: Some(version.to_string()),
         ..Default::default()
     }
 }

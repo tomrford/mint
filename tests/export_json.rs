@@ -47,7 +47,7 @@ message = { value = "Hi", type = "u8", size = 4 }
             r#"{"Default":{"DeviceName":"UnitA","EnableDebug":1,"RegionCode":7,"Coeffs":[10,20,30],"Counter":99}}"#
                 .to_string(),
         ),
-        version: Some("Default".to_string()),
+        versions: Some("Default".to_string()),
         ..Default::default()
     };
     let ds = data::create_data_source(&data_args)

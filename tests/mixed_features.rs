@@ -79,7 +79,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
     // Prepare a datasheet (may be no-op for these, but keep realistic flow)
     let data_args = mint_cli::data::args::DataArgs {
         xlsx: Some("tests/data/data.xlsx".to_string()),
-        version: Some("Default".to_string()),
+        versions: Some("Default".to_string()),
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&data_args).expect("datasource loads");
