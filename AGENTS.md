@@ -46,3 +46,38 @@ mint is an embedded development tool that works with layout files (toml/yaml/jso
 - **Compatibility**: Do not maintain backwards compatibility unless trivially possible or explicitly requested. Focus on better functionality and cleaner code.
 - **Documentation**: functions and structs should be documented with succinct doc comments. Keep documentation (including readme) up to date with the code.
 - **Testing**: Add at least unit test and one integration test for each new feature/functionality addition.
+
+## Cursor Cloud specific instructions
+
+### Rust toolchain
+
+The project uses `edition = "2024"` which requires **Rust >= 1.85**. The VM update script installs the latest stable toolchain via `rustup`. Nix is not available in Cloud; all cargo commands run directly.
+
+### Running the full gate
+
+```
+cargo fmt --check
+cargo clippy
+cargo test
+```
+
+### Quick CLI smoke test
+
+`simple_block` in `tests/data/blocks.toml` uses only inline values (no Excel/Postgres needed):
+
+```
+cargo run -- simple_block@tests/data/blocks.toml -o /tmp/out.hex --stats
+```
+
+For Excel integration, use the committed `tests/data/data.xlsx`:
+
+```
+cargo run -- block@tests/data/blocks.toml --xlsx tests/data/data.xlsx -v Default -o /tmp/out.hex --stats
+```
+
+### Ignored tests
+
+- `tests/postgres.rs` (12 tests): ignored by default; require a running Postgres instance.
+- `tests/http.rs` (12 tests): ignored by default; require a running HTTP server.
+
+These are not required for the standard development gate.
