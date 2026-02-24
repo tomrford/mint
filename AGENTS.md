@@ -46,3 +46,58 @@ mint is an embedded development tool that works with layout files (toml/yaml/jso
 - **Compatibility**: Do not maintain backwards compatibility unless trivially possible or explicitly requested. Focus on better functionality and cleaner code.
 - **Documentation**: functions and structs should be documented with succinct doc comments. Keep documentation (including readme) up to date with the code.
 - **Testing**: Add at least unit test and one integration test for each new feature/functionality addition.
+
+## Cursor Cloud specific instructions
+
+### Nix environment
+
+Nix is installed single-user at `~/.nix-profile`. Source it before use:
+
+```
+. /home/ubuntu/.nix-profile/etc/profile.d/nix.sh
+```
+
+All cargo commands must be run through the flake dev shell:
+
+```
+nix develop -c cargo build
+nix develop -c cargo test
+nix develop -c cargo fmt --check
+nix develop -c cargo clippy
+```
+
+### Running the full gate
+
+```
+nix develop -c cargo fmt --check
+nix develop -c cargo clippy
+nix develop -c cargo test
+```
+
+### Quick CLI smoke test
+
+`simple_block` in `tests/data/blocks.toml` uses only inline values (no data source needed):
+
+```
+nix develop -c cargo run -- simple_block@tests/data/blocks.toml -o /tmp/out.hex --stats
+```
+
+### Postgres tests
+
+The nix dev shell provides PostgreSQL. To run the 12 ignored Postgres integration tests:
+
+```bash
+# Init + start (only needed once per session)
+nix develop -c initdb -D /workspace/.pg_data --no-locale --encoding=UTF8
+nix develop -c pg_ctl -D /workspace/.pg_data -l /workspace/.pg_data/logfile -o "-k /tmp -h localhost" start
+nix develop -c createdb -h localhost mint_test
+
+# Run tests (must be single-threaded — parallel creates race on table DDL)
+nix develop -c cargo test --test postgres -- --include-ignored --test-threads=1
+```
+
+To stop Postgres: `nix develop -c pg_ctl -D /workspace/.pg_data stop`
+
+### HTTP tests
+
+`tests/http.rs` (12 tests) are also `#[ignore]`; they require an external HTTP server and are not part of the standard gate.
