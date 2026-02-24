@@ -49,35 +49,55 @@ mint is an embedded development tool that works with layout files (toml/yaml/jso
 
 ## Cursor Cloud specific instructions
 
-### Rust toolchain
+### Nix environment
 
-The project uses `edition = "2024"` which requires **Rust >= 1.85**. The VM update script installs the latest stable toolchain via `rustup`. Nix is not available in Cloud; all cargo commands run directly.
+Nix is installed single-user at `~/.nix-profile`. Source it before use:
+
+```
+. /home/ubuntu/.nix-profile/etc/profile.d/nix.sh
+```
+
+All cargo commands must be run through the flake dev shell:
+
+```
+nix develop -c cargo build
+nix develop -c cargo test
+nix develop -c cargo fmt --check
+nix develop -c cargo clippy
+```
 
 ### Running the full gate
 
 ```
-cargo fmt --check
-cargo clippy
-cargo test
+nix develop -c cargo fmt --check
+nix develop -c cargo clippy
+nix develop -c cargo test
 ```
 
 ### Quick CLI smoke test
 
-`simple_block` in `tests/data/blocks.toml` uses only inline values (no Excel/Postgres needed):
+`simple_block` in `tests/data/blocks.toml` uses only inline values (no data source needed):
 
 ```
-cargo run -- simple_block@tests/data/blocks.toml -o /tmp/out.hex --stats
+nix develop -c cargo run -- simple_block@tests/data/blocks.toml -o /tmp/out.hex --stats
 ```
 
-For Excel integration, use the committed `tests/data/data.xlsx`:
+### Postgres tests
 
+The nix dev shell provides PostgreSQL. To run the 12 ignored Postgres integration tests:
+
+```bash
+# Init + start (only needed once per session)
+nix develop -c initdb -D /workspace/.pg_data --no-locale --encoding=UTF8
+nix develop -c pg_ctl -D /workspace/.pg_data -l /workspace/.pg_data/logfile -o "-k /tmp -h localhost" start
+nix develop -c createdb -h localhost mint_test
+
+# Run tests (must be single-threaded — parallel creates race on table DDL)
+nix develop -c cargo test --test postgres -- --include-ignored --test-threads=1
 ```
-cargo run -- block@tests/data/blocks.toml --xlsx tests/data/data.xlsx -v Default -o /tmp/out.hex --stats
-```
 
-### Ignored tests
+To stop Postgres: `nix develop -c pg_ctl -D /workspace/.pg_data stop`
 
-- `tests/postgres.rs` (12 tests): ignored by default; require a running Postgres instance.
-- `tests/http.rs` (12 tests): ignored by default; require a running HTTP server.
+### HTTP tests
 
-These are not required for the standard development gate.
+`tests/http.rs` (12 tests) are also `#[ignore]`; they require an external HTTP server and are not part of the standard gate.
