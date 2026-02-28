@@ -1,0 +1,184 @@
+name: Update Nix Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-nixpkgs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Install update tools
+        run: |
+          nix profile install nixpkgs#nurl nixpkgs#nix-update
+
+      - name: Calculate hashes
+        id: hash
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Calculate source hash
+          SRC_HASH=$(nurl --hash https://github.com/${{ github.repository }} v${VERSION})
+          echo "src_hash=${SRC_HASH}" >> $GITHUB_OUTPUT
+          
+          # We'll calculate cargoHash after creating the initial package file
+          echo "Calculated source hash: ${SRC_HASH}"
+
+      - name: Checkout nixpkgs
+        uses: actions/checkout@v4
+        with:
+          repository: fordtom/nixpkgs
+          token: ${{ secrets.NIXPKGS_TOKEN || secrets.GITHUB_TOKEN }}
+          path: nixpkgs
+          fetch-depth: 0
+
+      - name: Sync upstream
+        working-directory: nixpkgs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/NixOS/nixpkgs.git
+          git fetch upstream master
+          git checkout master
+          git merge upstream/master
+          git push origin master
+
+      - name: Create branch
+        working-directory: nixpkgs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b mint-cli-${{ steps.version.outputs.version }}
+
+      - name: Create package file
+        working-directory: nixpkgs
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SRC_HASH="${{ steps.hash.outputs.src_hash }}"
+          
+          mkdir -p pkgs/by-name/mi/mint-cli
+          
+          cat > pkgs/by-name/mi/mint-cli/package.nix <<EOF
+          { lib
+          , rustPlatform
+          , fetchFromGitHub
+          }:
+
+          rustPlatform.buildRustPackage rec {
+            pname = "mint-cli";
+            version = "${VERSION}";
+
+            src = fetchFromGitHub {
+              owner = "fordtom";
+              repo = "mint";
+              rev = "v\${version}";
+              hash = "${SRC_HASH}";
+            };
+
+            cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+            meta = with lib; {
+              description = "CLI tool for building hex files from excel data and a layout definition";
+              homepage = "https://github.com/fordtom/mint";
+              license = licenses.mit;
+              maintainers = [ ];
+              mainProgram = "mint";
+            };
+          }
+          EOF
+
+      - name: Calculate cargoHash
+        working-directory: nixpkgs
+        shell: bash
+        run: |
+          # Use nurl to calculate the cargoHash by prefetching the cargoDeps
+          CARGO_HASH=$(nurl --expr '(import ./. {}).mint-cli.cargoDeps.overrideAttrs (_: { hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; })')
+          
+          # Update the package file with the correct cargoHash
+          sed -i "s|cargoHash = \"sha256-.*\"|cargoHash = \"${CARGO_HASH}\"|" pkgs/by-name/mi/mint-cli/package.nix
+          
+          echo "Calculated cargoHash: ${CARGO_HASH}"
+
+      - name: Commit and push
+        working-directory: nixpkgs
+        run: |
+          git add pkgs/by-name/mi/mint-cli/package.nix
+          git commit -m "mint-cli: init at ${{ steps.version.outputs.version }}"
+          git push origin mint-cli-${{ steps.version.outputs.version }}
+
+      - name: Test build
+        working-directory: nixpkgs
+        run: |
+          nix build .#legacyPackages.x86_64-linux.mint-cli --show-trace
+          ./result/bin/mint --version
+
+      - name: Open PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.NIXPKGS_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const version = '${{ steps.version.outputs.version }}';
+            
+            const { data: existingPRs } = await github.rest.pulls.list({
+              owner: 'NixOS',
+              repo: 'nixpkgs',
+              state: 'open',
+              head: `fordtom:mint-cli-${version}`
+            });
+            
+            if (existingPRs.length === 0) {
+              await github.rest.pulls.create({
+                owner: 'NixOS',
+                repo: 'nixpkgs',
+                title: `mint-cli: init at ${version}`,
+                head: `fordtom:mint-cli-${version}`,
+                base: 'master',
+                body: `Automated PR to add mint-cli version ${version}
+
+            ## Description
+            mint is a CLI tool for building hex files from Excel data and a layout definition.
+
+            ## Metadata
+            - Homepage: https://github.com/fordtom/mint
+            - License: MIT
+            - Platforms: Linux, macOS
+
+            ## Testing
+            \`\`\`
+            nix build .#legacyPackages.x86_64-linux.mint-cli
+            ./result/bin/mint --version
+            \`\`\`
+
+            Both source hash and cargoHash have been automatically calculated and verified.`
+              });
+            }

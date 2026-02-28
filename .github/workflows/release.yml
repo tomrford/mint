@@ -87,6 +87,11 @@ jobs:
         with:
           targets: ${{ matrix.job.target }}
 
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.job.target }}
+
       - name: Install cross
         if: matrix.job.use-cross
         uses: taiki-e/install-action@v2
@@ -131,12 +136,12 @@ jobs:
           pushd "${PKG_STAGING}/" >/dev/null
           case ${{ matrix.job.target }} in
             *-pc-windows-*)
-              7z a "${PKG_NAME}" "${PKG_BASENAME}"/* | tail -2
-              certutil -hashfile "${PKG_NAME}" SHA256 > "${PKG_NAME}.sha256"
+              7z a "${PKG_NAME}" "${PKG_BASENAME}" | tail -2
+              certutil -hashfile "${PKG_NAME}" SHA256 | findstr /v "SHA256 CertUtil" | tr -d '\r\n ' > "${PKG_NAME}.sha256"
               ;;
             *)
-              tar czf "${PKG_NAME}" "${PKG_BASENAME}"/*
-              shasum -a 256 "${PKG_NAME}" > "${PKG_NAME}.sha256"
+              tar czf "${PKG_NAME}" "${PKG_BASENAME}"
+              shasum -a 256 "${PKG_NAME}" | cut -d' ' -f1 > "${PKG_NAME}.sha256"
               ;;
           esac
           popd >/dev/null
