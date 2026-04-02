@@ -2,11 +2,14 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use mint_cli::args::Args;
 use mint_cli::data::{self, DataSource};
 use mint_cli::layout::args::{BlockNames, LayoutArgs};
 use mint_cli::output::args::{OutputArgs, OutputFormat};
+
+static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
 pub fn ensure_out_dir() {
     fs::create_dir_all("out").unwrap();
@@ -14,7 +17,13 @@ pub fn ensure_out_dir() {
 
 pub fn write_layout_file(file_stem: &str, contents: &str) -> String {
     ensure_out_dir();
-    let path = format!("out/{}.toml", file_stem);
+    let unique_id = UNIQUE_FILE_ID.fetch_add(1, Ordering::Relaxed);
+    let path = format!(
+        "out/{}-{}-{}.toml",
+        file_stem,
+        std::process::id(),
+        unique_id
+    );
     std::fs::write(&path, contents).expect("write layout file");
     path
 }

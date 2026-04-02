@@ -77,5 +77,5 @@ nix develop -c cargo test
 `simple_block` in `tests/data/blocks.toml` uses only inline values (no data source needed):
 
 ```
-nix develop -c cargo run -- simple_block@tests/data/blocks.toml -o /tmp/out.hex --stats
+nix develop -c cargo run -- tests/data/blocks.toml#simple_block -o /tmp/out.hex --stats
 ```
