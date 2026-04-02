@@ -110,8 +110,7 @@ impl Block {
     }
 
     /// Recursively builds the bytestream. Returns the byte offset of the
-    /// first data byte emitted by this entry (post-alignment for leaves,
-    /// or the first child's offset for branches). The caller uses this to
+    /// first data byte emitted (post-alignment), used by the caller to
     /// record branch offsets in `known_offsets`.
     fn build_bytestream_inner(
         table: &Entry,
@@ -131,12 +130,10 @@ impl Block {
                 }
 
                 let leaf_offset = state.offset;
+                state
+                    .known_offsets
+                    .insert(field_path.join("."), leaf_offset);
 
-                // Record this field's offset for ref resolution.
-                let path_key = field_path.join(".");
-                state.known_offsets.insert(path_key, leaf_offset);
-
-                // Handle ref entries: write placeholder bytes, defer resolution.
                 if let EntrySource::Ref(target) = &leaf.source {
                     if config.word_addressing
                         && matches!(
@@ -150,15 +147,14 @@ impl Block {
                     }
                     leaf.validate_ref(target)?;
                     let size = leaf.scalar_type.size_bytes();
-                    let buffer_position = state.buffer.len();
-                    state.buffer.extend(std::iter::repeat_n(0u8, size));
-                    state.offset += size;
                     state.pending_refs.push(PendingRef {
-                        buffer_position,
+                        buffer_position: state.buffer.len(),
                         target_path: target.clone(),
                         scalar_type: leaf.scalar_type,
                         field_path: field_path.clone(),
                     });
+                    state.buffer.extend(std::iter::repeat_n(0u8, size));
+                    state.offset += size;
                     return Ok(leaf_offset);
                 }
 
@@ -168,39 +164,28 @@ impl Block {
                 Ok(leaf_offset)
             }
             Entry::Branch(branch) => {
-                let mut first_offset = None;
+                let mut branch_offset = None;
                 for (field_name, v) in branch.iter() {
                     let path_len = field_path.len();
-                    let segments = split_field_path(field_name)?;
-                    field_path.extend(segments);
+                    field_path.extend(split_field_path(field_name)?);
 
-                    let child_offset = Self::build_bytestream_inner(
-                        v,
-                        data_source,
-                        state,
-                        config,
-                        value_sink,
-                        field_path,
+                    let offset = Self::build_bytestream_inner(
+                        v, data_source, state, config, value_sink, field_path,
                     );
 
-                    // Record the child's offset under its full path (for branch children).
-                    // Leaves record themselves; this captures branch-to-branch paths.
-                    if let Ok(offset) = &child_offset {
-                        let child_path = field_path.join(".");
-                        state.known_offsets.entry(child_path).or_insert(*offset);
-                        if first_offset.is_none() {
-                            first_offset = Some(*offset);
-                        }
+                    // Record this child's path if it's a branch (leaves record themselves).
+                    if let Ok(o) = offset {
+                        state.known_offsets.entry(field_path.join(".")).or_insert(o);
+                        branch_offset.get_or_insert(o);
                     }
 
                     field_path.truncate(path_len);
-                    child_offset.map_err(|e| LayoutError::InField {
+                    offset.map_err(|e| LayoutError::InField {
                         field: field_name.clone(),
                         source: Box::new(e),
                     })?;
                 }
-                // Return the offset of the first child (i.e., where this branch starts).
-                Ok(first_offset.unwrap_or(state.offset))
+                Ok(branch_offset.unwrap_or(state.offset))
             }
         }
     }

@@ -100,10 +100,11 @@ Data fields are key-value pairs where the key is a dotted path (matching C struc
 | Attribute     | Description                                                                   |
 | ------------- | ----------------------------------------------------------------------------- |
 | `type`        | Data type (required)                                                          |
-| `value`       | Literal value (mutually exclusive with `name`)                                |
-| `name`        | Data source lookup key (mutually exclusive with `value`)                      |
-| `size`/`SIZE` | Array size; `size` pads if data is shorter, `SIZE` errors if data is shorter. |
+| `value`       | Literal value (mutually exclusive with `name`, `bitmap`, `ref`)               |
+| `name`        | Data source lookup key (mutually exclusive with `value`, `bitmap`, `ref`)     |
 | `bitmap`      | Bitmap field definitions (see below)                                          |
+| `ref`         | Pointer to another field in the same block (see below)                        |
+| `size`/`SIZE` | Array size; `size` pads if data is shorter, `SIZE` errors if data is shorter. |
 
 ---
 
@@ -169,6 +170,32 @@ config.flags = { type = "u16", bitmap = [
 ```
 
 Bitmap fields are packed LSB-first into the specified type. signedness of fields match the type. Negative values are represented as two's complement. The sum of the bits in the bitmap must match the type size.
+
+### Refs (Pointers)
+
+A `ref` entry resolves to the absolute memory address of another field within the same block. The ref target is a dotted path rooted at `block.data` — for example, `device.info.version` refers to `[block.data] device.info.version`. Refs can point to leaf fields or branch nodes (nested structs); a branch ref resolves to the address of the branch's first child (post-alignment).
+
+```toml
+[block.data]
+# Table data at some offset
+table.entries = { name = "TableEntries", type = "u16", size = 32 }
+table.count = { name = "TableCount", type = "u16" }
+
+# Pointer to the table (resolves to absolute address of "table")
+table_ptr = { ref = "table", type = "u32" }
+
+# Pointer to a specific nested field
+count_ptr = { ref = "table.count", type = "u32" }
+```
+
+**Ref rules:**
+
+- `ref` is mutually exclusive with `name`, `value`, and `bitmap`
+- `type` must be an integer type (`u16`, `u32`, `u64`, `i16`, `i32`, `i64`)
+- `size`/`SIZE` cannot be used with `ref`
+- The target path must exist within the same block — cross-block refs are not supported
+- The resolved address is `start_address + virtual_offset + target_offset` (with word-addressing multipliers applied when `word_addressing = true`)
+- Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
 
 ---
 
