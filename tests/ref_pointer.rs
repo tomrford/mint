@@ -3,17 +3,19 @@ use mint_cli::layout::used_values::{NoopValueSink, ValueCollector};
 #[path = "common/mod.rs"]
 mod common;
 
-/// Helper to create a minimal layout with given data content.
-fn ref_layout(start_address: u32, data_content: &str) -> String {
-    ref_layout_with_endian(start_address, "little", data_content)
-}
-
-fn ref_layout_with_endian(start_address: u32, endianness: &str, data_content: &str) -> String {
+fn layout(
+    start_address: u32,
+    endianness: &str,
+    virtual_offset: u32,
+    word_addressing: bool,
+    data_content: &str,
+) -> String {
     format!(
         r#"
 [settings]
 endianness = "{endianness}"
-virtual_offset = 0
+virtual_offset = 0x{virtual_offset:X}
+word_addressing = {word_addressing}
 
 [block.header]
 start_address = 0x{start_address:X}
@@ -24,6 +26,15 @@ padding = 0xFF
 {data_content}
 "#
     )
+}
+
+/// Helper to create a minimal layout with given data content.
+fn ref_layout(start_address: u32, data_content: &str) -> String {
+    layout(start_address, "little", 0, false, data_content)
+}
+
+fn ref_layout_with_endian(start_address: u32, endianness: &str, data_content: &str) -> String {
+    layout(start_address, endianness, 0, false, data_content)
 }
 
 fn ref_layout_with_virtual_offset(
@@ -31,21 +42,7 @@ fn ref_layout_with_virtual_offset(
     virtual_offset: u32,
     data_content: &str,
 ) -> String {
-    format!(
-        r#"
-[settings]
-endianness = "little"
-virtual_offset = 0x{virtual_offset:X}
-
-[block.header]
-start_address = 0x{start_address:X}
-length = 0x1000
-padding = 0xFF
-
-[block.data]
-{data_content}
-"#
-    )
+    layout(start_address, "little", virtual_offset, false, data_content)
 }
 
 fn build_block(
@@ -73,10 +70,7 @@ fn load_and_build(name: &str, toml_str: &str) -> (Vec<u8>, u32) {
     build_block(block, &config.settings).expect("build succeeds")
 }
 
-fn load_and_build_with_values(
-    name: &str,
-    toml_str: &str,
-) -> ((Vec<u8>, u32), serde_json::Value) {
+fn load_and_build_with_values(name: &str, toml_str: &str) -> ((Vec<u8>, u32), serde_json::Value) {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
     let config = mint_cli::layout::load_layout(&path).expect("layout loads");
@@ -307,57 +301,74 @@ ptr = { ref = "target", type = "u32" }
 // --- Error case tests ---
 
 #[test]
-fn ref_rejects_unknown_target() {
-    let toml = ref_layout(
-        0x0,
-        r#"
+fn ref_rejects_invalid_configs() {
+    let cases = [
+        (
+            "ref_err_unknown",
+            ref_layout(
+                0x0,
+                r#"
 ptr = { ref = "nonexistent", type = "u32" }
 "#,
-    );
-
-    let err = load_and_fail("ref_err_unknown", &toml);
-    assert!(err.contains("not found"), "Expected 'not found' error, got: {}", err);
-}
-
-#[test]
-fn ref_rejects_size_key() {
-    let toml = ref_layout(
-        0x0,
-        r#"
+            ),
+            "not found",
+        ),
+        (
+            "ref_err_size",
+            ref_layout(
+                0x0,
+                r#"
 target = { value = 0x42, type = "u32" }
 ptr = { ref = "target", type = "u32", size = 4 }
 "#,
-    );
-
-    let err = load_and_fail("ref_err_size", &toml);
-    assert!(err.contains("size") || err.contains("SIZE"), "Expected size error, got: {}", err);
-}
-
-#[test]
-fn ref_rejects_float_type() {
-    let toml = ref_layout(
-        0x0,
-        r#"
+            ),
+            "size",
+        ),
+        (
+            "ref_err_float",
+            ref_layout(
+                0x0,
+                r#"
 target = { value = 0x42, type = "u32" }
 ptr = { ref = "target", type = "f32" }
 "#,
-    );
-
-    let err = load_and_fail("ref_err_float", &toml);
-    assert!(err.contains("integer"), "Expected integer type error, got: {}", err);
-}
-
-#[test]
-fn ref_rejects_empty_target() {
-    let toml = ref_layout(
-        0x0,
-        r#"
+            ),
+            "integer",
+        ),
+        (
+            "ref_err_empty",
+            ref_layout(
+                0x0,
+                r#"
 ptr = { ref = "", type = "u32" }
 "#,
-    );
+            ),
+            "empty",
+        ),
+        (
+            "empty_branch",
+            ref_layout(
+                0x0,
+                r#"
+field = { value = 0x42, type = "u32" }
 
-    let err = load_and_fail("ref_err_empty", &toml);
-    assert!(err.contains("empty"), "Expected empty path error, got: {}", err);
+[block.data.empty]
+"#,
+            ),
+            "Empty branch",
+        ),
+    ];
+
+    for (name, toml, expected) in cases {
+        let err = load_and_fail(name, &toml);
+        assert!(
+            err.contains(expected),
+            "Expected '{}' error for {}, got: {}",
+            expected,
+            name,
+            err
+        );
+    }
 }
 
 #[test]
@@ -402,41 +413,11 @@ ptr = { ref = "nested", type = "u32" }
 }
 
 fn word_addr_layout(data_content: &str) -> String {
-    format!(
-        r#"
-[settings]
-endianness = "little"
-virtual_offset = 0
-word_addressing = true
-
-[block.header]
-start_address = 0x1000
-length = 0x1000
-padding = 0xFF
-
-[block.data]
-{data_content}
-"#
-    )
+    layout(0x1000, "little", 0, true, data_content)
 }
 
 fn word_addr_layout_with_voffset(virtual_offset: u32, data_content: &str) -> String {
-    format!(
-        r#"
-[settings]
-endianness = "little"
-virtual_offset = 0x{virtual_offset:X}
-word_addressing = true
-
-[block.header]
-start_address = 0x1000
-length = 0x1000
-padding = 0xFF
-
-[block.data]
-{data_content}
-"#
-    )
+    layout(0x1000, "little", virtual_offset, true, data_content)
 }
 
 #[test]
@@ -484,36 +465,21 @@ ptr = { ref = "target", type = "u32" }
 }
 
 #[test]
-fn ref_word_addressing_rejects_u8_ref() {
-    // Regression: u8 ref bypassed the word_addressing u8/i8 rejection.
-    let toml = word_addr_layout(
-        r#"
-target = { value = 0x42, type = "u16" }
-ptr = { ref = "target", type = "u8" }
-"#,
-    );
+fn ref_word_addressing_rejects_byte_sized_refs() {
+    for (name, scalar_type) in [("ref_err_word_u8", "u8"), ("ref_err_word_i8", "i8")] {
+        let toml = word_addr_layout(&format!(
+            r#"
+target = {{ value = 0x42, type = "u16" }}
+ptr = {{ ref = "target", type = "{scalar_type}" }}
+"#
+        ));
 
-    let err = load_and_fail("ref_err_word_u8", &toml);
-    assert!(
-        err.contains("u8/i8 types are not supported with word_addressing"),
-        "Expected word_addressing u8 error, got: {}",
-        err
-    );
-}
-
-#[test]
-fn ref_word_addressing_rejects_i8_ref() {
-    let toml = word_addr_layout(
-        r#"
-target = { value = 0x42, type = "u16" }
-ptr = { ref = "target", type = "i8" }
-"#,
-    );
-
-    let err = load_and_fail("ref_err_word_i8", &toml);
-    assert!(
-        err.contains("u8/i8 types are not supported with word_addressing"),
-        "Expected word_addressing i8 error, got: {}",
-        err
-    );
+        let err = load_and_fail(name, &toml);
+        assert!(
+            err.contains("u8/i8 types are not supported with word_addressing"),
+            "Expected word_addressing byte-sized ref error for {}: {}",
+            scalar_type,
+            err
+        );
+    }
 }

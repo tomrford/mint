@@ -161,13 +161,30 @@ impl Block {
                 Ok(leaf_offset)
             }
             Entry::Branch(branch) => {
+                if branch.is_empty() {
+                    let branch_path = if field_path.is_empty() {
+                        "<root>".to_string()
+                    } else {
+                        field_path.join(".")
+                    };
+                    return Err(LayoutError::DataValueExportFailed(format!(
+                        "Empty branch '{}' is invalid.",
+                        branch_path
+                    )));
+                }
+
                 let mut branch_offset = None;
                 for (field_name, v) in branch.iter() {
                     let path_len = field_path.len();
                     field_path.extend(split_field_path(field_name)?);
 
                     let offset = Self::build_bytestream_inner(
-                        v, data_source, state, config, value_sink, field_path,
+                        v,
+                        data_source,
+                        state,
+                        config,
+                        value_sink,
+                        field_path,
                     );
 
                     if let Ok(o) = offset {
@@ -195,11 +212,11 @@ impl Block {
         value_sink: &mut dyn ValueSink,
     ) -> Result<(), LayoutError> {
         for pending in &state.pending_refs {
-            let target_offset =
-                state
-                    .known_offsets
-                    .get(&pending.target_path)
-                    .ok_or_else(|| LayoutError::DataValueExportFailed(format!(
+            let target_offset = state
+                .known_offsets
+                .get(&pending.target_path)
+                .ok_or_else(|| {
+                    LayoutError::DataValueExportFailed(format!(
                         "Ref target '{}' not found in block. Available fields: [{}]",
                         pending.target_path,
                         state
@@ -208,7 +225,8 @@ impl Block {
                             .cloned()
                             .collect::<Vec<_>>()
                             .join(", ")
-                    )))?;
+                    ))
+                })?;
 
             // In word-addressing mode, start_address and offsets are in word
             // units; the output pipeline doubles them to byte addresses:
@@ -228,11 +246,8 @@ impl Block {
                 })?;
 
             let address_value = DataValue::U64(address as u64);
-            let bytes = address_value.to_bytes(
-                pending.scalar_type,
-                config.endianness,
-                config.strict,
-            )?;
+            let bytes =
+                address_value.to_bytes(pending.scalar_type, config.endianness, config.strict)?;
 
             // Patch the placeholder bytes in the buffer.
             let pos = pending.buffer_position;
