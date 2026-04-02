@@ -2,7 +2,7 @@
 
 mint supports two data source types: Excel workbooks and raw JSON. A source is not strictly necessary; if a layout contains only values it will build without one. You cannot use more than one source in a single build.
 
-## Excel (`--xlsx`)
+## Excel (`-x, --xlsx`)
 
 ```bash
 mint layout.toml --xlsx data.xlsx -v Default

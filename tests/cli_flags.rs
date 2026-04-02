@@ -38,6 +38,21 @@ fn rejects_empty_legacy_selector() {
 }
 
 #[test]
+fn parses_short_xlsx_flag() {
+    let args = Args::try_parse_from([
+        "mint",
+        "layout.toml",
+        "-x",
+        "tests/data/data.xlsx",
+        "--versions",
+        "Debug/Default",
+    ])
+    .expect("args should parse with -x");
+
+    assert_eq!(args.data.xlsx.as_deref(), Some("tests/data/data.xlsx"));
+}
+
+#[test]
 fn parses_versions_selector_flag() {
     let args = Args::try_parse_from([
         "mint",
