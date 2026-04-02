@@ -110,8 +110,8 @@ impl Block {
     }
 
     /// Recursively builds the bytestream. Returns the byte offset of the
-    /// first data byte emitted (post-alignment), used by the caller to
-    /// record branch offsets in `known_offsets`.
+    /// first data byte emitted (post-alignment). The branch caller records
+    /// each child's path in `known_offsets` on exit from recursion.
     fn build_bytestream_inner(
         table: &Entry,
         data_source: Option<&dyn DataSource>,
@@ -130,9 +130,6 @@ impl Block {
                 }
 
                 let leaf_offset = state.offset;
-                state
-                    .known_offsets
-                    .insert(field_path.join("."), leaf_offset);
 
                 if let EntrySource::Ref(target) = &leaf.source {
                     if config.word_addressing
@@ -173,9 +170,8 @@ impl Block {
                         v, data_source, state, config, value_sink, field_path,
                     );
 
-                    // Record this child's path if it's a branch (leaves record themselves).
                     if let Ok(o) = offset {
-                        state.known_offsets.entry(field_path.join(".")).or_insert(o);
+                        state.known_offsets.insert(field_path.join("."), o);
                         branch_offset.get_or_insert(o);
                     }
 
