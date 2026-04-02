@@ -84,6 +84,8 @@ pub enum EntrySource {
     Value(ValueSource),
     #[serde(rename = "bitmap")]
     Bitmap(Vec<BitmapField>),
+    #[serde(rename = "ref")]
+    Ref(String),
 }
 
 /// Single bitmap field within a bitmap entry.
@@ -143,6 +145,12 @@ impl LeafEntry {
             ));
         }
 
+        if let EntrySource::Ref(_) = &self.source {
+            return Err(LayoutError::DataValueExportFailed(
+                "Ref entries are resolved in a fixup pass, not via emit_bytes.".into(),
+            ));
+        }
+
         if let EntrySource::Bitmap(fields) = &self.source {
             self.validate_bitmap(fields)?;
             return self.emit_bitmap(fields, data_source, config, value_sink, field_path);
@@ -168,6 +176,26 @@ impl LeafEntry {
                 field_path,
             ),
         }
+    }
+
+    /// Validates ref entry rules.
+    pub fn validate_ref(&self, target: &str) -> Result<(), LayoutError> {
+        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
+            return Err(LayoutError::DataValueExportFailed(
+                "size/SIZE keys are forbidden with ref.".into(),
+            ));
+        }
+        if !self.scalar_type.is_integer() {
+            return Err(LayoutError::DataValueExportFailed(
+                "Ref requires integer storage type.".into(),
+            ));
+        }
+        if target.is_empty() {
+            return Err(LayoutError::DataValueExportFailed(
+                "Ref target path must not be empty.".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Validates bitmap entry rules.
@@ -262,6 +290,7 @@ impl LeafEntry {
                 "Single value expected for scalar type.".to_string(),
             )),
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
+            EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
         }
     }
 
@@ -328,6 +357,7 @@ impl LeafEntry {
                 out.extend(v.string_to_bytes()?);
             }
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
+            EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
         }
 
         if out.len() > total_bytes {
@@ -422,6 +452,7 @@ impl LeafEntry {
                 "2D arrays within the layout file are not supported.".to_string(),
             )),
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
+            EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
         }
     }
 }

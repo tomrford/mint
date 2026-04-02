@@ -1,18 +1,36 @@
-use super::entry::LeafEntry;
+use super::entry::{EntrySource, LeafEntry};
 use super::error::LayoutError;
 use super::header::Header;
 use super::settings::{Endianness, Settings};
 use super::used_values::ValueSink;
+use super::value::DataValue;
 use crate::data::DataSource;
 
 use indexmap::IndexMap;
 use serde::Deserialize;
+use std::collections::HashMap;
+
+/// A ref that needs to be resolved after the main traversal pass.
+struct PendingRef {
+    /// Position in the output buffer where placeholder bytes were written.
+    buffer_position: usize,
+    /// The dotted field path of the target being referenced.
+    target_path: String,
+    /// Scalar type for encoding the resolved address.
+    scalar_type: super::entry::ScalarType,
+    /// Field path of the ref entry itself (for value_sink and error messages).
+    field_path: Vec<String>,
+}
 
 /// Mutable state tracked during recursive bytestream building
 struct BuildState {
     buffer: Vec<u8>,
     offset: usize,
     padding_count: u32,
+    /// Maps dotted field paths to their byte offsets within the block data.
+    known_offsets: HashMap<String, usize>,
+    /// Refs whose targets may not yet be known; resolved after traversal.
+    pending_refs: Vec<PendingRef>,
 }
 
 /// Immutable configuration for bytestream building
@@ -57,6 +75,8 @@ impl Block {
             buffer: Vec::with_capacity((self.header.length as usize).min(64 * 1024)),
             offset: 0,
             padding_count: 0,
+            known_offsets: HashMap::new(),
+            pending_refs: Vec::new(),
         };
         let config = BuildConfig {
             endianness: &settings.endianness,
@@ -66,7 +86,7 @@ impl Block {
         };
 
         let mut field_path = Vec::new();
-        Self::build_bytestream_inner(
+        let _ = Self::build_bytestream_inner(
             &self.data,
             data_source,
             &mut state,
@@ -75,9 +95,23 @@ impl Block {
             &mut field_path,
         )?;
 
+        // Resolve pending refs now that all offsets are known.
+        if !state.pending_refs.is_empty() {
+            Self::resolve_pending_refs(
+                &mut state,
+                &config,
+                &self.header,
+                &settings.virtual_offset,
+                value_sink,
+            )?;
+        }
+
         Ok((state.buffer, state.padding_count))
     }
 
+    /// Recursively builds the bytestream. Returns the byte offset of the
+    /// first data byte emitted (post-alignment). The branch caller records
+    /// each child's path in `known_offsets` on exit from recursion.
     fn build_bytestream_inner(
         table: &Entry,
         data_source: Option<&dyn DataSource>,
@@ -85,7 +119,7 @@ impl Block {
         config: &BuildConfig,
         value_sink: &mut dyn ValueSink,
         field_path: &mut Vec<String>,
-    ) -> Result<(), LayoutError> {
+    ) -> Result<usize, LayoutError> {
         match table {
             Entry::Leaf(leaf) => {
                 let alignment = leaf.get_alignment();
@@ -95,16 +129,56 @@ impl Block {
                     state.padding_count += 1;
                 }
 
+                let leaf_offset = state.offset;
+
+                if let EntrySource::Ref(target) = &leaf.source {
+                    if config.word_addressing
+                        && matches!(
+                            leaf.scalar_type,
+                            super::entry::ScalarType::U8 | super::entry::ScalarType::I8
+                        )
+                    {
+                        return Err(LayoutError::DataValueExportFailed(
+                            "u8/i8 types are not supported with word_addressing enabled.".into(),
+                        ));
+                    }
+                    leaf.validate_ref(target)?;
+                    let size = leaf.scalar_type.size_bytes();
+                    state.pending_refs.push(PendingRef {
+                        buffer_position: state.buffer.len(),
+                        target_path: target.clone(),
+                        scalar_type: leaf.scalar_type,
+                        field_path: field_path.clone(),
+                    });
+                    state.buffer.extend(std::iter::repeat_n(0u8, size));
+                    state.offset += size;
+                    return Ok(leaf_offset);
+                }
+
                 let bytes = leaf.emit_bytes(data_source, config, value_sink, field_path)?;
                 state.offset += bytes.len();
                 state.buffer.extend(bytes);
+                Ok(leaf_offset)
             }
             Entry::Branch(branch) => {
+                if branch.is_empty() {
+                    let branch_path = if field_path.is_empty() {
+                        "<root>".to_string()
+                    } else {
+                        field_path.join(".")
+                    };
+                    return Err(LayoutError::DataValueExportFailed(format!(
+                        "Empty branch '{}' is invalid.",
+                        branch_path
+                    )));
+                }
+
+                let mut branch_offset = None;
                 for (field_name, v) in branch.iter() {
                     let path_len = field_path.len();
-                    let segments = split_field_path(field_name)?;
-                    field_path.extend(segments);
-                    let result = Self::build_bytestream_inner(
+                    field_path.extend(split_field_path(field_name)?);
+
+                    let offset = Self::build_bytestream_inner(
                         v,
                         data_source,
                         state,
@@ -112,13 +186,78 @@ impl Block {
                         value_sink,
                         field_path,
                     );
+
+                    if let Ok(o) = offset {
+                        state.known_offsets.insert(field_path.join("."), o);
+                        branch_offset.get_or_insert(o);
+                    }
+
                     field_path.truncate(path_len);
-                    result.map_err(|e| LayoutError::InField {
+                    offset.map_err(|e| LayoutError::InField {
                         field: field_name.clone(),
                         source: Box::new(e),
                     })?;
                 }
+                Ok(branch_offset.unwrap_or(state.offset))
             }
+        }
+    }
+
+    /// Resolves all pending refs by looking up target offsets and patching the buffer.
+    fn resolve_pending_refs(
+        state: &mut BuildState,
+        config: &BuildConfig,
+        header: &Header,
+        virtual_offset: &u32,
+        value_sink: &mut dyn ValueSink,
+    ) -> Result<(), LayoutError> {
+        for pending in &state.pending_refs {
+            let target_offset = state
+                .known_offsets
+                .get(&pending.target_path)
+                .ok_or_else(|| {
+                    LayoutError::DataValueExportFailed(format!(
+                        "Ref target '{}' not found in block. Available fields: [{}]",
+                        pending.target_path,
+                        state
+                            .known_offsets
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                })?;
+
+            // In word-addressing mode, start_address and offsets are in word
+            // units; the output pipeline doubles them to byte addresses:
+            //   output_address = start_address * 2 + virtual_offset + offset * 2
+            // virtual_offset is NOT doubled. For normal mode: no multiplier.
+            let addr_mult: u32 = if config.word_addressing { 2 } else { 1 };
+            let address = header
+                .start_address
+                .checked_mul(addr_mult)
+                .and_then(|a| a.checked_add(*virtual_offset))
+                .and_then(|a| a.checked_add((*target_offset as u32).checked_mul(addr_mult)?))
+                .ok_or_else(|| {
+                    LayoutError::DataValueExportFailed(format!(
+                        "Address overflow resolving ref to '{}'.",
+                        pending.target_path
+                    ))
+                })?;
+
+            let address_value = DataValue::U64(address as u64);
+            let bytes =
+                address_value.to_bytes(pending.scalar_type, config.endianness, config.strict)?;
+
+            // Patch the placeholder bytes in the buffer.
+            let pos = pending.buffer_position;
+            state.buffer[pos..pos + bytes.len()].copy_from_slice(&bytes);
+
+            // Record the resolved address in value_sink.
+            value_sink.record_value(
+                &pending.field_path,
+                serde_json::Value::Number(serde_json::Number::from(address as u64)),
+            )?;
         }
         Ok(())
     }
