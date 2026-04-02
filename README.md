@@ -17,7 +17,7 @@ Install with `cargo install mint-cli` or via nix flakes.
 
 ```bash
 # Excel data source
-mint layout.toml --xlsx data.xlsx -v Default
+mint @doc/examples/block.toml --xlsx doc/examples/data.xlsx -v Default --stats
 
 # JSON data source
 mint layout.toml --json data.json -v Debug/Default
@@ -29,7 +29,7 @@ mint config@layout.toml calibration@layout.toml --xlsx data.xlsx -v Production/D
 ### Layout Example
 
 ```toml
-[block.data]
+[config.data]
 device.info.version.major = { name = "FWVersionMajor", type = "u16" }
 device.info.name = { name = "DeviceName", type = "u8", size = 16 }
 calibration.coefficients = { name = "Coefficients1D", type = "f32", size = 8 }

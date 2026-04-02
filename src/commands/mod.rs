@@ -55,6 +55,14 @@ fn resolve_blocks(
                 });
             }
         } else {
+            let layout = &layouts[&arg.file];
+            if !layout.blocks.contains_key(&arg.name) {
+                let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
+                return Err(LayoutError::BlockNotFound(format!(
+                    "'{}' in '{}'. Available blocks: {}",
+                    arg.name, arg.file, available_blocks
+                )));
+            }
             resolved.push(ResolvedBlock {
                 name: arg.name.clone(),
                 file: arg.file.clone(),
@@ -94,8 +102,19 @@ fn build_single_bytestream(
     capture_values: bool,
 ) -> Result<BlockBuildResult, MintError> {
     let result = (|| {
-        let layout = &layouts[&resolved.file];
-        let block = &layout.blocks[&resolved.name];
+        let layout = layouts.get(&resolved.file).ok_or_else(|| {
+            LayoutError::FileError(format!(
+                "resolved layout missing from build map: {}",
+                resolved.file
+            ))
+        })?;
+        let block = layout.blocks.get(&resolved.name).ok_or_else(|| {
+            let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
+            LayoutError::BlockNotFound(format!(
+                "'{}' in '{}'. Available blocks: {}",
+                resolved.name, resolved.file, available_blocks
+            ))
+        })?;
         let mut collector = ValueCollector::new();
         let mut noop = NoopValueSink;
         let value_sink = if capture_values {

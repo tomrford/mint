@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::process::ExitCode;
 
 use mint_cli::args::Args;
 use mint_cli::commands;
@@ -7,7 +8,17 @@ use mint_cli::error::*;
 use mint_cli::layout;
 use mint_cli::visuals;
 
-fn main() -> Result<(), MintError> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), MintError> {
     let args = Args::parse();
 
     let data_source = data::create_data_source(&args.data)?;

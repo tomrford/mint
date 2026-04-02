@@ -206,3 +206,21 @@ device.name = { value = "TestDevice", type = "u8", size = 16 }
         "CRC value should be None when no crc section is present"
     );
 }
+
+#[test]
+fn test_missing_block_returns_error_instead_of_panicking() {
+    common::ensure_out_dir();
+
+    let args = common::build_args(
+        "doc/examples/block.toml",
+        "block",
+        mint_cli::output::args::OutputFormat::Hex,
+    );
+
+    let error = commands::build(&args, None).expect_err("missing block should return an error");
+
+    assert_eq!(
+        error.to_string(),
+        "Block not found: 'block' in 'doc/examples/block.toml'. Available blocks: config, data"
+    );
+}
