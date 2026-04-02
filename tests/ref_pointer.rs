@@ -375,3 +375,145 @@ field_b = { value = 0xBBBB, type = "u16" }
     assert_eq!(&bytes[0..2], &0xAAAAu16.to_le_bytes());
     assert_eq!(&bytes[2..4], &0xBBBBu16.to_le_bytes());
 }
+
+// --- Regression tests for review feedback ---
+
+#[test]
+fn ref_branch_offset_accounts_for_alignment() {
+    // Regression: branch offset was recorded before first child's alignment.
+    // u8 field at offset 0 (1 byte), then branch whose first child is u32.
+    // The u32 child needs 3 bytes of alignment padding, so the branch's
+    // actual start is at offset 4, not offset 1.
+    // start_address = 0x0
+    let toml = ref_layout(
+        0x0,
+        r#"
+small = { value = 0x01, type = "u8" }
+nested.big = { value = 0xDEAD, type = "u32" }
+ptr = { ref = "nested", type = "u32" }
+"#,
+    );
+
+    let (bytes, _) = load_and_build("ref_branch_align", &toml);
+    // small(1) + pad(3) + nested.big(4) + ptr(4) = 12
+    assert_eq!(bytes.len(), 12);
+    // ptr at offset 8 should point to nested at offset 4 (after alignment), NOT offset 1
+    assert_eq!(&bytes[8..12], &0x4u32.to_le_bytes());
+}
+
+fn word_addr_layout(data_content: &str) -> String {
+    format!(
+        r#"
+[settings]
+endianness = "little"
+virtual_offset = 0
+word_addressing = true
+
+[block.header]
+start_address = 0x1000
+length = 0x1000
+padding = 0xFF
+
+[block.data]
+{data_content}
+"#
+    )
+}
+
+fn word_addr_layout_with_voffset(virtual_offset: u32, data_content: &str) -> String {
+    format!(
+        r#"
+[settings]
+endianness = "little"
+virtual_offset = 0x{virtual_offset:X}
+word_addressing = true
+
+[block.header]
+start_address = 0x1000
+length = 0x1000
+padding = 0xFF
+
+[block.data]
+{data_content}
+"#
+    )
+}
+
+#[test]
+fn ref_word_addressing_doubles_addresses() {
+    // Regression: ref address computation didn't account for word_addressing.
+    // In word_addressing mode:
+    //   output address = start_address * 2 + virtual_offset + offset * 2
+    // start_address = 0x1000, virtual_offset = 0
+    // field_a: u16 at offset 0 (2 bytes)
+    // field_b: u16 at offset 2 (2 bytes)
+    // ptr: u16 at offset 4, pointing to field_b
+    //   = 0x1000*2 + 0 + 2*2 = 0x2004
+    let toml = word_addr_layout(
+        r#"
+field_a = { value = 0xAA, type = "u16" }
+field_b = { value = 0xBB, type = "u16" }
+ptr = { ref = "field_b", type = "u16" }
+"#,
+    );
+
+    let (bytes, _) = load_and_build("ref_word_addr", &toml);
+    assert_eq!(bytes.len(), 6);
+    // ptr should be 0x1000*2 + 2*2 = 0x2004
+    assert_eq!(&bytes[4..6], &0x2004u16.to_le_bytes());
+}
+
+#[test]
+fn ref_word_addressing_with_virtual_offset() {
+    // start_address = 0x1000, virtual_offset = 0x100, word_addressing = true
+    // target at offset 2 (after u16 field_a)
+    //   address = 0x1000*2 + 0x100 + 2*2 = 0x2104
+    let toml = word_addr_layout_with_voffset(
+        0x100,
+        r#"
+field_a = { value = 0xAA, type = "u16" }
+target = { value = 0xBB, type = "u16" }
+ptr = { ref = "target", type = "u32" }
+"#,
+    );
+
+    let (bytes, _) = load_and_build("ref_word_voff", &toml);
+    // field_a(2) + target(2) + ptr(4) = 8
+    assert_eq!(bytes.len(), 8);
+    assert_eq!(&bytes[4..8], &0x2104u32.to_le_bytes());
+}
+
+#[test]
+fn ref_word_addressing_rejects_u8_ref() {
+    // Regression: u8 ref bypassed the word_addressing u8/i8 rejection.
+    let toml = word_addr_layout(
+        r#"
+target = { value = 0x42, type = "u16" }
+ptr = { ref = "target", type = "u8" }
+"#,
+    );
+
+    let err = load_and_fail("ref_err_word_u8", &toml);
+    assert!(
+        err.contains("u8/i8 types are not supported with word_addressing"),
+        "Expected word_addressing u8 error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn ref_word_addressing_rejects_i8_ref() {
+    let toml = word_addr_layout(
+        r#"
+target = { value = 0x42, type = "u16" }
+ptr = { ref = "target", type = "i8" }
+"#,
+    );
+
+    let err = load_and_fail("ref_err_word_i8", &toml);
+    assert!(
+        err.contains("u8/i8 types are not supported with word_addressing"),
+        "Expected word_addressing i8 error, got: {}",
+        err
+    );
+}

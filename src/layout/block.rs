@@ -132,6 +132,16 @@ impl Block {
 
                 // Handle ref entries: write placeholder bytes, defer resolution.
                 if let EntrySource::Ref(target) = &leaf.source {
+                    if config.word_addressing
+                        && matches!(
+                            leaf.scalar_type,
+                            super::entry::ScalarType::U8 | super::entry::ScalarType::I8
+                        )
+                    {
+                        return Err(LayoutError::DataValueExportFailed(
+                            "u8/i8 types are not supported with word_addressing enabled.".into(),
+                        ));
+                    }
                     leaf.validate_ref(target)?;
                     let size = leaf.scalar_type.size_bytes();
                     let buffer_position = state.buffer.len();
@@ -152,14 +162,17 @@ impl Block {
                 state.buffer.extend(bytes);
             }
             Entry::Branch(branch) => {
-                for (field_name, v) in branch.iter() {
+                for (i, (field_name, v)) in branch.iter().enumerate() {
                     let path_len = field_path.len();
                     let segments = split_field_path(field_name)?;
+                    let branch_path = if i == 0 && path_len > 0 {
+                        // Capture the parent branch path before pushing child segments,
+                        // so we can record it after the first child applies alignment.
+                        Some(field_path.join("."))
+                    } else {
+                        None
+                    };
                     field_path.extend(segments);
-
-                    // Record branch offset for ref resolution (start of nested struct).
-                    let path_key = field_path.join(".");
-                    state.known_offsets.insert(path_key, state.offset);
 
                     let result = Self::build_bytestream_inner(
                         v,
@@ -169,6 +182,18 @@ impl Block {
                         value_sink,
                         field_path,
                     );
+
+                    // After the first child is processed, record the branch's offset.
+                    // This is the offset of the first child post-alignment, which is
+                    // the correct start address for the branch as a ref target.
+                    if let Some(bp) = branch_path {
+                        if let Some(&first_child_offset) =
+                            state.known_offsets.get(&field_path.join("."))
+                        {
+                            state.known_offsets.insert(bp, first_child_offset);
+                        }
+                    }
+
                     field_path.truncate(path_len);
                     result.map_err(|e| LayoutError::InField {
                         field: field_name.clone(),
@@ -204,10 +229,16 @@ impl Block {
                             .join(", ")
                     )))?;
 
+            // In word-addressing mode, start_address and offsets are in word
+            // units; the output pipeline doubles them to byte addresses:
+            //   output_address = start_address * 2 + virtual_offset + offset * 2
+            // virtual_offset is NOT doubled. For normal mode: no multiplier.
+            let addr_mult: u32 = if config.word_addressing { 2 } else { 1 };
             let address = header
                 .start_address
-                .checked_add(*virtual_offset)
-                .and_then(|a| a.checked_add(*target_offset as u32))
+                .checked_mul(addr_mult)
+                .and_then(|a| a.checked_add(*virtual_offset))
+                .and_then(|a| a.checked_add((*target_offset as u32).checked_mul(addr_mult)?))
                 .ok_or_else(|| {
                     LayoutError::DataValueExportFailed(format!(
                         "Address overflow resolving ref to '{}'.",
