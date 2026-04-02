@@ -86,7 +86,7 @@ impl Block {
         };
 
         let mut field_path = Vec::new();
-        Self::build_bytestream_inner(
+        let _ = Self::build_bytestream_inner(
             &self.data,
             data_source,
             &mut state,
@@ -109,6 +109,10 @@ impl Block {
         Ok((state.buffer, state.padding_count))
     }
 
+    /// Recursively builds the bytestream. Returns the byte offset of the
+    /// first data byte emitted by this entry (post-alignment for leaves,
+    /// or the first child's offset for branches). The caller uses this to
+    /// record branch offsets in `known_offsets`.
     fn build_bytestream_inner(
         table: &Entry,
         data_source: Option<&dyn DataSource>,
@@ -116,7 +120,7 @@ impl Block {
         config: &BuildConfig,
         value_sink: &mut dyn ValueSink,
         field_path: &mut Vec<String>,
-    ) -> Result<(), LayoutError> {
+    ) -> Result<usize, LayoutError> {
         match table {
             Entry::Leaf(leaf) => {
                 let alignment = leaf.get_alignment();
@@ -126,9 +130,11 @@ impl Block {
                     state.padding_count += 1;
                 }
 
+                let leaf_offset = state.offset;
+
                 // Record this field's offset for ref resolution.
                 let path_key = field_path.join(".");
-                state.known_offsets.insert(path_key, state.offset);
+                state.known_offsets.insert(path_key, leaf_offset);
 
                 // Handle ref entries: write placeholder bytes, defer resolution.
                 if let EntrySource::Ref(target) = &leaf.source {
@@ -145,7 +151,6 @@ impl Block {
                     leaf.validate_ref(target)?;
                     let size = leaf.scalar_type.size_bytes();
                     let buffer_position = state.buffer.len();
-                    // Write placeholder zeros.
                     state.buffer.extend(std::iter::repeat_n(0u8, size));
                     state.offset += size;
                     state.pending_refs.push(PendingRef {
@@ -154,27 +159,22 @@ impl Block {
                         scalar_type: leaf.scalar_type,
                         field_path: field_path.clone(),
                     });
-                    return Ok(());
+                    return Ok(leaf_offset);
                 }
 
                 let bytes = leaf.emit_bytes(data_source, config, value_sink, field_path)?;
                 state.offset += bytes.len();
                 state.buffer.extend(bytes);
+                Ok(leaf_offset)
             }
             Entry::Branch(branch) => {
-                for (i, (field_name, v)) in branch.iter().enumerate() {
+                let mut first_offset = None;
+                for (field_name, v) in branch.iter() {
                     let path_len = field_path.len();
                     let segments = split_field_path(field_name)?;
-                    let branch_path = if i == 0 && path_len > 0 {
-                        // Capture the parent branch path before pushing child segments,
-                        // so we can record it after the first child applies alignment.
-                        Some(field_path.join("."))
-                    } else {
-                        None
-                    };
                     field_path.extend(segments);
 
-                    let result = Self::build_bytestream_inner(
+                    let child_offset = Self::build_bytestream_inner(
                         v,
                         data_source,
                         state,
@@ -183,26 +183,26 @@ impl Block {
                         field_path,
                     );
 
-                    // After the first child is processed, record the branch's offset.
-                    // This is the offset of the first child post-alignment, which is
-                    // the correct start address for the branch as a ref target.
-                    if let Some(bp) = branch_path {
-                        if let Some(&first_child_offset) =
-                            state.known_offsets.get(&field_path.join("."))
-                        {
-                            state.known_offsets.insert(bp, first_child_offset);
+                    // Record the child's offset under its full path (for branch children).
+                    // Leaves record themselves; this captures branch-to-branch paths.
+                    if let Ok(offset) = &child_offset {
+                        let child_path = field_path.join(".");
+                        state.known_offsets.entry(child_path).or_insert(*offset);
+                        if first_offset.is_none() {
+                            first_offset = Some(*offset);
                         }
                     }
 
                     field_path.truncate(path_len);
-                    result.map_err(|e| LayoutError::InField {
+                    child_offset.map_err(|e| LayoutError::InField {
                         field: field_name.clone(),
                         source: Box::new(e),
                     })?;
                 }
+                // Return the offset of the first child (i.e., where this branch starts).
+                Ok(first_offset.unwrap_or(state.offset))
             }
         }
-        Ok(())
     }
 
     /// Resolves all pending refs by looking up target offsets and patching the buffer.
