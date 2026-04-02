@@ -3,34 +3,34 @@
 mint builds flash blocks from layout files and data sources, emitting Intel HEX or Motorola S-Record files.
 
 ```
-mint [OPTIONS] [BLOCK@FILE | FILE]...
+mint [OPTIONS] [FILE[#BLOCK] | FILE]...
 ```
 
 ## Positional Arguments
 
-### `[BLOCK@FILE | FILE]...`
+### `[FILE[#BLOCK] | FILE]...`
 
 Specifies which blocks to build. Two formats are supported:
 
 | Format              | Description                             |
 | ------------------- | --------------------------------------- |
-| `block@layout.toml` | Build specific block from layout file   |
+| `layout.toml#block` | Build specific block from layout file   |
 | `layout.toml`       | Build all blocks defined in layout file |
 
 **Examples:**
 
 ```bash
 # Build single block
-mint config@layout.toml --xlsx data.xlsx -v Default -o config.hex
+mint layout.toml#config --xlsx data.xlsx -v Default -o config.hex
 
 # Build multiple specific blocks
-mint config@layout.toml calibration@layout.toml --xlsx data.xlsx -v Default -o firmware.hex
+mint layout.toml#config layout.toml#calibration --xlsx data.xlsx -v Default -o firmware.hex
 
 # Build all blocks from a file
 mint layout.toml --xlsx data.xlsx -v Default -o output.hex
 
 # Mix both styles
-mint header@layout.toml calibration.toml --xlsx data.xlsx -v Default -o combined.hex
+mint layout.toml#header calibration.toml --xlsx data.xlsx -v Default -o combined.hex
 ```
 
 ---
@@ -277,8 +277,8 @@ mint layout.toml --xlsx data.xlsx -v Default -o firmware.hex
 
 ```bash
 mint \
-  config@layout.toml \
-  calibration@layout.toml \
+  layout.toml#config \
+  layout.toml#calibration \
   --xlsx data.xlsx \
   -v Production/Default \
   -o release/FW_v1.2.3.mot \

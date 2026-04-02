@@ -21,6 +21,10 @@ fn main() -> ExitCode {
 fn run() -> Result<(), MintError> {
     let args = Args::parse();
 
+    if args.layout.uses_legacy_block_syntax() {
+        eprintln!("Warning: `block@file` is deprecated; use `file#block`.");
+    }
+
     let data_source = data::create_data_source(&args.data)?;
 
     // Check if blocks are provided

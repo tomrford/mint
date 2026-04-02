@@ -32,6 +32,7 @@ val2 = { value = 0x5678, type = "u16" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -93,6 +94,7 @@ val2 = { value = 0x5678, type = "u16" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -149,6 +151,7 @@ val = { value = 0xABCD, type = "u16" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -193,6 +196,7 @@ byte_val = { value = 42, type = "u8" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -241,6 +245,7 @@ text = { value = "HELLO", type = "u8", size = 8 }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -284,6 +289,7 @@ val = { value = 0x1234, type = "u16" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
+                legacy_syntax: false,
             }],
             strict: false,
         },

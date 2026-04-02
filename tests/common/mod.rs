@@ -30,6 +30,7 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
             blocks: vec![BlockNames {
                 name: block_name.to_string(),
                 file: layout_path.to_string(),
+                legacy_syntax: false,
             }],
             strict: false,
         },

@@ -50,6 +50,7 @@ fn test_build_stats_aggregation() {
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
             file: layout_path.to_string(),
+            legacy_syntax: false,
         })
         .collect::<Vec<_>>();
 
@@ -128,6 +129,7 @@ fn test_multi_block_stats() {
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
             file: layout_path.to_string(),
+            legacy_syntax: false,
         })
         .collect::<Vec<_>>();
 

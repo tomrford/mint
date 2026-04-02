@@ -23,7 +23,7 @@ mint block.toml --xlsx data.xlsx -v Default --stats
 mint layout.toml --json data.json -v Debug/Default
 
 # Multiple blocks with options
-mint config@layout.toml calibration@layout.toml --xlsx data.xlsx -v Production/Default --stats
+mint layout.toml#config layout.toml#calibration --xlsx data.xlsx -v Production/Default --stats
 ```
 
 ### Layout Example

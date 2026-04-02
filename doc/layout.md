@@ -237,10 +237,10 @@ polynomial = 0x1EDC6F41    # Different CRC polynomial for this block
 coefficients = { name = "Coefficients", type = "f32", size = 16 }
 ```
 
-Build specific blocks with `blockname@file.toml` syntax:
+Build specific blocks with `file.toml#blockname` syntax:
 
 ```bash
-mint config@layout.toml --xlsx data.xlsx -v Default
+mint layout.toml#config --xlsx data.xlsx -v Default
 ```
 
 ---
