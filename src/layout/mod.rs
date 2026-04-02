@@ -29,12 +29,15 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
         "yaml" | "yml" => serde_yaml::from_str(&text).map_err(|e| {
             LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
         })?,
-        "json" => serde_json::from_str(&text).map_err(|e| {
-            LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
-        })?,
+        "json" => {
+            return Err(LayoutError::FileError(format!(
+                "JSON layout files are no longer supported; migrate {} to TOML",
+                filename
+            )));
+        }
         _ => {
             return Err(LayoutError::FileError(
-                "Unsupported file format".to_string(),
+                "Unsupported layout file format; use .toml or .yaml".to_string(),
             ));
         }
     };

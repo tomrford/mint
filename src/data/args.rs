@@ -1,5 +1,10 @@
 use clap::Args;
 
+const POSTGRES_DEPRECATION: &str =
+    "--postgres is deprecated; fetch first and pass JSON via --json. See repo docs";
+const HTTP_DEPRECATION: &str =
+    "--http is deprecated; fetch first and pass JSON via --json. See repo docs";
+
 #[derive(Args, Debug, Clone, Default)]
 pub struct DataArgs {
     #[arg(
@@ -19,7 +24,7 @@ pub struct DataArgs {
         value_name = "PATH or json string",
         group = "datasource",
         requires = "version_selectors",
-        help = "Path to the JSON file or a JSON string containing the postgres configuration (url, query_template, optional data_path for nested extraction)"
+        help = "DEPRECATED: fetch first and pass JSON via --json. See repo docs"
     )]
     pub postgres: Option<String>,
 
@@ -28,7 +33,7 @@ pub struct DataArgs {
         value_name = "PATH or json string",
         group = "datasource",
         requires = "version_selectors",
-        help = "HTTP API configuration (url with $VERSION placeholder, optional method [GET/POST], optional body with $VERSION, optional headers, optional data_path)"
+        help = "DEPRECATED: fetch first and pass JSON via --json. See repo docs"
     )]
     pub http: Option<String>,
 
@@ -53,6 +58,16 @@ pub struct DataArgs {
 }
 
 impl DataArgs {
+    pub fn deprecated_source_error(&self) -> Option<&'static str> {
+        if self.postgres.is_some() {
+            Some(POSTGRES_DEPRECATION)
+        } else if self.http.is_some() {
+            Some(HTTP_DEPRECATION)
+        } else {
+            None
+        }
+    }
+
     /// Parses the version stack from the raw slash-separated string.
     pub fn get_version_list(&self) -> Vec<String> {
         let raw = self.versions.as_deref();

@@ -8,7 +8,7 @@ use clap::Parser;
 #[command(
     author,
     version,
-    about = "Build flash blocks from layout files and data sources (Excel, Postgres, or REST)",
+    about = "Build flash blocks from layout files and data sources (Excel or JSON)",
     after_help = "For more information, visit https://crates.io/crates/mint-cli"
 )]
 pub struct Args {

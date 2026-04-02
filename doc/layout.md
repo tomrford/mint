@@ -1,6 +1,6 @@
 # Layout Files
 
-Layout files define memory blocks and their data fields. Supported formats: TOML, YAML, JSON. The data in the layout file helps mint understand the structure of the data, and how you want to represent the data in the output. Each block represents a contiguous region of memory (typically a single struct stored in a known location in flash). For an example of a block, see [`doc/examples/blocks.h`](doc/examples/blocks.h) and compare it to the layout file [`doc/examples/block.toml`](doc/examples/block.toml).
+Layout files define memory blocks and their data fields. TOML is the canonical layout format and all examples in these docs use it. YAML layouts are still accepted by the parser as a compatibility format, but TOML is the primary workflow. JSON layout files are no longer supported. The data in the layout file helps mint understand the structure of the data, and how you want to represent the data in the output. Each block represents a contiguous region of memory (typically a single struct stored in a known location in flash). For an example of a block, see [`doc/examples/blocks.h`](doc/examples/blocks.h) and compare it to the layout file [`doc/examples/block.toml`](doc/examples/block.toml).
 
 ## Structure
 
@@ -245,9 +245,7 @@ mint config@layout.toml --xlsx data.xlsx -v Default
 
 ---
 
-## Format Examples
-
-### TOML
+## Format
 
 ```toml
 [block.header]
@@ -259,36 +257,4 @@ device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 ```
 
-### YAML
-
-```yaml
-block:
-  header:
-    start_address: 0x8000
-    length: 0x100
-  data:
-    device.id:
-      value: 0x1234
-      type: "u32"
-    device.name:
-      name: "DeviceName"
-      type: "u8"
-      size: 16
-```
-
-### JSON
-
-```json
-{
-  "block": {
-    "header": {
-      "start_address": 32768,
-      "length": 256
-    },
-    "data": {
-      "device.id": { "value": 4660, "type": "u32" },
-      "device.name": { "name": "DeviceName", "type": "u8", "size": 16 }
-    }
-  }
-}
-```
+YAML layouts remain accepted, but TOML is the only format documented and recommended for authored layouts. JSON is reserved for data input.

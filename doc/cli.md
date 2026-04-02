@@ -37,7 +37,7 @@ mint header@layout.toml calibration.toml --xlsx data.xlsx -v Default -o combined
 
 ## Data Source Options
 
-You can specify exactly one data source (`--xlsx`, `--postgres`, `--http`, or `--json`) along with versions (`-v`).
+You can specify exactly one supported data source (`--xlsx` or `--json`) along with versions (`-v`). The deprecated compatibility flags `--postgres` and `--http` now fail with a migration hint telling you to fetch first and pass JSON via `--json`.
 
 ### `--xlsx <FILE>`
 
@@ -57,31 +57,11 @@ mint layout.toml --xlsx data.xlsx --main-sheet Config -v Default -o output.hex
 
 ### `--postgres <PATH or JSON>`
 
-Use PostgreSQL as the data source. Accepts a JSON file path or inline JSON string.
-
-```bash
-# Using a config file
-mint layout.toml --postgres pg_config.json -v Default -o output.hex
-
-# Using inline JSON
-mint layout.toml --postgres '{"url":"...","query_template":"..."}' -v Default -o output.hex
-```
-
-See [Data Sources](sources.md#postgres--p---postgres) for config format details.
+Deprecated compatibility flag. Fetch first and pass JSON via `--json`. See repo docs.
 
 ### `--http <PATH or JSON>`
 
-Use HTTP API as the data source. Accepts a JSON file path or inline JSON string.
-
-```bash
-# Using a config file
-mint layout.toml --http http_config.json -v Default -o output.hex
-
-# Using inline JSON
-mint layout.toml --http '{"url":"...","headers":{...}}' -v Default -o output.hex
-```
-
-See [Data Sources](sources.md#http---http) for config format details.
+Deprecated compatibility flag. Fetch first and pass JSON via `--json`. See repo docs.
 
 ### `--json <PATH or JSON>`
 
@@ -307,28 +287,6 @@ mint \
   --strict \
   --stats
 ```
-
-### Build with Postgres backend
-
-```bash
-mint layout.toml \
-  --postgres pg_config.json \
-  -v Production/Default \
-  -o firmware.hex
-```
-
-See [Data Sources](sources.md#postgres--p---postgres) for config format.
-
-### Build with HTTP backend
-
-```bash
-mint layout.toml \
-  --http http_config.json \
-  -v Production/Default \
-  -o firmware.hex
-```
-
-See [Data Sources](sources.md#http---http) for config format.
 
 ### Build with JSON data source
 

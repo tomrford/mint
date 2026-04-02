@@ -9,11 +9,7 @@ mod common;
 fn smoke_build_examples_all_formats_and_options() {
     common::ensure_out_dir();
 
-    let layouts = [
-        "tests/data/blocks.toml",
-        "tests/data/blocks.yaml",
-        "tests/data/blocks.json",
-    ];
+    let layouts = ["tests/data/blocks.toml", "tests/data/blocks.yaml"];
     let blocks = ["block", "block2", "block3"];
 
     for layout_path in layouts {
@@ -61,4 +57,28 @@ fn smoke_build_examples_all_formats_and_options() {
             common::assert_out_file_exists(Path::new("out/combined.hex"));
         }
     }
+}
+
+#[test]
+fn json_layout_files_fail_with_migration_hint() {
+    let path = "/tmp/mint_layout_deprecated.json";
+    let json_layout = r#"{
+      "block": {
+        "header": {
+          "start_address": 32768,
+          "length": 256
+        },
+        "data": {
+          "device.id": { "value": 4660, "type": "u32" }
+        }
+      }
+    }"#;
+    std::fs::write(path, json_layout).expect("write json layout");
+
+    let err = mint_cli::layout::load_layout(path).expect_err("json layouts should be rejected");
+    assert!(
+        err.to_string()
+            .contains("JSON layout files are no longer supported")
+    );
+    assert!(err.to_string().contains("migrate"));
 }
