@@ -1,6 +1,6 @@
 ## mint
 
-Build flash blocks from a TOML layout file and a data source (Excel or JSON), then emit hex files. YAML layouts are still accepted, but TOML is the canonical documented format.
+Build flash blocks from a layout file (TOML) and a data source (Excel or JSON), then emit hex files.
 
 ![img](doc/img.png)
 
