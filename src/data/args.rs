@@ -39,6 +39,7 @@ pub struct DataArgs {
     pub http: Option<String>,
 
     #[arg(
+        short = 'j',
         long,
         value_name = "PATH or json string",
         group = "datasource",

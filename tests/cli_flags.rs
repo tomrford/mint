@@ -53,6 +53,21 @@ fn parses_short_xlsx_flag() {
 }
 
 #[test]
+fn parses_short_json_flag() {
+    let args = Args::try_parse_from([
+        "mint",
+        "layout.toml",
+        "-j",
+        "tests/data.json",
+        "--versions",
+        "Debug/Default",
+    ])
+    .expect("args should parse with -j");
+
+    assert_eq!(args.data.json.as_deref(), Some("tests/data.json"));
+}
+
+#[test]
 fn parses_versions_selector_flag() {
     let args = Args::try_parse_from([
         "mint",

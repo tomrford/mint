@@ -11,7 +11,7 @@ Install with `cargo install mint-cli` or via nix flakes.
 - [CLI reference](doc/cli.md)
 - [Layout files](doc/layout.md)
 - [Data sources](doc/sources.md)
-- Examples
+- [Example layouts & data](doc/examples/)
 
 ### Quick Start
 
@@ -20,7 +20,7 @@ Install with `cargo install mint-cli` or via nix flakes.
 mint block.toml --xlsx data.xlsx -v Default --stats
 
 # JSON data source
-mint layout.toml --json data.json -v Debug/Default
+mint layout.toml -j data.json -v Debug/Default
 
 # Multiple blocks with options
 mint layout.toml#config layout.toml#calibration --xlsx data.xlsx -v Production/Default --stats
@@ -37,4 +37,4 @@ calibration.matrix = { name = "CalibrationMatrix", type = "i16", size = [3, 3] }
 message = { value = "Hello", type = "u8", size = 16 }
 ```
 
-See examples for full layouts and sample data.
+See [`doc/examples/block.toml`](doc/examples/block.toml) for full examples.

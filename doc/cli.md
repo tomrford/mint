@@ -37,7 +37,7 @@ mint layout.toml#header calibration.toml --xlsx data.xlsx -v Default -o combined
 
 ## Data Source Options
 
-You can specify exactly one supported data source (`-x`/`--xlsx` or `--json`) along with versions (`-v`). The deprecated compatibility flags `--postgres` and `--http` now fail with a migration hint telling you to fetch first and pass JSON via `--json`.
+You can specify exactly one supported data source (`-x`/`--xlsx` or `-j`/`--json`) along with versions (`-v`). The deprecated compatibility flags `--postgres` and `--http` now fail with a migration hint telling you to fetch first and pass JSON via `--json`.
 
 ### `-x, --xlsx <FILE>`
 
@@ -63,7 +63,7 @@ Deprecated compatibility flag. Fetch first and pass JSON via `--json`. See repo 
 
 Deprecated compatibility flag. Fetch first and pass JSON via `--json`. See repo docs.
 
-### `--json <PATH or JSON>`
+### `-j, --json <PATH or JSON>`
 
 Use raw JSON as the data source. Accepts a JSON file path or inline JSON string.
 

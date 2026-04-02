@@ -40,7 +40,7 @@ For 1D/2D arrays, reference a sheet by name with `#` prefix:
 
 ---
 
-## JSON (`--json`)
+## JSON (`-j, --json`)
 
 ```bash
 mint layout.toml --json data.json -v Debug/Default

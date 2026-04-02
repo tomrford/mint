@@ -1,5 +1,4 @@
 use clap::Parser;
-use std::process::ExitCode;
 
 use mint_cli::args::Args;
 use mint_cli::commands;
@@ -8,17 +7,7 @@ use mint_cli::error::*;
 use mint_cli::layout;
 use mint_cli::visuals;
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("Error: {error}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn run() -> Result<(), MintError> {
+fn main() -> Result<(), MintError> {
     let args = Args::parse();
 
     if args.layout.uses_legacy_block_syntax() {
