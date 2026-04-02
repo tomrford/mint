@@ -90,6 +90,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: be_path.clone(),
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -112,6 +113,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: be_path.clone(),
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -134,6 +136,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: le_path.clone(),
+                legacy_syntax: false,
             }],
             strict: true, // exercise strict path on numeric arrays
         },
@@ -156,6 +159,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: le_path.clone(),
+                legacy_syntax: false,
             }],
             strict: true,
         },

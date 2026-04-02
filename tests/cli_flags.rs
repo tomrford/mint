@@ -2,6 +2,72 @@ use clap::{Parser, error::ErrorKind};
 use mint_cli::args::Args;
 
 #[test]
+fn parses_file_hash_block_selector() {
+    let args = Args::try_parse_from(["mint", "layout.toml#config"])
+        .expect("args should parse with file#block syntax");
+
+    assert_eq!(args.layout.blocks.len(), 1);
+    assert_eq!(args.layout.blocks[0].file, "layout.toml");
+    assert_eq!(args.layout.blocks[0].name, "config");
+    assert!(!args.layout.blocks[0].legacy_syntax);
+}
+
+#[test]
+fn parses_legacy_block_at_file_selector() {
+    let args = Args::try_parse_from(["mint", "config@layout.toml"])
+        .expect("args should parse with legacy block@file syntax");
+
+    assert_eq!(args.layout.blocks.len(), 1);
+    assert_eq!(args.layout.blocks[0].file, "layout.toml");
+    assert_eq!(args.layout.blocks[0].name, "config");
+    assert!(args.layout.blocks[0].legacy_syntax);
+}
+
+#[test]
+fn rejects_empty_hash_selector() {
+    let err = Args::try_parse_from(["mint", "layout.toml#"])
+        .expect_err("empty block selector should fail");
+    assert_eq!(err.kind(), ErrorKind::ValueValidation);
+}
+
+#[test]
+fn rejects_empty_legacy_selector() {
+    let err = Args::try_parse_from(["mint", "@layout.toml"])
+        .expect_err("empty legacy selector should fail");
+    assert_eq!(err.kind(), ErrorKind::ValueValidation);
+}
+
+#[test]
+fn parses_short_xlsx_flag() {
+    let args = Args::try_parse_from([
+        "mint",
+        "layout.toml",
+        "-x",
+        "tests/data/data.xlsx",
+        "--versions",
+        "Debug/Default",
+    ])
+    .expect("args should parse with -x");
+
+    assert_eq!(args.data.xlsx.as_deref(), Some("tests/data/data.xlsx"));
+}
+
+#[test]
+fn parses_short_json_flag() {
+    let args = Args::try_parse_from([
+        "mint",
+        "layout.toml",
+        "-j",
+        "tests/data.json",
+        "--versions",
+        "Debug/Default",
+    ])
+    .expect("args should parse with -j");
+
+    assert_eq!(args.data.json.as_deref(), Some("tests/data.json"));
+}
+
+#[test]
 fn parses_versions_selector_flag() {
     let args = Args::try_parse_from([
         "mint",

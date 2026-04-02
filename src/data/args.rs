@@ -8,6 +8,7 @@ const HTTP_DEPRECATION: &str =
 #[derive(Args, Debug, Clone, Default)]
 pub struct DataArgs {
     #[arg(
+        short = 'x',
         long,
         value_name = "FILE",
         group = "datasource",
@@ -38,6 +39,7 @@ pub struct DataArgs {
     pub http: Option<String>,
 
     #[arg(
+        short = 'j',
         long,
         value_name = "PATH or json string",
         group = "datasource",

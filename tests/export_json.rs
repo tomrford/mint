@@ -59,6 +59,7 @@ message = { value = "Hi", type = "u8", size = 4 }
             blocks: vec![BlockNames {
                 name: "".to_string(),
                 file: layout_path,
+                legacy_syntax: false,
             }],
             strict: false,
         },

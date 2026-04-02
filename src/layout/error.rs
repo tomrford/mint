@@ -5,7 +5,7 @@ pub enum LayoutError {
     #[error("File error: {0}.")]
     FileError(String),
 
-    #[error("Block not found: {0}.")]
+    #[error("Block not found: {0}")]
     BlockNotFound(String),
 
     #[error("Data value export failed: {0}.")]

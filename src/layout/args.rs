@@ -5,30 +5,49 @@ use clap::Args;
 pub struct BlockNames {
     pub name: String,
     pub file: String,
+    // TODO: remove this field and the `block@file` compatibility path after the
+    // legacy selector syntax is fully deprecated.
+    pub legacy_syntax: bool,
+}
+
+fn parse_selected_arg(
+    name: &str,
+    file: &str,
+    original: &str,
+    legacy_syntax: bool,
+) -> Result<BlockNames, LayoutError> {
+    if name.is_empty() || file.is_empty() {
+        return Err(LayoutError::InvalidBlockArgument(format!(
+            "invalid selector '{original}'; use FILE or FILE#BLOCK"
+        )));
+    }
+
+    Ok(BlockNames {
+        name: name.to_string(),
+        file: file.to_string(),
+        legacy_syntax,
+    })
 }
 
 pub fn parse_block_arg(block: &str) -> Result<BlockNames, LayoutError> {
-    let parts: Vec<&str> = block.split('@').collect();
-
-    match parts.len() {
-        2 => Ok(BlockNames {
-            name: parts[0].to_string(),
-            file: parts[1].to_string(),
-        }),
-        1 => Ok(BlockNames {
-            name: String::new(),
-            file: parts[0].to_string(),
-        }),
-        _ => Err(LayoutError::InvalidBlockArgument(format!(
-            "Failed to unpack block {}",
-            block
-        ))),
+    if let Some((file, name)) = block.rsplit_once('#') {
+        return parse_selected_arg(name, file, block, false);
     }
+
+    if let Some((name, file)) = block.split_once('@') {
+        return parse_selected_arg(name, file, block, true);
+    }
+
+    Ok(BlockNames {
+        name: String::new(),
+        file: block.to_string(),
+        legacy_syntax: false,
+    })
 }
 
 #[derive(Args, Debug)]
 pub struct LayoutArgs {
-    #[arg(value_name = "BLOCK@FILE | FILE", num_args = 1.., value_parser = parse_block_arg, help = "One or more blocks as name@layout_file or a layout file (typically .toml) to build all blocks")]
+    #[arg(value_name = "FILE[#BLOCK] | FILE", num_args = 1.., value_parser = parse_block_arg, help = "One or more layout selectors as file[#block] or a layout file (typically .toml) to build all blocks")]
     pub blocks: Vec<BlockNames>,
 
     #[arg(
@@ -37,4 +56,10 @@ pub struct LayoutArgs {
         default_value_t = false
     )]
     pub strict: bool,
+}
+
+impl LayoutArgs {
+    pub fn uses_legacy_block_syntax(&self) -> bool {
+        self.blocks.iter().any(|block| block.legacy_syntax)
+    }
 }

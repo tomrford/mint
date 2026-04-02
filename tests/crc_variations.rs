@@ -437,14 +437,17 @@ value = { value = 0x33333333, type = "u32" }
         mint_cli::layout::args::BlockNames {
             name: "block_a".to_string(),
             file: layout_path.clone(),
+            legacy_syntax: false,
         },
         mint_cli::layout::args::BlockNames {
             name: "block_b".to_string(),
             file: layout_path.clone(),
+            legacy_syntax: false,
         },
         mint_cli::layout::args::BlockNames {
             name: "block_c".to_string(),
             file: layout_path,
+            legacy_syntax: false,
         },
     ];
 

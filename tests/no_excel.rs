@@ -18,6 +18,7 @@ fn test_build_without_excel() {
             blocks: vec![mint_cli::layout::args::BlockNames {
                 name: "simple_block".to_string(),
                 file: layout_path.to_string(),
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -53,6 +54,7 @@ fn test_error_when_name_without_excel() {
     let input = mint_cli::layout::args::BlockNames {
         name: "block".to_string(),
         file: layout_path.to_string(),
+        legacy_syntax: false,
     };
 
     let args = mint_cli::args::Args {

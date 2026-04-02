@@ -50,6 +50,7 @@ fn test_build_stats_aggregation() {
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
             file: layout_path.to_string(),
+            legacy_syntax: false,
         })
         .collect::<Vec<_>>();
 
@@ -128,6 +129,7 @@ fn test_multi_block_stats() {
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
             file: layout_path.to_string(),
+            legacy_syntax: false,
         })
         .collect::<Vec<_>>();
 
@@ -204,5 +206,23 @@ device.name = { value = "TestDevice", type = "u8", size = 16 }
     assert!(
         block_stat.crc_value.is_none(),
         "CRC value should be None when no crc section is present"
+    );
+}
+
+#[test]
+fn test_missing_block_returns_error_instead_of_panicking() {
+    common::ensure_out_dir();
+
+    let args = common::build_args(
+        "doc/examples/block.toml",
+        "block",
+        mint_cli::output::args::OutputFormat::Hex,
+    );
+
+    let error = commands::build(&args, None).expect_err("missing block should return an error");
+
+    assert_eq!(
+        error.to_string(),
+        "Block not found: 'block' in 'doc/examples/block.toml'. Available blocks: config, data"
     );
 }

@@ -21,6 +21,7 @@ fn test_file_expands_all_blocks() {
             blocks: vec![BlockNames {
                 name: String::new(),
                 file: layout_path.to_string(),
+                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -63,11 +64,13 @@ fn test_deduplication_file_and_specific() {
                 BlockNames {
                     name: String::new(),
                     file: layout_path.to_string(),
+                    legacy_syntax: false,
                 },
                 // Request specific block that exists in the combined file
                 BlockNames {
                     name: "block".to_string(),
                     file: layout_path.to_string(),
+                    legacy_syntax: false,
                 },
             ],
             strict: false,
@@ -108,6 +111,7 @@ fn test_file_expansion_builds_all_blocks() {
             blocks: vec![BlockNames {
                 name: String::new(),
                 file: layout_path.to_string(),
+                legacy_syntax: false,
             }],
             strict: false,
         },
