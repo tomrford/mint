@@ -1,6 +1,6 @@
 ## Project Overview
 
-mint is an embedded development tool that works with TOML layout files and data sources (Excel or JSON) to assemble, export, sign (and more) static binary files for flashing to microcontrollers. YAML layouts are parser-compatible but not the primary documented workflow. JSON is for data input, not layouts.
+mint is an embedded development tool that works with TOML layout files and data sources (Excel or JSON) to assemble, export, sign (and more) static binary files for flashing to microcontrollers. YAML layouts are parser-compatible but not the primary documented workflow.
 
 ## Architecture & Codebase
 

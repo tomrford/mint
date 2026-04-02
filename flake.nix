@@ -40,7 +40,6 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             rustToolchain
-            postgresql
           ];
         };
       }
