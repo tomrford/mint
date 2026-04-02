@@ -1,6 +1,6 @@
 ## Project Overview
 
-mint is an embedded development tool that works with layout files (toml/yaml/json) and data sources (Excel, Postgres, or REST) to assemble, export, sign (and more) static binary files for flashing to microcontrollers.
+mint is an embedded development tool that works with TOML layout files and data sources (Excel or JSON) to assemble, export, sign (and more) static binary files for flashing to microcontrollers. YAML layouts are parser-compatible but not the primary documented workflow.
 
 ## Architecture & Codebase
 
@@ -9,8 +9,6 @@ mint is an embedded development tool that works with layout files (toml/yaml/jso
 - **Layouts**: TOML/YAML/JSON files defining memory blocks (`src/layout`).
 - **DataSource**: Provides variant values by name (`src/data`).
   - **Excel** (`.xlsx`): Uses `Name` column for lookups; arrays referenced by sheet name (prefixed with `#`).
-  - **Postgres**: JSON config with `url` and `query_template`; query returns JSON object per variant.
-  - **REST**: JSON config with `url` (using `$1` placeholder) and optional `headers`; response must be JSON object per variant.
   - **JSON**: Raw JSON object with variant names as top-level keys, each containing an object with name:value pairs.
   - Supports variant priority ordering (e.g., `-v Debug/Default`).
 - **Output**: Generates binary files, handling block overlaps and CRC calculations (`src/output`).
@@ -81,23 +79,3 @@ nix develop -c cargo test
 ```
 nix develop -c cargo run -- simple_block@tests/data/blocks.toml -o /tmp/out.hex --stats
 ```
-
-### Postgres tests
-
-The nix dev shell provides PostgreSQL. To run the 12 ignored Postgres integration tests:
-
-```bash
-# Init + start (only needed once per session)
-nix develop -c initdb -D /workspace/.pg_data --no-locale --encoding=UTF8
-nix develop -c pg_ctl -D /workspace/.pg_data -l /workspace/.pg_data/logfile -o "-k /tmp -h localhost" start
-nix develop -c createdb -h localhost mint_test
-
-# Run tests (must be single-threaded — parallel creates race on table DDL)
-nix develop -c cargo test --test postgres -- --include-ignored --test-threads=1
-```
-
-To stop Postgres: `nix develop -c pg_ctl -D /workspace/.pg_data stop`
-
-### HTTP tests
-
-`tests/http.rs` (12 tests) are also `#[ignore]`; they require an external HTTP server and are not part of the standard gate.

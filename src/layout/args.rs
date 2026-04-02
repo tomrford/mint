@@ -28,7 +28,7 @@ pub fn parse_block_arg(block: &str) -> Result<BlockNames, LayoutError> {
 
 #[derive(Args, Debug)]
 pub struct LayoutArgs {
-    #[arg(value_name = "BLOCK@FILE | FILE", num_args = 1.., value_parser = parse_block_arg, help = "One or more blocks as name@layout_file or a layout_file (toml/yaml/json) to build all blocks")]
+    #[arg(value_name = "BLOCK@FILE | FILE", num_args = 1.., value_parser = parse_block_arg, help = "One or more blocks as name@layout_file or a layout file (typically .toml) to build all blocks")]
     pub blocks: Vec<BlockNames>,
 
     #[arg(

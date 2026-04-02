@@ -25,11 +25,13 @@ pub trait DataSource: Sync {
 ///
 /// Returns `None` if no data source is configured (e.g., no `--xlsx` provided).
 pub fn create_data_source(args: &args::DataArgs) -> Result<Option<Box<dyn DataSource>>, DataError> {
-    match (&args.xlsx, &args.postgres, &args.http, &args.json) {
-        (Some(_), _, _, _) => Ok(Some(Box::new(ExcelDataSource::new(args)?))),
-        (_, Some(_), _, _) => Ok(Some(Box::new(JsonDataSource::from_postgres(args)?))),
-        (_, _, Some(_), _) => Ok(Some(Box::new(JsonDataSource::from_http(args)?))),
-        (_, _, _, Some(_)) => Ok(Some(Box::new(JsonDataSource::from_json(args)?))),
+    if let Some(message) = args.deprecated_source_error() {
+        return Err(DataError::MiscError(message.to_string()));
+    }
+
+    match (&args.xlsx, &args.json) {
+        (Some(_), _) => Ok(Some(Box::new(ExcelDataSource::new(args)?))),
+        (_, Some(_)) => Ok(Some(Box::new(JsonDataSource::from_json(args)?))),
         _ => Ok(None),
     }
 }

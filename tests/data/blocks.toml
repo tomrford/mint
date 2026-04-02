@@ -3,7 +3,7 @@
 # Blocks:
 #   - block, block2, block3, block_bitmap: require Excel data
 #   - simple_block: inline values only (no Excel needed)
-#   - pg_block: compatible with both Postgres and Excel data sources
+#   - pg_block: compatible with both JSON and Excel data sources
 
 [settings]
 endianness = "little"
@@ -164,7 +164,7 @@ array.values = { value = [10, 20, 30, 40, 50], type = "u16", size = 5 }
 magic = { value = 0xDEADBEEF, type = "u32" }
 
 # =============================================================================
-# pg_block - Postgres/Excel interchangeable block
+# pg_block - JSON/Excel interchangeable block
 # Uses names that exist in both data sources for cross-source testing
 # =============================================================================
 [pg_block.header]
@@ -176,7 +176,7 @@ padding = 0xFF
 location = "end_data"
 
 [pg_block.data]
-# Values available in both Postgres and Excel
+# Values available in both JSON and Excel
 limits.temperature_max = { name = "TemperatureMax", type = "i16" }
 config.value2 = { name = "Value 2", type = "u32" }
 config.enabled = { name = "boolean", type = "u8" }
