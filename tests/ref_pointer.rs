@@ -61,7 +61,7 @@ fn build_block_with_values(
     let mut collector = ValueCollector::new();
     let output = block.build_bytestream(None, settings, false, &mut collector)?;
     Ok((
-        ((output.bytestream, output.padding_count)),
+        (output.bytestream, output.padding_count),
         collector.into_value(),
     ))
 }
