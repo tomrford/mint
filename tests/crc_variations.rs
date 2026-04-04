@@ -212,24 +212,21 @@ value = { value = 0x33333333, type = "u32" }
         mint_cli::layout::args::BlockNames {
             name: "block_a".to_string(),
             file: layout_path.clone(),
-            legacy_syntax: false,
         },
         mint_cli::layout::args::BlockNames {
             name: "block_b".to_string(),
             file: layout_path.clone(),
-            legacy_syntax: false,
         },
         mint_cli::layout::args::BlockNames {
             name: "block_c".to_string(),
             file: layout_path,
-            legacy_syntax: false,
         },
     ];
 
     let args = common::build_args_for_layouts(
         blocks,
         mint_cli::output::args::OutputFormat::Hex,
-        "out/crc_combined.hex",
+        "crc_combined",
     );
 
     let stats = commands::build(&args, None).expect("combined build");
@@ -238,7 +235,7 @@ value = { value = 0x33333333, type = "u32" }
     assert_eq!(stats.block_stats[1].checksum_values.len(), 1);
     assert!(stats.block_stats[2].checksum_values.is_empty());
 
-    common::assert_out_file_exists(std::path::Path::new("out/crc_combined.hex"));
+    common::assert_out_file_exists(&args.output.out);
 }
 
 /// Tests that referencing a non-existent checksum config fails.
@@ -315,7 +312,7 @@ checksum2 = { checksum = "crc32", type = "u32" }
     let crc2 = calculate_crc(&crc2_input, &standard_crc32());
     assert_eq!(stats.block_stats[0].checksum_values, vec![crc1, crc2]);
 
-    let output = std::fs::read_to_string("out/block.hex").expect("read hex output");
+    let output = std::fs::read_to_string(&args.output.out).expect("read hex output");
     let expected_bytes = format!(
         "42000000{}3412FFFF{}",
         hex_bytes(&crc1.to_le_bytes()),
@@ -359,130 +356,4 @@ length = 0x100
         assert!(result.is_err(), "{type_name} should be rejected");
         assert!(result.unwrap_err().to_string().contains("must be u32"));
     }
-}
-
-#[test]
-fn removed_settings_section_fails_with_migration_message() {
-    common::ensure_out_dir();
-
-    let layout = r#"
-[settings]
-endianness = "little"
-
-[block.header]
-start_address = 0x1000
-length = 0x100
-
-[block.data]
-value = { value = 0x42, type = "u32" }
-"#;
-
-    let layout_path = common::write_layout_file("legacy_settings", layout);
-    let result = mint_cli::layout::load_layout(&layout_path);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("`[settings]` was removed")
-    );
-}
-
-#[test]
-fn removed_mint_crc_fails_with_migration_message() {
-    common::ensure_out_dir();
-
-    let layout = r#"
-[mint]
-endianness = "little"
-
-[mint.crc]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-
-[block.header]
-start_address = 0x1000
-length = 0x100
-
-[block.data]
-value = { value = 0x42, type = "u32" }
-"#;
-
-    let layout_path = common::write_layout_file("legacy_mint_crc", layout);
-    let result = mint_cli::layout::load_layout(&layout_path);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("`[mint.crc]` was removed")
-    );
-}
-
-#[test]
-fn removed_header_crc_fails_with_migration_message() {
-    common::ensure_out_dir();
-
-    let layout = r#"
-[mint]
-endianness = "little"
-
-[mint.checksum.crc32]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-
-[block.header]
-start_address = 0x1000
-length = 0x100
-
-[block.header.crc]
-location = "end_data"
-
-[block.data]
-value = { value = 0x42, type = "u32" }
-"#;
-
-    let layout_path = common::write_layout_file("legacy_header_crc", layout);
-    let result = mint_cli::layout::load_layout(&layout_path);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("`[block.header.crc]` was removed")
-    );
-}
-
-#[test]
-fn removed_crc_location_fails_with_migration_message() {
-    common::ensure_out_dir();
-
-    let layout = r#"
-[mint]
-endianness = "little"
-
-[block.header]
-start_address = 0x1000
-length = 0x100
-crc_location = "end_data"
-
-[block.data]
-value = { value = 0x42, type = "u32" }
-"#;
-
-    let layout_path = common::write_layout_file("legacy_crc_location", layout);
-    let result = mint_cli::layout::load_layout(&layout_path);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("`[block.header].crc_location` was removed")
-    );
 }

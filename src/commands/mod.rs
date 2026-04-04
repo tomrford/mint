@@ -143,7 +143,6 @@ fn build_single_bytestream(
             block_names: BlockNames {
                 name: resolved.name.clone(),
                 file: resolved.file.clone(),
-                legacy_syntax: false,
             },
             data_range,
             stat,

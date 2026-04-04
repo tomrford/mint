@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use mint_cli::commands;
 use mint_cli::layout::args::BlockNames;
 use mint_cli::output::args::{OutputArgs, OutputFormat};
@@ -83,13 +81,12 @@ checksum = { checksum = "crc32", type = "u32" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: be_path.clone(),
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: data_args.clone(),
         output: OutputArgs {
-            out: PathBuf::from("out/mix_a.hex"),
+            out: common::unique_out_path("mix_a", "hex"),
             record_width: 64,
             format: OutputFormat::Hex,
             export_json: None,
@@ -98,7 +95,7 @@ checksum = { checksum = "crc32", type = "u32" }
         },
     };
     commands::build(&args_be_hex, ds.as_deref()).expect("be-hex");
-    assert!(std::path::Path::new("out/mix_a.hex").exists());
+    assert!(args_be_hex.output.out.exists());
 
     // Case 2: Big endian, inline checksum, MOT with width 16
     let args_be_mot = mint_cli::args::Args {
@@ -106,13 +103,12 @@ checksum = { checksum = "crc32", type = "u32" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: be_path.clone(),
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: data_args.clone(),
         output: OutputArgs {
-            out: PathBuf::from("out/mix_b.mot"),
+            out: common::unique_out_path("mix_b", "mot"),
             record_width: 16,
             format: OutputFormat::Mot,
             export_json: None,
@@ -121,7 +117,7 @@ checksum = { checksum = "crc32", type = "u32" }
         },
     };
     commands::build(&args_be_mot, ds.as_deref()).expect("be-mot");
-    assert!(std::path::Path::new("out/mix_b.mot").exists());
+    assert!(args_be_mot.output.out.exists());
 
     // Case 3: Little endian, inline checksum, HEX width 16, virtual_offset applied
     let args_le_hex = mint_cli::args::Args {
@@ -129,13 +125,12 @@ checksum = { checksum = "crc32", type = "u32" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: le_path.clone(),
-                legacy_syntax: false,
             }],
             strict: true, // exercise strict path on numeric arrays
         },
         data: data_args.clone(),
         output: OutputArgs {
-            out: PathBuf::from("out/mix_c.hex"),
+            out: common::unique_out_path("mix_c", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
             export_json: None,
@@ -144,7 +139,7 @@ checksum = { checksum = "crc32", type = "u32" }
         },
     };
     commands::build(&args_le_hex, ds.as_deref()).expect("le-hex");
-    assert!(std::path::Path::new("out/mix_c.hex").exists());
+    assert!(args_le_hex.output.out.exists());
 
     // Case 4: Little endian, inline checksum, MOT width 64
     let args_le_mot = mint_cli::args::Args {
@@ -152,13 +147,12 @@ checksum = { checksum = "crc32", type = "u32" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: le_path.clone(),
-                legacy_syntax: false,
             }],
             strict: true,
         },
         data: data_args,
         output: OutputArgs {
-            out: PathBuf::from("out/mix_d.mot"),
+            out: common::unique_out_path("mix_d", "mot"),
             record_width: 64,
             format: OutputFormat::Mot,
             export_json: None,
@@ -167,5 +161,5 @@ checksum = { checksum = "crc32", type = "u32" }
         },
     };
     commands::build(&args_le_mot, ds.as_deref()).expect("le-mot");
-    assert!(std::path::Path::new("out/mix_d.mot").exists());
+    assert!(args_le_mot.output.out.exists());
 }

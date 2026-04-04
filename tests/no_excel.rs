@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use mint_cli::commands;
 use mint_cli::data::create_data_source;
 
@@ -18,13 +16,12 @@ fn test_build_without_excel() {
             blocks: vec![mint_cli::layout::args::BlockNames {
                 name: "simple_block".to_string(),
                 file: layout_path.to_string(),
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: Default::default(),
         output: mint_cli::output::args::OutputArgs {
-            out: PathBuf::from("out/simple_block.hex"),
+            out: common::unique_out_path("simple_block", "hex"),
             record_width: 32,
             format: mint_cli::output::args::OutputFormat::Hex,
             export_json: None,
@@ -41,7 +38,7 @@ fn test_build_without_excel() {
         "Should build at least one block"
     );
 
-    common::assert_out_file_exists(std::path::Path::new("out/simple_block.hex"));
+    common::assert_out_file_exists(&args.output.out);
 }
 
 #[test]
@@ -54,7 +51,6 @@ fn test_error_when_name_without_excel() {
     let input = mint_cli::layout::args::BlockNames {
         name: "block".to_string(),
         file: layout_path.to_string(),
-        legacy_syntax: false,
     };
 
     let args = mint_cli::args::Args {
@@ -64,7 +60,7 @@ fn test_error_when_name_without_excel() {
         },
         data: Default::default(),
         output: mint_cli::output::args::OutputArgs {
-            out: PathBuf::from("out/error_test.hex"),
+            out: common::unique_out_path("error_test", "hex"),
             record_width: 32,
             format: mint_cli::output::args::OutputFormat::Hex,
             export_json: None,

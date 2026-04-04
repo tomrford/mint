@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use mint_cli::commands;
 use mint_cli::layout::args::BlockNames;
 use mint_cli::output::args::{OutputArgs, OutputFormat};
@@ -32,13 +30,12 @@ val2 = { value = 0x5678, type = "u16" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: mint_cli::data::args::DataArgs::default(),
         output: OutputArgs {
-            out: PathBuf::from("out/word_addr.hex"),
+            out: common::unique_out_path("word_addr", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
             export_json: None,
@@ -49,7 +46,7 @@ val2 = { value = 0x5678, type = "u16" }
 
     commands::build(&args, None).expect("build should succeed");
 
-    let hex_path = std::path::Path::new("out/word_addr.hex");
+    let hex_path = &args.output.out;
     assert!(hex_path.exists(), "output file should exist");
 
     let content = std::fs::read_to_string(hex_path).expect("read hex file");
@@ -94,13 +91,12 @@ val2 = { value = 0x5678, type = "u16" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: mint_cli::data::args::DataArgs::default(),
         output: OutputArgs {
-            out: PathBuf::from("out/word_len_words.hex"),
+            out: common::unique_out_path("word_len_words", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
             export_json: None,
@@ -110,10 +106,7 @@ val2 = { value = 0x5678, type = "u16" }
     };
 
     commands::build(&args, None).expect("build should succeed");
-    assert!(
-        std::path::Path::new("out/word_len_words.hex").exists(),
-        "output file should exist"
-    );
+    assert!(args.output.out.exists(), "output file should exist");
 }
 
 /// Verifies that word_addressing computes checksums over flashed byte order.
@@ -148,13 +141,12 @@ checksum = { checksum = "crc32", type = "u32" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: mint_cli::data::args::DataArgs::default(),
         output: OutputArgs {
-            out: PathBuf::from("out/word_crc.hex"),
+            out: common::unique_out_path("word_crc", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
             export_json: None,
@@ -165,7 +157,7 @@ checksum = { checksum = "crc32", type = "u32" }
 
     let stats = commands::build(&args, None).expect("build with CRC should succeed");
 
-    let hex_path = std::path::Path::new("out/word_crc.hex");
+    let hex_path = &args.output.out;
     assert!(hex_path.exists(), "output file should exist");
     assert_eq!(stats.block_stats[0].checksum_values, vec![0x9C7F56F4]);
 
@@ -200,13 +192,12 @@ byte_val = { value = 42, type = "u8" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: mint_cli::data::args::DataArgs::default(),
         output: OutputArgs {
-            out: PathBuf::from("out/word_u8_reject.hex"),
+            out: common::unique_out_path("word_u8_reject", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
             export_json: None,
@@ -249,13 +240,12 @@ text = { value = "HELLO", type = "u8", size = 8 }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: mint_cli::data::args::DataArgs::default(),
         output: OutputArgs {
-            out: PathBuf::from("out/word_str_reject.hex"),
+            out: common::unique_out_path("word_str_reject", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
             export_json: None,
@@ -293,13 +283,12 @@ val = { value = 0x1234, type = "u16" }
             blocks: vec![BlockNames {
                 name: "block".to_string(),
                 file: path,
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: mint_cli::data::args::DataArgs::default(),
         output: OutputArgs {
-            out: PathBuf::from("out/word_voff.hex"),
+            out: common::unique_out_path("word_voff", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
             export_json: None,
@@ -310,7 +299,7 @@ val = { value = 0x1234, type = "u16" }
 
     commands::build(&args, None).expect("build should succeed");
 
-    let hex_path = std::path::Path::new("out/word_voff.hex");
+    let hex_path = &args.output.out;
     assert!(hex_path.exists(), "output file should exist");
 
     let content = std::fs::read_to_string(hex_path).expect("read hex file");

@@ -9,31 +9,12 @@ fn parses_file_hash_block_selector() {
     assert_eq!(args.layout.blocks.len(), 1);
     assert_eq!(args.layout.blocks[0].file, "layout.toml");
     assert_eq!(args.layout.blocks[0].name, "config");
-    assert!(!args.layout.blocks[0].legacy_syntax);
-}
-
-#[test]
-fn parses_legacy_block_at_file_selector() {
-    let args = Args::try_parse_from(["mint", "config@layout.toml"])
-        .expect("args should parse with legacy block@file syntax");
-
-    assert_eq!(args.layout.blocks.len(), 1);
-    assert_eq!(args.layout.blocks[0].file, "layout.toml");
-    assert_eq!(args.layout.blocks[0].name, "config");
-    assert!(args.layout.blocks[0].legacy_syntax);
 }
 
 #[test]
 fn rejects_empty_hash_selector() {
     let err = Args::try_parse_from(["mint", "layout.toml#"])
         .expect_err("empty block selector should fail");
-    assert_eq!(err.kind(), ErrorKind::ValueValidation);
-}
-
-#[test]
-fn rejects_empty_legacy_selector() {
-    let err = Args::try_parse_from(["mint", "@layout.toml"])
-        .expect_err("empty legacy selector should fail");
     assert_eq!(err.kind(), ErrorKind::ValueValidation);
 }
 
