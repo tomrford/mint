@@ -79,7 +79,7 @@ Use this when your build pipeline already fetches or transforms data before invo
 ### Value Types
 
 - **Scalars**: numbers, booleans, strings
-- **1D Arrays**: native JSON arrays or space/comma/semicolon-delimited strings (e.g., `"1 2 3"` or `"1,2,3"`)
+- **1D Arrays**: native JSON arrays (e.g., `[1, 2, 3]`)
 - **2D Arrays**: arrays of arrays (native JSON only)
 
 ### Variant Priority
