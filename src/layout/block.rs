@@ -5,7 +5,7 @@ use super::settings::{Endianness, MintConfig};
 use super::used_values::ValueSink;
 use super::value::DataValue;
 use crate::data::DataSource;
-use crate::output::checksum;
+use crate::output::{byte_swap_inplace, checksum};
 
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -328,7 +328,8 @@ impl Block {
             // CRC covers all bytes from block data start up to (exclusive) this field.
             // In word-addressing mode, compute against the final flashed byte order.
             let crc_val = if config.word_addressing {
-                let swapped = swap_word_address_prefix(&state.buffer[..pending.buffer_position]);
+                let mut swapped = state.buffer[..pending.buffer_position].to_vec();
+                byte_swap_inplace(&mut swapped);
                 checksum::calculate_crc(&swapped, crc_config)
             } else {
                 checksum::calculate_crc(&state.buffer[..pending.buffer_position], crc_config)
@@ -354,17 +355,6 @@ impl Block {
         }
         Ok(())
     }
-}
-
-fn swap_word_address_prefix(bytes: &[u8]) -> Vec<u8> {
-    debug_assert!(bytes.len().is_multiple_of(2));
-    let mut swapped = bytes.to_vec();
-    let mut i = 0;
-    while i + 1 < swapped.len() {
-        swapped.swap(i, i + 1);
-        i += 2;
-    }
-    swapped
 }
 
 fn split_field_path(field_name: &str) -> Result<Vec<String>, LayoutError> {

@@ -1,5 +1,3 @@
-use mint_cli::layout::used_values::{NoopValueSink, ValueCollector};
-
 #[path = "common/mod.rs"]
 mod common;
 
@@ -45,33 +43,12 @@ fn ref_layout_with_virtual_offset(
     layout(start_address, "little", virtual_offset, false, data_content)
 }
 
-fn build_block(
-    block: &mint_cli::layout::block::Block,
-    settings: &mint_cli::layout::settings::MintConfig,
-) -> Result<(Vec<u8>, u32), mint_cli::layout::error::LayoutError> {
-    let mut noop = NoopValueSink;
-    let output = block.build_bytestream(None, settings, false, &mut noop)?;
-    Ok((output.bytestream, output.padding_count))
-}
-
-fn build_block_with_values(
-    block: &mint_cli::layout::block::Block,
-    settings: &mint_cli::layout::settings::MintConfig,
-) -> Result<((Vec<u8>, u32), serde_json::Value), mint_cli::layout::error::LayoutError> {
-    let mut collector = ValueCollector::new();
-    let output = block.build_bytestream(None, settings, false, &mut collector)?;
-    Ok((
-        (output.bytestream, output.padding_count),
-        collector.into_value(),
-    ))
-}
-
 fn load_and_build(name: &str, toml_str: &str) -> (Vec<u8>, u32) {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
     let config = mint_cli::layout::load_layout(&path).expect("layout loads");
     let block = &config.blocks["block"];
-    build_block(block, &config.mint).expect("build succeeds")
+    common::build_block(block, &config.mint, false, None).expect("build succeeds")
 }
 
 fn load_and_build_with_values(name: &str, toml_str: &str) -> ((Vec<u8>, u32), serde_json::Value) {
@@ -79,7 +56,7 @@ fn load_and_build_with_values(name: &str, toml_str: &str) -> ((Vec<u8>, u32), se
     let path = common::write_layout_file(name, toml_str);
     let config = mint_cli::layout::load_layout(&path).expect("layout loads");
     let block = &config.blocks["block"];
-    build_block_with_values(block, &config.mint).expect("build succeeds")
+    common::build_block_with_values(block, &config.mint).expect("build succeeds")
 }
 
 fn load_and_fail(name: &str, toml_str: &str) -> String {
@@ -87,7 +64,7 @@ fn load_and_fail(name: &str, toml_str: &str) -> String {
     let path = common::write_layout_file(name, toml_str);
     let config = mint_cli::layout::load_layout(&path).expect("layout loads");
     let block = &config.blocks["block"];
-    let err = build_block(block, &config.mint).unwrap_err();
+    let err = common::build_block(block, &config.mint, false, None).unwrap_err();
     format!("{}", err)
 }
 

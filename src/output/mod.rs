@@ -11,7 +11,7 @@ use error::OutputError;
 use bin_file::{BinFile, IHexFormat};
 
 /// Swaps bytes pairwise for word-addressing mode.
-fn byte_swap_inplace(bytes: &mut [u8]) {
+pub fn byte_swap_inplace(bytes: &mut [u8]) {
     for chunk in bytes.chunks_exact_mut(2) {
         chunk.swap(0, 1);
     }

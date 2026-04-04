@@ -1,20 +1,7 @@
 use std::io::Write;
 
-use mint_cli::layout::used_values::NoopValueSink;
-
 #[path = "common/mod.rs"]
 mod common;
-
-fn build_block(
-    block: &mint_cli::layout::block::Block,
-    settings: &mint_cli::layout::settings::MintConfig,
-    strict: bool,
-    data_source: Option<&dyn mint_cli::data::DataSource>,
-) -> Result<(Vec<u8>, u32), mint_cli::layout::error::LayoutError> {
-    let mut noop = NoopValueSink;
-    let output = block.build_bytestream(data_source, settings, strict, &mut noop)?;
-    Ok((output.bytestream, output.padding_count))
-}
 
 #[test]
 fn lowercase_size_allows_padding() {
@@ -40,8 +27,8 @@ short_array = { value = [1, 2, 3], type = "u16", size = 10 }
     let cfg = mint_cli::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
     let block = cfg.blocks.get("block").expect("block present");
 
-    let (bytes, _padding) =
-        build_block(block, &cfg.mint, false, None).expect("lowercase size should allow padding");
+    let (bytes, _padding) = common::build_block(block, &cfg.mint, false, None)
+        .expect("lowercase size should allow padding");
 
     assert!(bytes.len() >= 20);
 }
@@ -70,7 +57,7 @@ short_array = { value = [1, 2, 3], type = "u16", SIZE = 10 }
     let cfg = mint_cli::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
     let block = cfg.blocks.get("block").expect("block present");
 
-    let res = build_block(block, &cfg.mint, false, None);
+    let res = common::build_block(block, &cfg.mint, false, None);
     assert!(res.is_err(), "SIZE should reject underfilled array");
     let err_msg = format!("{:?}", res.unwrap_err());
     assert!(err_msg.contains("smaller than defined size"));
@@ -107,7 +94,7 @@ matrix = { name = "CalibrationMatrix", type = "i16", SIZE = [5, 3] }
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
 
-    let res = build_block(block, &cfg.mint, false, ds.as_deref());
+    let res = common::build_block(block, &cfg.mint, false, ds.as_deref());
     assert!(res.is_err(), "SIZE should reject underfilled 2D array");
     let err_msg = format!("{:?}", res.unwrap_err());
     assert!(err_msg.contains("smaller than defined size"));
@@ -137,7 +124,7 @@ both = { value = [1, 2, 3], type = "u16", size = 5, SIZE = 10 }
     let cfg = mint_cli::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
     let block = cfg.blocks.get("block").expect("block present");
 
-    let res = build_block(block, &cfg.mint, false, None);
+    let res = common::build_block(block, &cfg.mint, false, None);
     assert!(res.is_err(), "Using both size and SIZE should error");
     let err_msg = format!("{:?}", res.unwrap_err());
     assert!(err_msg.contains("Use either 'size' or 'SIZE', not both"));
@@ -168,7 +155,7 @@ exact_array = { value = [1, 2, 3, 4, 5], type = "u16", SIZE = 5 }
     let block = cfg.blocks.get("block").expect("block present");
 
     let (bytes, _padding) =
-        build_block(block, &cfg.mint, false, None).expect("SIZE should accept exact match");
+        common::build_block(block, &cfg.mint, false, None).expect("SIZE should accept exact match");
 
     assert!(bytes.len() >= 10);
 }

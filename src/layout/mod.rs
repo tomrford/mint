@@ -57,86 +57,83 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
     Ok(cfg)
 }
 
+/// Abstraction over TOML/YAML map access for migration validation.
+trait MapAccess {
+    fn has_key(&self, key: &str) -> bool;
+    fn get_map(&self, key: &str) -> Option<&Self>;
+    /// Iterate top-level entries as `(key_name, value)` pairs.
+    fn entries(&self) -> Vec<(&str, &Self)>;
+}
+
+impl MapAccess for toml::Value {
+    fn has_key(&self, key: &str) -> bool {
+        self.as_table().is_some_and(|t| t.contains_key(key))
+    }
+    fn get_map(&self, key: &str) -> Option<&Self> {
+        self.as_table()?.get(key).filter(|v| v.is_table())
+    }
+    fn entries(&self) -> Vec<(&str, &Self)> {
+        self.as_table()
+            .map(|t| t.iter().map(|(k, v)| (k.as_str(), v)).collect())
+            .unwrap_or_default()
+    }
+}
+
+impl MapAccess for serde_yaml::Value {
+    fn has_key(&self, key: &str) -> bool {
+        self.as_mapping()
+            .is_some_and(|m| m.contains_key(serde_yaml::Value::String(key.to_string())))
+    }
+    fn get_map(&self, key: &str) -> Option<&Self> {
+        self.as_mapping()?
+            .get(serde_yaml::Value::String(key.to_string()))
+            .filter(|v| v.is_mapping())
+    }
+    fn entries(&self) -> Vec<(&str, &Self)> {
+        self.as_mapping()
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| Some((k.as_str()?, v)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
 // TODO: remove once deprecated `settings`, `mint.crc`, `header.crc`, and `crc_location`
 // keys are no longer in circulation.
 fn validate_removed_toml_keys(value: &toml::Value) -> Result<(), LayoutError> {
-    let Some(root) = value.as_table() else {
-        return Ok(());
-    };
-
-    if root.contains_key("settings") {
-        return Err(LayoutError::FileError(settings_removed_message()));
-    }
-
-    if let Some(mint) = root.get("mint").and_then(toml::Value::as_table)
-        && mint.contains_key("crc")
-    {
-        return Err(LayoutError::FileError(mint_crc_removed_message()));
-    }
-
-    for (block_name, block_value) in root {
-        if matches!(block_name.as_str(), "mint" | "settings") {
-            continue;
-        }
-        let Some(block) = block_value.as_table() else {
-            continue;
-        };
-        let Some(header) = block.get("header").and_then(toml::Value::as_table) else {
-            continue;
-        };
-        if header.contains_key("crc") {
-            return Err(LayoutError::FileError(header_crc_removed_message(
-                block_name,
-            )));
-        }
-        if header.contains_key("crc_location") {
-            return Err(LayoutError::FileError(crc_location_removed_message(
-                block_name,
-            )));
-        }
-    }
-
-    Ok(())
+    validate_removed_keys(value)
 }
 
-// TODO: remove once deprecated `settings`, `mint.crc`, `header.crc`, and `crc_location`
-// keys are no longer in circulation.
 fn validate_removed_yaml_keys(value: &serde_yaml::Value) -> Result<(), LayoutError> {
-    let Some(root) = value.as_mapping() else {
-        return Ok(());
-    };
+    validate_removed_keys(value)
+}
 
-    if yaml_mapping_get(root, "settings").is_some() {
+fn validate_removed_keys(root: &impl MapAccess) -> Result<(), LayoutError> {
+    if root.has_key("settings") {
         return Err(LayoutError::FileError(settings_removed_message()));
     }
 
-    if let Some(mint) = yaml_mapping_get(root, "mint").and_then(serde_yaml::Value::as_mapping)
-        && yaml_mapping_get(mint, "crc").is_some()
+    if let Some(mint) = root.get_map("mint")
+        && mint.has_key("crc")
     {
         return Err(LayoutError::FileError(mint_crc_removed_message()));
     }
 
-    for (key, block_value) in root {
-        let Some(block_name) = key.as_str() else {
-            continue;
-        };
+    for (block_name, block_value) in root.entries() {
         if matches!(block_name, "mint" | "settings") {
             continue;
         }
-        let Some(block) = block_value.as_mapping() else {
+        let Some(header) = block_value.get_map("header") else {
             continue;
         };
-        let Some(header) =
-            yaml_mapping_get(block, "header").and_then(serde_yaml::Value::as_mapping)
-        else {
-            continue;
-        };
-        if yaml_mapping_get(header, "crc").is_some() {
+        if header.has_key("crc") {
             return Err(LayoutError::FileError(header_crc_removed_message(
                 block_name,
             )));
         }
-        if yaml_mapping_get(header, "crc_location").is_some() {
+        if header.has_key("crc_location") {
             return Err(LayoutError::FileError(crc_location_removed_message(
                 block_name,
             )));
@@ -144,10 +141,6 @@ fn validate_removed_yaml_keys(value: &serde_yaml::Value) -> Result<(), LayoutErr
     }
 
     Ok(())
-}
-
-fn yaml_mapping_get<'a>(map: &'a serde_yaml::Mapping, key: &str) -> Option<&'a serde_yaml::Value> {
-    map.get(serde_yaml::Value::String(key.to_string()))
 }
 
 fn settings_removed_message() -> String {
