@@ -5,7 +5,7 @@ Layout files define memory blocks and their data fields. TOML is the canonical l
 ## Structure
 
 ```toml
-[settings]          # Global settings (required)
+[mint]              # Global configuration (required)
 # ...
 
 [blockname.header]  # Block header (required per block)
@@ -17,39 +17,32 @@ Layout files define memory blocks and their data fields. TOML is the canonical l
 
 ---
 
-## Settings
+## Mint Configuration
 
-Global settings apply to all blocks. The `[settings.crc]` section defines default CRC parameters used when a block's `[header.crc]` doesn't override them.
+Global configuration applies to all blocks. The `[mint.checksum]` section defines named checksum configurations that can be referenced by inline checksum fields in block data.
 
 ```toml
-[settings]
+[mint]
 endianness = "little"      # "little" (default) or "big"
 virtual_offset = 0x0       # Offset added to all addresses
 word_addressing = false    # Enable for word-addressed memory (see below)
 
-[settings.crc]             # Optional: only required if any block uses CRC
-location = "end_data"      # CRC placement: "end_data", "end_block" - absolute address is not allowed here as this is a global setting
+[mint.checksum.crc32]      # Named checksum config (can define multiple)
 polynomial = 0x04C11DB7    # CRC polynomial
 start = 0xFFFFFFFF         # Initial CRC value
 xor_out = 0xFFFFFFFF       # XOR applied to final CRC
 ref_in = true              # Reflect input bytes
 ref_out = true             # Reflect output CRC
-area = "data"              # CRC coverage: "data", "block_zero_crc", "block_pad_crc", or "block_omit_crc"
 ```
 
-**CRC Area Options:**
-
-- `data` - CRC covers only the data (padded to 4-byte alignment)
-- `block_zero_crc` - Pad to full block, zero CRC bytes before calculation
-- `block_pad_crc` - Pad to full block, include CRC bytes as padding value
-- `block_omit_crc` - Pad to full block, exclude CRC bytes from calculation
+Multiple named checksum configurations can be defined (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]`). Each is referenced by name in block data fields.
 
 **Word Addressing Mode:**
 
 When `word_addressing = true`:
 
 - Addresses in output are doubled (16-bit word addresses instead of byte addresses)
-- `start_address`, `length`, and absolute CRC `location` values are expressed in word addresses (16-bit units)
+- `start_address` and `length` values are expressed in word addresses (16-bit units)
 - Block length in bytes becomes `length * 2`
 - Byte pairs are swapped in the output to recreate the word-addressed byte order
 - `u8` and `i8` types are not allowed (strings also blocked)
@@ -59,37 +52,16 @@ When `word_addressing = true`:
 
 ## Block Header
 
-Each block requires a header section defining memory layout. CRC is configured per-header via the optional `[blockname.header.crc]` section.
+Each block requires a header section defining the memory region.
 
 ```toml
 [blockname.header]
 start_address = 0x8B000    # Start address in memory (required)
 length = 0x1000            # Block size in addresses (bytes unless word_addressing=true)
 padding = 0xFF             # Padding byte value (default: 0xFF)
-
-[blockname.header.crc]     # Optional: enables CRC for this block
-location = "end_data"      # CRC placement: "end_data", "end_block", or absolute address (optional)
-polynomial = 0x04C11DB7    # Override global polynomial (optional)
-start = 0xFFFFFFFF         # Override global start value (optional)
-xor_out = 0xFFFFFFFF       # Override global xor_out (optional)
-ref_in = true              # Override global ref_in (optional)
-ref_out = true             # Override global ref_out (optional)
-area = "data"              # Override global area (optional)
 ```
 
-**CRC Location Options:**
-
-- `"end_data"` - Append CRC as u32 after data (4-byte aligned - designed such that it lands in a u32 placed at the end of the struct that you're building in flash. Note that the CRC for this setting if the area is set to 'data' will include any padding up to the alignment of the CRC itself.)
-- `"end_block"` - CRC in final 4 bytes of block
-- `0x8BFF0` - Absolute address for CRC placement - must be within the block
-
-Absolute CRC addresses use the same address units as `start_address` (word addresses when `word_addressing = true`).
-
-To disable CRC for a block, simply omit the `[header.crc]` section.
-
-**Per-Header CRC Overrides:**
-
-Each header can override any CRC parameter from `[settings.crc]`. If a parameter is not specified in the header, the global value is used. If no global value exists and the header doesn't specify the value, an error occurs.
+---
 
 ## Block Data
 
@@ -100,10 +72,11 @@ Data fields are key-value pairs where the key is a dotted path (matching C struc
 | Attribute     | Description                                                                   |
 | ------------- | ----------------------------------------------------------------------------- |
 | `type`        | Data type (required)                                                          |
-| `value`       | Literal value (mutually exclusive with `name`, `bitmap`, `ref`)               |
-| `name`        | Data source lookup key (mutually exclusive with `value`, `bitmap`, `ref`)     |
+| `value`       | Literal value (mutually exclusive with `name`, `bitmap`, `ref`, `checksum`)   |
+| `name`        | Data source lookup key (mutually exclusive with `value`, `bitmap`, `ref`, `checksum`) |
 | `bitmap`      | Bitmap field definitions (see below)                                          |
 | `ref`         | Pointer to another field in the same block (see below)                        |
+| `checksum`    | Inline checksum referencing a named config (see below)                        |
 | `size`/`SIZE` | Array size; `size` pads if data is shorter, `SIZE` errors if data is shorter. |
 
 ---
@@ -190,51 +163,82 @@ count_ptr = { ref = "table.count", type = "u32" }
 
 **Ref rules:**
 
-- `ref` is mutually exclusive with `name`, `value`, and `bitmap`
+- `ref` is mutually exclusive with `name`, `value`, `bitmap`, and `checksum`
 - `type` must be an integer type (`u16`, `u32`, `u64`, `i16`, `i32`, `i64`)
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
 - The resolved address is `start_address + virtual_offset + target_offset` (with word-addressing multipliers applied when `word_addressing = true`)
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
 
----
+### Checksums
 
-## Multiple Blocks
-
-A single layout file can define multiple blocks:
+An inline `checksum` field computes a CRC over all preceding data in the block and places the result at the field's position. The checksum value references a named configuration from `[mint.checksum]`.
 
 ```toml
-[settings]
-endianness = "little"
-
-[settings.crc]
+[mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
-area = "data"
+
+[block.data]
+device.id = { value = 0x1234, type = "u32" }
+device.name = { name = "DeviceName", type = "u8", size = 16 }
+version = { name = "Version", type = "u16" }
+checksum = { checksum = "crc32", type = "u32" }
+```
+
+The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself. The checksum is computed after all other fields (including refs) are resolved.
+
+**Checksum rules:**
+
+- `checksum` is mutually exclusive with `name`, `value`, `bitmap`, and `ref`
+- `type` must be `u32` (matching CRC-32 output width)
+- `size`/`SIZE` cannot be used with `checksum`
+- Only one checksum per block is allowed
+- The referenced config name must exist in `[mint.checksum]`
+- For more complex checksum operations (cross-block CRC, multiple checksums, non-CRC algorithms), use a dedicated hex post-processing tool
+
+---
+
+## Multiple Blocks
+
+A single layout file can define multiple blocks, each with its own checksum configuration:
+
+```toml
+[mint]
+endianness = "little"
+
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+
+[mint.checksum.crc32c]
+polynomial = 0x1EDC6F41
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
 
 [config.header]
 start_address = 0x8000
 length = 0x1000
 
-[config.header.crc]
-location = "end_data"
-
 [config.data]
 version = { value = 1, type = "u16" }
+checksum = { checksum = "crc32", type = "u32" }
 
 [calibration.header]
 start_address = 0x9000
 length = 0x1000
 
-[calibration.header.crc]
-location = "end_data"
-polynomial = 0x1EDC6F41    # Different CRC polynomial for this block
-
 [calibration.data]
 coefficients = { name = "Coefficients", type = "f32", size = 16 }
+checksum = { checksum = "crc32c", type = "u32" }
 ```
 
 Build specific blocks with `file.toml#blockname` syntax:

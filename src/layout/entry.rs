@@ -1,6 +1,7 @@
 use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
+use super::settings::MintConfig;
 use super::used_values::{
     ValueSink, array_2d_to_json, array_to_json, data_value_to_json, i128_to_json,
 };
@@ -86,6 +87,8 @@ pub enum EntrySource {
     Bitmap(Vec<BitmapField>),
     #[serde(rename = "ref")]
     Ref(String),
+    #[serde(rename = "checksum")]
+    Checksum(String),
 }
 
 /// Single bitmap field within a bitmap entry.
@@ -151,6 +154,12 @@ impl LeafEntry {
             ));
         }
 
+        if let EntrySource::Checksum(_) = &self.source {
+            return Err(LayoutError::DataValueExportFailed(
+                "Checksum entries are resolved in a fixup pass, not via emit_bytes.".into(),
+            ));
+        }
+
         if let EntrySource::Bitmap(fields) = &self.source {
             self.validate_bitmap(fields)?;
             return self.emit_bitmap(fields, data_source, config, value_sink, field_path);
@@ -194,6 +203,45 @@ impl LeafEntry {
             return Err(LayoutError::DataValueExportFailed(
                 "Ref target path must not be empty.".into(),
             ));
+        }
+        Ok(())
+    }
+
+    /// Validates checksum entry rules.
+    pub fn validate_checksum(
+        &self,
+        config_name: &str,
+        settings: &MintConfig,
+    ) -> Result<(), LayoutError> {
+        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
+            return Err(LayoutError::DataValueExportFailed(
+                "size/SIZE keys are forbidden with checksum.".into(),
+            ));
+        }
+        if config_name.is_empty() {
+            return Err(LayoutError::DataValueExportFailed(
+                "Checksum config name must not be empty.".into(),
+            ));
+        }
+        if !settings.checksum.contains_key(config_name) {
+            let available = settings
+                .checksum
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(LayoutError::DataValueExportFailed(format!(
+                "Checksum config '{}' not found in [mint.checksum]. Available: [{}]",
+                config_name, available
+            )));
+        }
+        // Validate type matches CRC output width (4 bytes for CRC-32)
+        if self.scalar_type.size_bytes() != 4 {
+            return Err(LayoutError::DataValueExportFailed(format!(
+                "Checksum type must be u32 (4 bytes), got {} ({} bytes).",
+                self.scalar_type.name(),
+                self.scalar_type.size_bytes()
+            )));
         }
         Ok(())
     }
@@ -291,6 +339,7 @@ impl LeafEntry {
             )),
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
+            EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
         }
     }
 
@@ -358,6 +407,7 @@ impl LeafEntry {
             }
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
+            EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
         }
 
         if out.len() > total_bytes {
@@ -453,6 +503,7 @@ impl LeafEntry {
             )),
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
+            EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
         }
     }
 }
@@ -478,6 +529,22 @@ impl ScalarType {
     /// Returns true if this is an integer type (not floating-point).
     pub fn is_integer(&self) -> bool {
         !matches!(self, ScalarType::F32 | ScalarType::F64)
+    }
+
+    /// Returns the type name as a string.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ScalarType::U8 => "u8",
+            ScalarType::U16 => "u16",
+            ScalarType::U32 => "u32",
+            ScalarType::U64 => "u64",
+            ScalarType::I8 => "i8",
+            ScalarType::I16 => "i16",
+            ScalarType::I32 => "i32",
+            ScalarType::I64 => "i64",
+            ScalarType::F32 => "f32",
+            ScalarType::F64 => "f64",
+        }
     }
 
     /// Returns true if this is a signed type.

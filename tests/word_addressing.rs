@@ -11,7 +11,7 @@ mod common;
 #[test]
 fn word_addressing_doubles_addresses_and_swaps_bytes() {
     let layout = r#"
-[settings]
+[mint]
 endianness = "little"
 word_addressing = true
 
@@ -73,7 +73,7 @@ val2 = { value = 0x5678, type = "u16" }
 #[test]
 fn word_addressing_length_is_in_words() {
     let layout = r#"
-[settings]
+[mint]
 endianness = "little"
 word_addressing = true
 
@@ -116,32 +116,29 @@ val2 = { value = 0x5678, type = "u16" }
     );
 }
 
-/// Verifies that word_addressing with CRC also doubles the CRC address.
+/// Verifies that word_addressing with inline checksum builds successfully.
 #[test]
-fn word_addressing_doubles_crc_address() {
+fn word_addressing_with_checksum() {
     let layout = r#"
-[settings]
+[mint]
 endianness = "little"
 word_addressing = true
 
-[settings.crc]
+[mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
-area = "data"
 
 [block.header]
 start_address = 0x1000
 length = 0x20
 padding = 0xFF
 
-[block.header.crc]
-location = "end_data"
-
 [block.data]
 val = { value = 0xABCD, type = "u16" }
+checksum = { checksum = "crc32", type = "u32" }
 "#;
 
     let path = common::write_layout_file("word_addr_crc", layout);
@@ -176,7 +173,7 @@ val = { value = 0xABCD, type = "u16" }
 #[test]
 fn word_addressing_rejects_u8_type() {
     let layout = r#"
-[settings]
+[mint]
 endianness = "little"
 word_addressing = true
 
@@ -225,7 +222,7 @@ byte_val = { value = 42, type = "u8" }
 #[test]
 fn word_addressing_rejects_strings() {
     let layout = r#"
-[settings]
+[mint]
 endianness = "little"
 word_addressing = true
 
@@ -268,10 +265,12 @@ text = { value = "HELLO", type = "u8", size = 8 }
 #[test]
 fn word_addressing_virtual_offset_not_doubled() {
     let layout = r#"
-[settings]
+[mint]
 endianness = "little"
 word_addressing = true
 virtual_offset = 0x100
+
+
 
 [block.header]
 start_address = 0x1000

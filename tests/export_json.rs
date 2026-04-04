@@ -13,7 +13,7 @@ fn export_json_uses_nested_block_data() {
     common::ensure_out_dir();
 
     let layout = r#"
-[settings]
+[mint]
 endianness = "little"
 
 [config.header]

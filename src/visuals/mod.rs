@@ -49,7 +49,6 @@ pub fn print_detailed(stats: &BuildStats) {
             Cell::new("Address Range").add_attribute(Attribute::Bold),
             Cell::new("Used/Alloc").add_attribute(Attribute::Bold),
             Cell::new("Efficiency").add_attribute(Attribute::Bold),
-            Cell::new("CRC Value").add_attribute(Attribute::Bold),
         ]);
 
     for block in &stats.block_stats {
@@ -65,10 +64,6 @@ pub fn print_detailed(stats: &BuildStats) {
                 format_bytes(block.allocated_size as usize)
             )),
             Cell::new(format_efficiency(block.used_size, block.allocated_size)),
-            Cell::new(match block.crc_value {
-                Some(v) => format!("0x{:08X}", v),
-                None => "N/A".to_string(),
-            }),
         ]);
     }
 
