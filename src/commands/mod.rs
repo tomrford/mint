@@ -8,7 +8,6 @@ use crate::layout;
 use crate::layout::args::BlockNames;
 use crate::layout::block::Config;
 use crate::layout::error::LayoutError;
-use crate::layout::settings::Endianness;
 use crate::layout::used_values::{NoopValueSink, ValueCollector};
 use crate::output;
 use crate::output::error::OutputError;
@@ -123,24 +122,21 @@ fn build_single_bytestream(
             &mut noop as &mut dyn crate::layout::used_values::ValueSink
         };
 
-        let (bytestream, padding_bytes) =
-            block.build_bytestream(data_source, &layout.settings, strict, value_sink)?;
+        let build_output = block.build_bytestream(data_source, &layout.mint, strict, value_sink)?;
 
         let data_range = output::bytestream_to_datarange(
-            bytestream,
+            build_output.bytestream,
             &block.header,
-            &layout.settings,
-            padding_bytes,
+            &layout.mint,
+            build_output.padding_count,
         )?;
-
-        let crc_value = extract_crc_value(&data_range.crc_bytestream, &layout.settings.endianness);
 
         let stat = BlockStat {
             name: resolved.name.clone(),
             start_address: data_range.start_address,
             allocated_size: data_range.allocated_size,
             used_size: data_range.used_size,
-            crc_value,
+            checksum_values: build_output.checksum_values,
         };
 
         Ok(BlockBuildResult {
@@ -159,17 +155,6 @@ fn build_single_bytestream(
         block_name: resolved.name.clone(),
         layout_file: resolved.file.clone(),
         source: Box::new(e),
-    })
-}
-
-fn extract_crc_value(crc_bytestream: &[u8], endianness: &Endianness) -> Option<u32> {
-    if crc_bytestream.len() < 4 {
-        return None;
-    }
-    let bytes: [u8; 4] = crc_bytestream[..4].try_into().ok()?;
-    Some(match endianness {
-        Endianness::Big => u32::from_be_bytes(bytes),
-        Endianness::Little => u32::from_le_bytes(bytes),
     })
 }
 

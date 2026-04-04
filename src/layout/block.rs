@@ -1,10 +1,11 @@
-use super::entry::{EntrySource, LeafEntry};
+use super::entry::{EntrySource, LeafEntry, ScalarType};
 use super::error::LayoutError;
 use super::header::Header;
-use super::settings::{Endianness, Settings};
+use super::settings::{Endianness, MintConfig};
 use super::used_values::ValueSink;
 use super::value::DataValue;
 use crate::data::DataSource;
+use crate::output::{byte_swap_inplace, checksum};
 
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -17,8 +18,20 @@ struct PendingRef {
     /// The dotted field path of the target being referenced.
     target_path: String,
     /// Scalar type for encoding the resolved address.
-    scalar_type: super::entry::ScalarType,
+    scalar_type: ScalarType,
     /// Field path of the ref entry itself (for value_sink and error messages).
+    field_path: Vec<String>,
+}
+
+/// A checksum that needs to be resolved after the main traversal pass.
+struct PendingChecksum {
+    /// Position in the output buffer where placeholder bytes were written.
+    buffer_position: usize,
+    /// Scalar type for encoding the checksum value.
+    scalar_type: ScalarType,
+    /// Name of the checksum config in `[mint.checksum]`.
+    config_name: String,
+    /// Field path of the checksum entry (for value_sink and error messages).
     field_path: Vec<String>,
 }
 
@@ -31,6 +44,10 @@ struct BuildState {
     known_offsets: HashMap<String, usize>,
     /// Refs whose targets may not yet be known; resolved after traversal.
     pending_refs: Vec<PendingRef>,
+    /// Checksums to compute after the bytestream is fully built.
+    pending_checksums: Vec<PendingChecksum>,
+    /// Resolved checksum values in field-order for stats/visualization.
+    resolved_checksum_values: Vec<u32>,
 }
 
 /// Immutable configuration for bytestream building
@@ -41,9 +58,15 @@ pub struct BuildConfig<'a> {
     pub word_addressing: bool,
 }
 
+pub struct BuildOutput {
+    pub bytestream: Vec<u8>,
+    pub padding_count: u32,
+    pub checksum_values: Vec<u32>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub settings: Settings,
+    pub mint: MintConfig,
     #[serde(flatten)]
     pub blocks: IndexMap<String, Block>,
 }
@@ -67,16 +90,18 @@ impl Block {
     pub fn build_bytestream(
         &self,
         data_source: Option<&dyn DataSource>,
-        settings: &Settings,
+        settings: &MintConfig,
         strict: bool,
         value_sink: &mut dyn ValueSink,
-    ) -> Result<(Vec<u8>, u32), LayoutError> {
+    ) -> Result<BuildOutput, LayoutError> {
         let mut state = BuildState {
             buffer: Vec::with_capacity((self.header.length as usize).min(64 * 1024)),
             offset: 0,
             padding_count: 0,
             known_offsets: HashMap::new(),
             pending_refs: Vec::new(),
+            pending_checksums: Vec::new(),
+            resolved_checksum_values: Vec::new(),
         };
         let config = BuildConfig {
             endianness: &settings.endianness,
@@ -89,6 +114,7 @@ impl Block {
         let _ = Self::build_bytestream_inner(
             &self.data,
             data_source,
+            settings,
             &mut state,
             &config,
             value_sink,
@@ -106,7 +132,16 @@ impl Block {
             )?;
         }
 
-        Ok((state.buffer, state.padding_count))
+        // Resolve pending checksums now that the bytestream is complete.
+        if !state.pending_checksums.is_empty() {
+            Self::resolve_pending_checksums(&mut state, settings, &config, value_sink)?;
+        }
+
+        Ok(BuildOutput {
+            bytestream: state.buffer,
+            padding_count: state.padding_count,
+            checksum_values: state.resolved_checksum_values,
+        })
     }
 
     /// Recursively builds the bytestream. Returns the byte offset of the
@@ -115,6 +150,7 @@ impl Block {
     fn build_bytestream_inner(
         table: &Entry,
         data_source: Option<&dyn DataSource>,
+        settings: &MintConfig,
         state: &mut BuildState,
         config: &BuildConfig,
         value_sink: &mut dyn ValueSink,
@@ -133,10 +169,7 @@ impl Block {
 
                 if let EntrySource::Ref(target) = &leaf.source {
                     if config.word_addressing
-                        && matches!(
-                            leaf.scalar_type,
-                            super::entry::ScalarType::U8 | super::entry::ScalarType::I8
-                        )
+                        && matches!(leaf.scalar_type, ScalarType::U8 | ScalarType::I8)
                     {
                         return Err(LayoutError::DataValueExportFailed(
                             "u8/i8 types are not supported with word_addressing enabled.".into(),
@@ -148,6 +181,20 @@ impl Block {
                         buffer_position: state.buffer.len(),
                         target_path: target.clone(),
                         scalar_type: leaf.scalar_type,
+                        field_path: field_path.clone(),
+                    });
+                    state.buffer.extend(std::iter::repeat_n(0u8, size));
+                    state.offset += size;
+                    return Ok(leaf_offset);
+                }
+
+                if let EntrySource::Checksum(config_name) = &leaf.source {
+                    leaf.validate_checksum(config_name, settings)?;
+                    let size = leaf.scalar_type.size_bytes();
+                    state.pending_checksums.push(PendingChecksum {
+                        buffer_position: state.buffer.len(),
+                        scalar_type: leaf.scalar_type,
+                        config_name: config_name.clone(),
                         field_path: field_path.clone(),
                     });
                     state.buffer.extend(std::iter::repeat_n(0u8, size));
@@ -181,6 +228,7 @@ impl Block {
                     let offset = Self::build_bytestream_inner(
                         v,
                         data_source,
+                        settings,
                         state,
                         config,
                         value_sink,
@@ -258,6 +306,52 @@ impl Block {
                 &pending.field_path,
                 serde_json::Value::Number(serde_json::Number::from(address as u64)),
             )?;
+        }
+        Ok(())
+    }
+
+    /// Resolves all pending checksums by computing CRC over the buffer and patching in the result.
+    fn resolve_pending_checksums(
+        state: &mut BuildState,
+        settings: &MintConfig,
+        config: &BuildConfig,
+        value_sink: &mut dyn ValueSink,
+    ) -> Result<(), LayoutError> {
+        for pending in &state.pending_checksums {
+            let crc_config = settings.checksum.get(&pending.config_name).ok_or_else(|| {
+                LayoutError::DataValueExportFailed(format!(
+                    "Checksum config '{}' not found in [mint.checksum].",
+                    pending.config_name
+                ))
+            })?;
+
+            // CRC covers all bytes from block data start up to (exclusive) this field.
+            // In word-addressing mode, compute against the final flashed byte order.
+            let crc_val = if config.word_addressing {
+                let mut swapped = state.buffer[..pending.buffer_position].to_vec();
+                byte_swap_inplace(&mut swapped);
+                checksum::calculate_crc(&swapped, crc_config)
+            } else {
+                checksum::calculate_crc(&state.buffer[..pending.buffer_position], crc_config)
+            };
+
+            // Convert CRC to bytes with proper endianness.
+            let crc_bytes = match config.endianness {
+                Endianness::Big => crc_val.to_be_bytes(),
+                Endianness::Little => crc_val.to_le_bytes(),
+            };
+
+            // Patch the placeholder bytes in the buffer.
+            let size = pending.scalar_type.size_bytes();
+            state.buffer[pending.buffer_position..pending.buffer_position + size]
+                .copy_from_slice(&crc_bytes[..size]);
+
+            // Record the resolved value in value_sink.
+            value_sink.record_value(
+                &pending.field_path,
+                serde_json::Value::Number(serde_json::Number::from(crc_val as u64)),
+            )?;
+            state.resolved_checksum_values.push(crc_val);
         }
         Ok(())
     }

@@ -9,7 +9,7 @@ mod common;
 
 // This integration test exercises:
 // - Big endian vs little endian
-// - CRC at end and at explicit address
+// - Inline checksums in different field layouts
 // - record width variations (16 and 64)
 // - Output formats HEX and MOT (SREC address length auto-selection)
 // - virtual_offset changing start addresses
@@ -20,56 +20,49 @@ mod common;
 fn mixed_feature_matrix() {
     // Build two layouts to cover multiple settings
     let layout_be_pad_addr = r#"
-[settings]
+[mint]
 endianness = "big"
-virtual_offset = 0
 
-[settings.crc]
+[mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
-area = "data"
 
 [block.header]
 start_address = 0x10000
 length = 0x80
 padding = 0xAA
 
-[block.header.crc]
-location = 0x10060
-
 [block.data]
 nums.u16_be = { value = [1, 2, 3, 4], type = "u16", size = 4 }
 txt.ascii = { value = "HELLO", type = "u8", size = 8 }
 single.i32 = { value = 42, type = "i32" }
+checksum = { checksum = "crc32", type = "u32" }
 "#;
 
     let layout_le_end = r#"
-[settings]
+[mint]
 endianness = "little"
 virtual_offset = 0x20000
 
-[settings.crc]
+[mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
-area = "data"
 
 [block.header]
 start_address = 0x90000
 length = 0x40
 padding = 0x00
 
-[block.header.crc]
-location = "end_data"
-
 [block.data]
 arr.f32 = { value = [1.0, 2.5], type = "f32", size = 2 }
 arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
+checksum = { checksum = "crc32", type = "u32" }
 "#;
 
     // write layouts
@@ -84,7 +77,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
     };
     let ds = mint_cli::data::create_data_source(&data_args).expect("datasource loads");
 
-    // Case 1: Big endian, CRC at explicit address, HEX with width 64
+    // Case 1: Big endian, inline checksum, HEX with width 64
     let args_be_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
@@ -107,7 +100,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
     commands::build(&args_be_hex, ds.as_deref()).expect("be-hex");
     assert!(std::path::Path::new("out/mix_a.hex").exists());
 
-    // Case 2: Big endian, explicit CRC, MOT with width 16
+    // Case 2: Big endian, inline checksum, MOT with width 16
     let args_be_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
@@ -130,7 +123,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
     commands::build(&args_be_mot, ds.as_deref()).expect("be-mot");
     assert!(std::path::Path::new("out/mix_b.mot").exists());
 
-    // Case 3: Little endian, CRC at end, HEX width 16, virtual_offset applied
+    // Case 3: Little endian, inline checksum, HEX width 16, virtual_offset applied
     let args_le_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
@@ -153,7 +146,7 @@ arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
     commands::build(&args_le_hex, ds.as_deref()).expect("le-hex");
     assert!(std::path::Path::new("out/mix_c.hex").exists());
 
-    // Case 4: Little endian, CRC at end, MOT width 64
+    // Case 4: Little endian, inline checksum, MOT width 64
     let args_le_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {

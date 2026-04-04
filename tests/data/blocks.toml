@@ -5,17 +5,16 @@
 #   - simple_block: inline values only (no Excel needed)
 #   - pg_block: compatible with both JSON and Excel data sources
 
-[settings]
+[mint]
 endianness = "little"
 virtual_offset = 0x0
 
-[settings.crc]
+[mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
-area = "data"
 
 # =============================================================================
 # block - main test block with Excel data references
@@ -24,9 +23,6 @@ area = "data"
 start_address = 0x8B000
 length = 0x1000
 padding = 0xC0
-
-[block.header.crc]
-location = "end_data"
 
 [block.data]
 # Literal numeric value
@@ -69,15 +65,15 @@ nested.complex.level1.level2.level3.array1d = { value = [
 # Arrays-of-structs as 2D arrays
 structs.astruct_array = { name = "AStructs", type = "f32", size = [10, 2] }
 
+# Inline checksum
+checksum = { checksum = "crc32", type = "u32" }
+
 # =============================================================================
 # block2 - secondary test block
 # =============================================================================
 [block2.header]
 start_address = 0x8C000
 length = 0x1000
-
-[block2.header.crc]
-location = 0x8CFF0
 
 [block2.data]
 # 2D array of u16 read from Excel sheet referenced by the Main sheet value
@@ -86,6 +82,8 @@ another.struct.value = { name = "Array", type = "u16", size = [10, 2] }
 another.struct.arr = { value = [2, 2], type = "u16", size = 2 }
 # String from Excel (or sheet name for byte array)
 another.struct.description = { name = "Block2Description", type = "u8", size = 32 }
+# Inline checksum
+checksum = { checksum = "crc32", type = "u32" }
 
 # =============================================================================
 # block3 - wider and signed types
@@ -94,15 +92,14 @@ another.struct.description = { name = "Block2Description", type = "u8", size = 3
 start_address = 0x8D000
 length = 0x1000
 
-[block3.header.crc]
-location = 0x8DFF0
-
 [block3.data]
 counters.boot_count = { name = "BootCount", type = "u64" }
 limits.temperature_min = { name = "TemperatureMin", type = "i16" }
 limits.temperature_max = { name = "TemperatureMax", type = "i16" }
 thresholds.voltage = { name = "VoltageThresholds", type = "f32", size = 4 }
 dlegal.notice = { name = "LegalNotice", type = "u8", size = 128 }
+# Inline checksum
+checksum = { checksum = "crc32", type = "u32" }
 
 # =============================================================================
 # block_bitmap - bitmap field tests
@@ -110,9 +107,6 @@ dlegal.notice = { name = "LegalNotice", type = "u8", size = 128 }
 [block_bitmap.header]
 start_address = 0x8E000
 length = 0x100
-
-[block_bitmap.header.crc]
-location = "end_data"
 
 [block_bitmap.data]
 # Normal scalar before bitmaps
@@ -141,6 +135,8 @@ hw.status = { type = "u32", bitmap = [
 # Normal scalars after bitmaps
 suffix.checkval = { name = "BitmapCheckVal", type = "u32" }
 suffix.trailer = { value = 0xCAFE, type = "u16" }
+# Inline checksum
+checksum = { checksum = "crc32", type = "u32" }
 
 # =============================================================================
 # simple_block - all inline values, no Excel dependency
@@ -149,9 +145,6 @@ suffix.trailer = { value = 0xCAFE, type = "u16" }
 start_address = 0x8000
 length = 0x100
 padding = 0xFF
-
-[simple_block.header.crc]
-location = "end_data"
 
 [simple_block.data]
 device.id = { value = 0x1234, type = "u32" }
@@ -162,6 +155,7 @@ network.ip = { value = [192, 168, 1, 100], type = "u8", size = 4 }
 constants.pi = { value = 3.14159, type = "f32" }
 array.values = { value = [10, 20, 30, 40, 50], type = "u16", size = 5 }
 magic = { value = 0xDEADBEEF, type = "u32" }
+checksum = { checksum = "crc32", type = "u32" }
 
 # =============================================================================
 # pg_block - JSON/Excel interchangeable block
@@ -172,11 +166,9 @@ start_address = 0x1000
 length = 0x100
 padding = 0xFF
 
-[pg_block.header.crc]
-location = "end_data"
-
 [pg_block.data]
 # Values available in both JSON and Excel
 limits.temperature_max = { name = "TemperatureMax", type = "i16" }
 config.value2 = { name = "Value 2", type = "u32" }
 config.enabled = { name = "boolean", type = "u8" }
+checksum = { checksum = "crc32", type = "u32" }

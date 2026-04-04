@@ -1,23 +1,19 @@
 # Example layout file demonstrating all features.
 # See blocks.h for corresponding C struct.
 
-[settings]
+[mint]
 endianness = "little"
 
-[settings.crc]
+[mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
-area = "data"
 
 [config.header]
 start_address = 0x8000
 length = 0x100
-
-[config.header.crc]
-location = "end_data"
 
 [config.data]
 # Literal scalar
@@ -37,13 +33,12 @@ flags = { type = "u16", bitmap = [
 coefficients = { name = "Coefficients", type = "f32", size = 4 }
 # 2D array (e.g., 2x2 matrix)
 matrix = { name = "Matrix", type = "i16", size = [2, 2] }
+# Inline checksum over all preceding data
+checksum = { checksum = "crc32", type = "u32" }
 
 [data.header]
 start_address = 0x8100
 length = 0x100
-
-[data.header.crc]
-location = 0x81F0
 
 [data.data]
 # Scalar from data source
@@ -52,3 +47,5 @@ counter = { name = "Counter", type = "u64" }
 message = { value = "Hello", type = "u8", size = 16 }
 # Literal 1D array
 ip = { value = [192, 168, 1, 1], type = "u8", size = 4 }
+# Checksum placed inline after data
+checksum = { checksum = "crc32", type = "u32" }

@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use mint_cli::layout::used_values::NoopValueSink;
-
 #[path = "common/mod.rs"]
 mod common;
 
@@ -10,22 +8,12 @@ fn strict_conversions_success() {
     common::ensure_out_dir();
 
     let layout_toml = r#"
-[settings]
+[mint]
 endianness = "little"
-virtual_offset = 0
-
-[settings.crc]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-area = "data"
 
 [block.header]
 start_address = 0x80000
 length = 0x100
-crc_location = "end"
 padding = 0x00
 
 [block.data]
@@ -47,9 +35,7 @@ ok.int_exact_to_f32   = { value = 16777216, type = "f32" }
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
 
-    let mut noop = NoopValueSink;
-    let (bytes, _padding) = block
-        .build_bytestream(ds.as_deref(), &cfg.settings, true, &mut noop)
+    let (bytes, _) = common::build_block(block, &cfg.mint, true, ds.as_deref())
         .expect("strict conversions should succeed");
     assert!(!bytes.is_empty());
 }
@@ -59,22 +45,12 @@ fn strict_conversions_fail_fractional_float_to_int() {
     common::ensure_out_dir();
 
     let layout_toml = r#"
-[settings]
+[mint]
 endianness = "little"
-virtual_offset = 0
-
-[settings.crc]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-area = "data"
 
 [block.header]
 start_address = 0x80000
 length = 0x100
-crc_location = "end"
 padding = 0x00
 
 [block.data]
@@ -95,8 +71,7 @@ bad.frac_to_u8 = { value = 1.5, type = "u8" }
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
 
-    let mut noop = NoopValueSink;
-    let res = block.build_bytestream(ds.as_deref(), &cfg.settings, true, &mut noop);
+    let res = common::build_block(block, &cfg.mint, true, ds.as_deref());
     assert!(
         res.is_err(),
         "strict mode should reject fractional float to int"
@@ -108,22 +83,12 @@ fn strict_conversions_fail_large_int_to_f64_lossy() {
     common::ensure_out_dir();
 
     let layout_toml = r#"
-[settings]
+[mint]
 endianness = "little"
-virtual_offset = 0
-
-[settings.crc]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-area = "data"
 
 [block.header]
 start_address = 0x80000
 length = 0x100
-crc_location = "end"
 padding = 0x00
 
 [block.data]
@@ -144,8 +109,7 @@ bad.large_int_to_f64 = { value = 9007199254740993, type = "f64" }
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
 
-    let mut noop = NoopValueSink;
-    let res = block.build_bytestream(ds.as_deref(), &cfg.settings, true, &mut noop);
+    let res = common::build_block(block, &cfg.mint, true, ds.as_deref());
     assert!(
         res.is_err(),
         "strict mode should reject lossy int to f64 conversion"
@@ -157,22 +121,12 @@ fn strict_conversions_accept_bool_literals() {
     common::ensure_out_dir();
 
     let layout_toml = r#"
-[settings]
+[mint]
 endianness = "little"
-virtual_offset = 0
-
-[settings.crc]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-area = "data"
 
 [block.header]
 start_address = 0x80000
 length = 0x100
-crc_location = "end"
 padding = 0x00
 
 [block.data]
@@ -188,10 +142,8 @@ bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
     let cfg = mint_cli::layout::load_layout(path.to_str().unwrap()).expect("parse bool layout");
     let block = cfg.blocks.get("block").expect("block present");
 
-    let mut noop = NoopValueSink;
-    let (bytes, _padding) = block
-        .build_bytestream(None, &cfg.settings, true, &mut noop)
-        .expect("bool literals convert");
+    let (bytes, _) =
+        common::build_block(block, &cfg.mint, true, None).expect("bool literals convert");
     assert!(
         bytes.starts_with(&[1, 0, 1, 0, 1]),
         "bool values should map to 0/1, got {:?}",

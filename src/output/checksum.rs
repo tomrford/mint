@@ -1,14 +1,12 @@
-use crate::layout::settings::CrcConfig;
+use crate::layout::settings::ChecksumConfig;
 
-/// Hand-rolled CRC32 calculation matching the crc crate's NoTable implementation.
-/// This removes the need for static state and allows each block to use its own CRC settings.
-/// Assumes `crc_settings.is_complete()` has been verified.
-pub fn calculate_crc(data: &[u8], crc_settings: &CrcConfig) -> u32 {
-    let polynomial = crc_settings.polynomial.unwrap();
-    let start = crc_settings.start.unwrap();
-    let xor_out = crc_settings.xor_out.unwrap();
-    let ref_in = crc_settings.ref_in.unwrap();
-    let ref_out = crc_settings.ref_out.unwrap();
+/// Computes CRC-32 with configurable polynomial, initial value, reflection, and XOR-out.
+pub fn calculate_crc(data: &[u8], crc_settings: &ChecksumConfig) -> u32 {
+    let polynomial = crc_settings.polynomial;
+    let start = crc_settings.start;
+    let xor_out = crc_settings.xor_out;
+    let ref_in = crc_settings.ref_in;
+    let ref_out = crc_settings.ref_out;
 
     // Initialize CRC based on ref_in
     let mut crc = if ref_in { start.reverse_bits() } else { start };
@@ -58,17 +56,14 @@ pub fn calculate_crc(data: &[u8], crc_settings: &CrcConfig) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::settings::CrcArea;
 
-    fn standard_crc_config() -> CrcConfig {
-        CrcConfig {
-            location: None,
-            polynomial: Some(0x04C11DB7),
-            start: Some(0xFFFF_FFFF),
-            xor_out: Some(0xFFFF_FFFF),
-            ref_in: Some(true),
-            ref_out: Some(true),
-            area: Some(CrcArea::Data),
+    fn standard_crc_config() -> ChecksumConfig {
+        ChecksumConfig {
+            polynomial: 0x04C11DB7,
+            start: 0xFFFF_FFFF,
+            xor_out: 0xFFFF_FFFF,
+            ref_in: true,
+            ref_out: true,
         }
     }
 
@@ -93,14 +88,12 @@ mod tests {
 
     #[test]
     fn test_crc32_mpeg2_non_reflected_vector() {
-        let crc_settings = CrcConfig {
-            location: None,
-            polynomial: Some(0x04C11DB7),
-            start: Some(0xFFFF_FFFF),
-            xor_out: Some(0x0000_0000),
-            ref_in: Some(false),
-            ref_out: Some(false),
-            area: Some(CrcArea::Data),
+        let crc_settings = ChecksumConfig {
+            polynomial: 0x04C11DB7,
+            start: 0xFFFF_FFFF,
+            xor_out: 0x0000_0000,
+            ref_in: false,
+            ref_out: false,
         };
 
         // CRC-32/MPEG-2 parameters (non-reflected) over "123456789" should produce 0x0376E6E7

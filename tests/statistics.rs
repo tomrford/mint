@@ -30,6 +30,7 @@ fn test_block_stat_collection() {
     assert!(block_stat.allocated_size > 0);
     assert!(block_stat.used_size > 0);
     assert!(block_stat.used_size <= block_stat.allocated_size);
+    assert_eq!(block_stat.checksum_values.len(), 1);
 }
 
 #[test]
@@ -92,7 +93,7 @@ fn test_space_efficiency_calculation() {
         start_address: 0x1000,
         allocated_size: 100,
         used_size: 80,
-        crc_value: Some(0x12345678),
+        checksum_values: vec![0x1234_5678],
     });
 
     stats.add_block(BlockStat {
@@ -100,7 +101,7 @@ fn test_space_efficiency_calculation() {
         start_address: 0x2000,
         allocated_size: 200,
         used_size: 120,
-        crc_value: Some(0x9ABCDEF0),
+        checksum_values: vec![0x9ABC_DEF0],
     });
 
     assert_eq!(stats.blocks_processed, 2);
@@ -164,7 +165,7 @@ fn test_space_efficiency_edge_cases() {
         start_address: 0x1000,
         allocated_size: 100,
         used_size: 100,
-        crc_value: Some(0x12345678),
+        checksum_values: Vec::new(),
     });
 
     let efficiency = stats.space_efficiency();
@@ -172,13 +173,12 @@ fn test_space_efficiency_edge_cases() {
 }
 
 #[test]
-fn test_no_crc_section_returns_none_crc_value() {
+fn test_no_checksum_section_returns_empty_crc_values() {
     common::ensure_out_dir();
 
     let layout_content = r#"
-[settings]
+[mint]
 endianness = "little"
-virtual_offset = 0x0
 
 [block_no_crc.header]
 start_address = 0x1000
@@ -203,10 +203,7 @@ device.name = { value = "TestDevice", type = "u8", size = 16 }
     assert_eq!(stats.blocks_processed, 1);
     let block_stat = &stats.block_stats[0];
     assert_eq!(block_stat.name, "block_no_crc");
-    assert!(
-        block_stat.crc_value.is_none(),
-        "CRC value should be None when no crc section is present"
-    );
+    assert!(block_stat.checksum_values.is_empty());
 }
 
 #[test]
