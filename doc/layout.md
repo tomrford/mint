@@ -69,15 +69,15 @@ Data fields are key-value pairs where the key is a dotted path (matching C struc
 
 ### Field Attributes
 
-| Attribute     | Description                                                                   |
-| ------------- | ----------------------------------------------------------------------------- |
-| `type`        | Data type (required)                                                          |
-| `value`       | Literal value (mutually exclusive with `name`, `bitmap`, `ref`, `checksum`)   |
+| Attribute     | Description                                                                           |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `type`        | Data type (required)                                                                  |
+| `value`       | Literal value (mutually exclusive with `name`, `bitmap`, `ref`, `checksum`)           |
 | `name`        | Data source lookup key (mutually exclusive with `value`, `bitmap`, `ref`, `checksum`) |
-| `bitmap`      | Bitmap field definitions (see below)                                          |
-| `ref`         | Pointer to another field in the same block (see below)                        |
-| `checksum`    | Inline checksum referencing a named config (see below)                        |
-| `size`/`SIZE` | Array size; `size` pads if data is shorter, `SIZE` errors if data is shorter. |
+| `bitmap`      | Bitmap field definitions (see below)                                                  |
+| `ref`         | Pointer to another field in the same block (see below)                                |
+| `checksum`    | Inline checksum referencing a named config (see below)                                |
+| `size`/`SIZE` | Array size; `size` pads if data is shorter, `SIZE` errors if data is shorter.         |
 
 ---
 
@@ -164,7 +164,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 **Ref rules:**
 
 - `ref` is mutually exclusive with `name`, `value`, `bitmap`, and `checksum`
-- `type` must be an integer type (`u16`, `u32`, `u64`, `i16`, `i32`, `i64`)
+- `type` must be an unsigned integer type (`u16`, `u32`, `u64`)
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
 - The resolved address is `start_address + virtual_offset + target_offset` (with word-addressing multipliers applied when `word_addressing = true`)
@@ -189,7 +189,7 @@ version = { name = "Version", type = "u16" }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
-The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself. Checksums are resolved after data and refs are filled; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
+The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Checksums are resolved after data and refs are filled; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
 
 **Checksum rules:**
 

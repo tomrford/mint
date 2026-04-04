@@ -327,12 +327,12 @@ impl Block {
 
             // CRC covers all bytes from block data start up to (exclusive) this field.
             // In word-addressing mode, compute against the final flashed byte order.
-            let crc_input = if config.word_addressing {
-                swap_word_address_prefix(&state.buffer[..pending.buffer_position])
+            let crc_val = if config.word_addressing {
+                let swapped = swap_word_address_prefix(&state.buffer[..pending.buffer_position]);
+                checksum::calculate_crc(&swapped, crc_config)
             } else {
-                state.buffer[..pending.buffer_position].to_vec()
+                checksum::calculate_crc(&state.buffer[..pending.buffer_position], crc_config)
             };
-            let crc_val = checksum::calculate_crc(&crc_input, crc_config);
 
             // Convert CRC to bytes with proper endianness.
             let crc_bytes = match config.endianness {

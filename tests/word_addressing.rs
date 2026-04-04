@@ -277,8 +277,6 @@ endianness = "little"
 word_addressing = true
 virtual_offset = 0x100
 
-
-
 [block.header]
 start_address = 0x1000
 length = 0x10

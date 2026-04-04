@@ -1,7 +1,6 @@
 use crate::layout::settings::ChecksumConfig;
 
-/// Hand-rolled CRC32 calculation matching the crc crate's NoTable implementation.
-/// This removes the need for static state and allows each block to use its own CRC settings.
+/// Computes CRC-32 with configurable polynomial, initial value, reflection, and XOR-out.
 pub fn calculate_crc(data: &[u8], crc_settings: &ChecksumConfig) -> u32 {
     let polynomial = crc_settings.polynomial;
     let start = crc_settings.start;

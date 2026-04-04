@@ -57,6 +57,8 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
     Ok(cfg)
 }
 
+// TODO: remove once deprecated `settings`, `mint.crc`, `header.crc`, and `crc_location`
+// keys are no longer in circulation.
 fn validate_removed_toml_keys(value: &toml::Value) -> Result<(), LayoutError> {
     let Some(root) = value.as_table() else {
         return Ok(());
@@ -97,6 +99,8 @@ fn validate_removed_toml_keys(value: &toml::Value) -> Result<(), LayoutError> {
     Ok(())
 }
 
+// TODO: remove once deprecated `settings`, `mint.crc`, `header.crc`, and `crc_location`
+// keys are no longer in circulation.
 fn validate_removed_yaml_keys(value: &serde_yaml::Value) -> Result<(), LayoutError> {
     let Some(root) = value.as_mapping() else {
         return Ok(());

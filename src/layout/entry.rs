@@ -194,9 +194,9 @@ impl LeafEntry {
                 "size/SIZE keys are forbidden with ref.".into(),
             ));
         }
-        if !self.scalar_type.is_integer() {
+        if !self.scalar_type.is_unsigned_integer() {
             return Err(LayoutError::DataValueExportFailed(
-                "Ref requires integer storage type.".into(),
+                "Ref requires unsigned integer storage type (u16, u32, u64).".into(),
             ));
         }
         if target.is_empty() {
@@ -528,6 +528,14 @@ impl ScalarType {
     /// Returns true if this is an integer type (not floating-point).
     pub fn is_integer(&self) -> bool {
         !matches!(self, ScalarType::F32 | ScalarType::F64)
+    }
+
+    /// Returns true if this is an unsigned integer type.
+    pub fn is_unsigned_integer(&self) -> bool {
+        matches!(
+            self,
+            ScalarType::U8 | ScalarType::U16 | ScalarType::U32 | ScalarType::U64
+        )
     }
 
     /// Returns the type name as a string.
