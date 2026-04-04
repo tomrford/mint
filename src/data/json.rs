@@ -85,20 +85,6 @@ impl JsonDataSource {
             )),
         }
     }
-
-    fn parse_delimited_numbers(s: &str) -> Option<Vec<DataValue>> {
-        s.split(|c: char| c.is_whitespace() || c == ',' || c == ';')
-            .map(|p| p.trim())
-            .filter(|p| !p.is_empty())
-            .map(|p| {
-                p.parse::<u64>()
-                    .map(DataValue::U64)
-                    .ok()
-                    .or_else(|| p.parse::<i64>().map(DataValue::I64).ok())
-                    .or_else(|| p.parse::<f64>().map(DataValue::F64).ok())
-            })
-            .collect()
-    }
 }
 
 impl DataSource for JsonDataSource {
@@ -135,10 +121,7 @@ impl DataSource for JsonDataSource {
                         arr.iter().map(Self::value_to_data_value).collect();
                     Ok(ValueSource::Array(items?))
                 }
-                Value::String(s) => match Self::parse_delimited_numbers(s) {
-                    Some(arr) if !arr.is_empty() => Ok(ValueSource::Array(arr)),
-                    _ => Ok(ValueSource::Single(DataValue::Str(s.clone()))),
-                },
+                Value::String(s) => Ok(ValueSource::Single(DataValue::Str(s.clone()))),
                 _ => Err(DataError::RetrievalError(
                     "expected array or string for 1D array".to_string(),
                 )),

@@ -119,125 +119,6 @@ fn json_retrieve_missing_version_errors() {
 }
 
 #[test]
-fn json_retrieve_1d_array_space_delimited() {
-    let json_data = r#"{
-        "Default": {
-            "arraySpaces": "0 100 200 300"
-        }
-    }"#;
-
-    let args = build_json_args("Default", json_data);
-    let ds = create_data_source(&args).unwrap().unwrap();
-
-    let value = ds.retrieve_1d_array_or_string("arraySpaces").unwrap();
-    println!("arraySpaces: {:?}", value);
-    let ValueSource::Array(arr) = value else {
-        panic!("expected array");
-    };
-    assert_eq!(arr.len(), 4);
-    assert!(matches!(arr[0], DataValue::U64(0)));
-    assert!(matches!(arr[3], DataValue::U64(300)));
-}
-
-#[test]
-fn json_retrieve_1d_array_comma_delimited() {
-    let json_data = r#"{
-        "Default": {
-            "arrayCommas": "1,2,3,4"
-        }
-    }"#;
-
-    let args = build_json_args("Default", json_data);
-    let ds = create_data_source(&args).unwrap().unwrap();
-
-    let value = ds.retrieve_1d_array_or_string("arrayCommas").unwrap();
-    println!("arrayCommas: {:?}", value);
-    let ValueSource::Array(arr) = value else {
-        panic!("expected array");
-    };
-    assert_eq!(arr.len(), 4);
-}
-
-#[test]
-fn json_retrieve_1d_array_mixed_delimiters() {
-    let json_data = r#"{
-        "Default": {
-            "arrayMixed": "5, 10; 15 20"
-        }
-    }"#;
-
-    let args = build_json_args("Default", json_data);
-    let ds = create_data_source(&args).unwrap().unwrap();
-
-    let value = ds.retrieve_1d_array_or_string("arrayMixed").unwrap();
-    println!("arrayMixed: {:?}", value);
-    let ValueSource::Array(arr) = value else {
-        panic!("expected array");
-    };
-    assert_eq!(arr.len(), 4);
-}
-
-#[test]
-fn json_retrieve_1d_array_single_value() {
-    let json_data = r#"{
-        "Default": {
-            "arraySingle": "42"
-        }
-    }"#;
-
-    let args = build_json_args("Default", json_data);
-    let ds = create_data_source(&args).unwrap().unwrap();
-
-    let value = ds.retrieve_1d_array_or_string("arraySingle").unwrap();
-    println!("arraySingle: {:?}", value);
-    let ValueSource::Array(arr) = value else {
-        panic!("expected array");
-    };
-    assert_eq!(arr.len(), 1);
-    assert!(matches!(arr[0], DataValue::U64(42)));
-}
-
-#[test]
-fn json_retrieve_1d_array_floats() {
-    let json_data = r#"{
-        "Default": {
-            "arrayFloats": "1.5 2.5 3.5"
-        }
-    }"#;
-
-    let args = build_json_args("Default", json_data);
-    let ds = create_data_source(&args).unwrap().unwrap();
-
-    let value = ds.retrieve_1d_array_or_string("arrayFloats").unwrap();
-    println!("arrayFloats: {:?}", value);
-    let ValueSource::Array(arr) = value else {
-        panic!("expected array");
-    };
-    assert_eq!(arr.len(), 3);
-    assert!(matches!(arr[0], DataValue::F64(f) if (f - 1.5).abs() < 0.001));
-}
-
-#[test]
-fn json_retrieve_1d_array_negative() {
-    let json_data = r#"{
-        "Default": {
-            "arrayNegative": "-1 -2 -3"
-        }
-    }"#;
-
-    let args = build_json_args("Default", json_data);
-    let ds = create_data_source(&args).unwrap().unwrap();
-
-    let value = ds.retrieve_1d_array_or_string("arrayNegative").unwrap();
-    println!("arrayNegative: {:?}", value);
-    let ValueSource::Array(arr) = value else {
-        panic!("expected array");
-    };
-    assert_eq!(arr.len(), 3);
-    assert!(matches!(arr[0], DataValue::I64(-1)));
-}
-
-#[test]
 fn json_retrieve_1d_literal_string() {
     let json_data = r#"{
         "Default": {
@@ -255,7 +136,6 @@ fn json_retrieve_1d_literal_string() {
     };
     assert_eq!(s, "hello world");
 }
-
 #[test]
 fn json_retrieve_1d_native_json_array() {
     let json_data = r#"{
