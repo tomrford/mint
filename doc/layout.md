@@ -189,16 +189,15 @@ version = { name = "Version", type = "u16" }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
-The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself. The checksum is computed after all other fields (including refs) are resolved.
+The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself. Checksums are resolved after data and refs are filled; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
 
 **Checksum rules:**
 
 - `checksum` is mutually exclusive with `name`, `value`, `bitmap`, and `ref`
 - `type` must be `u32` (matching CRC-32 output width)
 - `size`/`SIZE` cannot be used with `checksum`
-- Only one checksum per block is allowed
 - The referenced config name must exist in `[mint.checksum]`
-- For more complex checksum operations (cross-block CRC, multiple checksums, non-CRC algorithms), use a dedicated hex post-processing tool
+- For more complex checksum operations (cross-block CRC or non-CRC algorithms), use a dedicated hex post-processing tool
 
 ---
 

@@ -38,9 +38,10 @@ ok.int_exact_to_f32   = { value = 16777216, type = "f32" }
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");
 
     let mut noop = NoopValueSink;
-    let (bytes, _padding) = block
+    let output = block
         .build_bytestream(ds.as_deref(), &cfg.mint, true, &mut noop)
         .expect("strict conversions should succeed");
+    let bytes = output.bytestream;
     assert!(!bytes.is_empty());
 }
 
@@ -149,9 +150,10 @@ bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
     let block = cfg.blocks.get("block").expect("block present");
 
     let mut noop = NoopValueSink;
-    let (bytes, _padding) = block
+    let output = block
         .build_bytestream(None, &cfg.mint, true, &mut noop)
         .expect("bool literals convert");
+    let bytes = output.bytestream;
     assert!(
         bytes.starts_with(&[1, 0, 1, 0, 1]),
         "bool values should map to 0/1, got {:?}",

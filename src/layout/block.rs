@@ -46,6 +46,8 @@ struct BuildState {
     pending_refs: Vec<PendingRef>,
     /// Checksums to compute after the bytestream is fully built.
     pending_checksums: Vec<PendingChecksum>,
+    /// Resolved checksum values in field-order for stats/visualization.
+    resolved_checksum_values: Vec<u32>,
 }
 
 /// Immutable configuration for bytestream building
@@ -54,6 +56,12 @@ pub struct BuildConfig<'a> {
     pub padding: u8,
     pub strict: bool,
     pub word_addressing: bool,
+}
+
+pub struct BuildOutput {
+    pub bytestream: Vec<u8>,
+    pub padding_count: u32,
+    pub checksum_values: Vec<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,7 +93,7 @@ impl Block {
         settings: &MintConfig,
         strict: bool,
         value_sink: &mut dyn ValueSink,
-    ) -> Result<(Vec<u8>, u32), LayoutError> {
+    ) -> Result<BuildOutput, LayoutError> {
         let mut state = BuildState {
             buffer: Vec::with_capacity((self.header.length as usize).min(64 * 1024)),
             offset: 0,
@@ -93,6 +101,7 @@ impl Block {
             known_offsets: HashMap::new(),
             pending_refs: Vec::new(),
             pending_checksums: Vec::new(),
+            resolved_checksum_values: Vec::new(),
         };
         let config = BuildConfig {
             endianness: &settings.endianness,
@@ -128,7 +137,11 @@ impl Block {
             Self::resolve_pending_checksums(&mut state, settings, &config, value_sink)?;
         }
 
-        Ok((state.buffer, state.padding_count))
+        Ok(BuildOutput {
+            bytestream: state.buffer,
+            padding_count: state.padding_count,
+            checksum_values: state.resolved_checksum_values,
+        })
     }
 
     /// Recursively builds the bytestream. Returns the byte offset of the
@@ -177,11 +190,6 @@ impl Block {
 
                 if let EntrySource::Checksum(config_name) = &leaf.source {
                     leaf.validate_checksum(config_name, settings)?;
-                    if !state.pending_checksums.is_empty() {
-                        return Err(LayoutError::DataValueExportFailed(
-                            "Only one checksum entry is allowed per block.".into(),
-                        ));
-                    }
                     let size = leaf.scalar_type.size_bytes();
                     state.pending_checksums.push(PendingChecksum {
                         buffer_position: state.buffer.len(),
@@ -318,8 +326,13 @@ impl Block {
             })?;
 
             // CRC covers all bytes from block data start up to (exclusive) this field.
-            let data_slice = &state.buffer[..pending.buffer_position];
-            let crc_val = checksum::calculate_crc(data_slice, crc_config);
+            // In word-addressing mode, compute against the final flashed byte order.
+            let crc_input = if config.word_addressing {
+                swap_word_address_prefix(&state.buffer[..pending.buffer_position])
+            } else {
+                state.buffer[..pending.buffer_position].to_vec()
+            };
+            let crc_val = checksum::calculate_crc(&crc_input, crc_config);
 
             // Convert CRC to bytes with proper endianness.
             let crc_bytes = match config.endianness {
@@ -337,9 +350,21 @@ impl Block {
                 &pending.field_path,
                 serde_json::Value::Number(serde_json::Number::from(crc_val as u64)),
             )?;
+            state.resolved_checksum_values.push(crc_val);
         }
         Ok(())
     }
+}
+
+fn swap_word_address_prefix(bytes: &[u8]) -> Vec<u8> {
+    debug_assert!(bytes.len().is_multiple_of(2));
+    let mut swapped = bytes.to_vec();
+    let mut i = 0;
+    while i + 1 < swapped.len() {
+        swapped.swap(i, i + 1);
+        i += 2;
+    }
+    swapped
 }
 
 fn split_field_path(field_name: &str) -> Result<Vec<String>, LayoutError> {

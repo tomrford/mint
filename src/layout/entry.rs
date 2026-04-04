@@ -235,8 +235,7 @@ impl LeafEntry {
                 config_name, available
             )));
         }
-        // Validate type matches CRC output width (4 bytes for CRC-32)
-        if self.scalar_type.size_bytes() != 4 {
+        if !matches!(self.scalar_type, ScalarType::U32) {
             return Err(LayoutError::DataValueExportFailed(format!(
                 "Checksum type must be u32 (4 bytes), got {} ({} bytes).",
                 self.scalar_type.name(),

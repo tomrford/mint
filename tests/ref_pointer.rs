@@ -50,7 +50,8 @@ fn build_block(
     settings: &mint_cli::layout::settings::MintConfig,
 ) -> Result<(Vec<u8>, u32), mint_cli::layout::error::LayoutError> {
     let mut noop = NoopValueSink;
-    block.build_bytestream(None, settings, false, &mut noop)
+    let output = block.build_bytestream(None, settings, false, &mut noop)?;
+    Ok((output.bytestream, output.padding_count))
 }
 
 fn build_block_with_values(
@@ -58,8 +59,11 @@ fn build_block_with_values(
     settings: &mint_cli::layout::settings::MintConfig,
 ) -> Result<((Vec<u8>, u32), serde_json::Value), mint_cli::layout::error::LayoutError> {
     let mut collector = ValueCollector::new();
-    let result = block.build_bytestream(None, settings, false, &mut collector)?;
-    Ok((result, collector.into_value()))
+    let output = block.build_bytestream(None, settings, false, &mut collector)?;
+    Ok((
+        ((output.bytestream, output.padding_count)),
+        collector.into_value(),
+    ))
 }
 
 fn load_and_build(name: &str, toml_str: &str) -> (Vec<u8>, u32) {

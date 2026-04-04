@@ -122,14 +122,13 @@ fn build_single_bytestream(
             &mut noop as &mut dyn crate::layout::used_values::ValueSink
         };
 
-        let (bytestream, padding_bytes) =
-            block.build_bytestream(data_source, &layout.mint, strict, value_sink)?;
+        let build_output = block.build_bytestream(data_source, &layout.mint, strict, value_sink)?;
 
         let data_range = output::bytestream_to_datarange(
-            bytestream,
+            build_output.bytestream,
             &block.header,
             &layout.mint,
-            padding_bytes,
+            build_output.padding_count,
         )?;
 
         let stat = BlockStat {
@@ -137,6 +136,7 @@ fn build_single_bytestream(
             start_address: data_range.start_address,
             allocated_size: data_range.allocated_size,
             used_size: data_range.used_size,
+            checksum_values: build_output.checksum_values,
         };
 
         Ok(BlockBuildResult {

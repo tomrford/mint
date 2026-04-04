@@ -29,7 +29,8 @@ fn build_block(
     strict: bool,
 ) -> Result<(Vec<u8>, u32), mint_cli::layout::error::LayoutError> {
     let mut noop = NoopValueSink;
-    block.build_bytestream(None, settings, strict, &mut noop)
+    let output = block.build_bytestream(None, settings, strict, &mut noop)?;
+    Ok((output.bytestream, output.padding_count))
 }
 
 #[test]

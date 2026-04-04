@@ -1,7 +1,27 @@
 use mint_cli::commands;
+use mint_cli::layout::settings::ChecksumConfig;
+use mint_cli::output::checksum::calculate_crc;
 
 #[path = "common/mod.rs"]
 mod common;
+
+fn standard_crc32() -> ChecksumConfig {
+    ChecksumConfig {
+        polynomial: 0x04C11DB7,
+        start: 0xFFFFFFFF,
+        xor_out: 0xFFFFFFFF,
+        ref_in: true,
+        ref_out: true,
+    }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join("")
+}
 
 /// Tests inline checksum placement within block data.
 #[test]
@@ -39,7 +59,13 @@ checksum = { checksum = "crc32", type = "u32" }
     );
     let stats = commands::build(&args, None).expect("inline checksum build");
     assert_eq!(stats.blocks_processed, 1);
-    assert!(stats.block_stats[0].used_size > 0);
+    let expected = calculate_crc(
+        &[
+            0x78, 0x56, 0x34, 0x12, b't', b'e', b's', b't', 0xFF, 0xFF, 0xFF, 0xFF,
+        ],
+        &standard_crc32(),
+    );
+    assert_eq!(stats.block_stats[0].checksum_values, vec![expected]);
 }
 
 /// Tests that a block without checksum builds cleanly.
@@ -121,7 +147,7 @@ checksum = { checksum = "crc32c", type = "u32" }
         "block_a",
         mint_cli::output::args::OutputFormat::Hex,
     );
-    commands::build(&args_a, None).expect("block_a build");
+    let stats_a = commands::build(&args_a, None).expect("block_a build");
 
     // Build block_b with crc32c
     let args_b = common::build_args(
@@ -129,11 +155,12 @@ checksum = { checksum = "crc32c", type = "u32" }
         "block_b",
         mint_cli::output::args::OutputFormat::Hex,
     );
-    commands::build(&args_b, None).expect("block_b build");
+    let stats_b = commands::build(&args_b, None).expect("block_b build");
 
-    // Both should build; different polynomials produce different output
-    // (we can't easily compare CRC values without the old stats field,
-    // but successful builds with different configs is the key test)
+    assert_ne!(
+        stats_a.block_stats[0].checksum_values,
+        stats_b.block_stats[0].checksum_values
+    );
 }
 
 /// Tests combined output with mixed checksum configurations.
@@ -207,6 +234,9 @@ value = { value = 0x33333333, type = "u32" }
 
     let stats = commands::build(&args, None).expect("combined build");
     assert_eq!(stats.blocks_processed, 3);
+    assert_eq!(stats.block_stats[0].checksum_values.len(), 1);
+    assert_eq!(stats.block_stats[1].checksum_values.len(), 1);
+    assert!(stats.block_stats[2].checksum_values.is_empty());
 
     common::assert_out_file_exists(std::path::Path::new("out/crc_combined.hex"));
 }
@@ -241,9 +271,9 @@ checksum = { checksum = "nonexistent", type = "u32" }
     assert!(result.unwrap_err().to_string().contains("not found"));
 }
 
-/// Tests that only one checksum per block is allowed.
+/// Tests that multiple checksums are resolved in field order after refs.
 #[test]
-fn checksum_duplicate_in_block_fails() {
+fn multiple_checksums_in_block_are_resolved_in_order() {
     common::ensure_out_dir();
 
     let layout = r#"
@@ -260,28 +290,38 @@ ref_out = true
 [block.header]
 start_address = 0x1000
 length = 0x100
+padding = 0xFF
 
 [block.data]
 value = { value = 0x42, type = "u32" }
 checksum1 = { checksum = "crc32", type = "u32" }
+tail = { value = 0x1234, type = "u16" }
 checksum2 = { checksum = "crc32", type = "u32" }
 "#;
 
-    let layout_path = common::write_layout_file("crc_duplicate", layout);
+    let layout_path = common::write_layout_file("crc_multiple", layout);
 
     let args = common::build_args(
         &layout_path,
         "block",
         mint_cli::output::args::OutputFormat::Hex,
     );
-    let result = commands::build(&args, None);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Only one checksum")
+    let stats = commands::build(&args, None).expect("multiple checksum build");
+
+    let crc1 = calculate_crc(&[0x42, 0x00, 0x00, 0x00], &standard_crc32());
+    let mut crc2_input = vec![0x42, 0x00, 0x00, 0x00];
+    crc2_input.extend_from_slice(&crc1.to_le_bytes());
+    crc2_input.extend_from_slice(&[0x34, 0x12, 0xFF, 0xFF]);
+    let crc2 = calculate_crc(&crc2_input, &standard_crc32());
+    assert_eq!(stats.block_stats[0].checksum_values, vec![crc1, crc2]);
+
+    let output = std::fs::read_to_string("out/block.hex").expect("read hex output");
+    let expected_bytes = format!(
+        "42000000{}3412FFFF{}",
+        hex_bytes(&crc1.to_le_bytes()),
+        hex_bytes(&crc2.to_le_bytes())
     );
+    assert!(output.to_uppercase().contains(&expected_bytes));
 }
 
 /// Tests that checksum type must be u32.
@@ -289,6 +329,103 @@ checksum2 = { checksum = "crc32", type = "u32" }
 fn checksum_wrong_type_fails() {
     common::ensure_out_dir();
 
+    let layout_prefix = r#"
+[mint]
+endianness = "little"
+
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+
+[block.header]
+start_address = 0x1000
+length = 0x100
+"#;
+
+    for type_name in ["u16", "i32", "f32"] {
+        let layout = format!(
+            "{layout_prefix}\n[block.data]\nvalue = {{ value = 0x42, type = \"u32\" }}\nchecksum = {{ checksum = \"crc32\", type = \"{type_name}\" }}\n"
+        );
+        let layout_path = common::write_layout_file("crc_wrong_type", &layout);
+        let args = common::build_args(
+            &layout_path,
+            "block",
+            mint_cli::output::args::OutputFormat::Hex,
+        );
+        let result = commands::build(&args, None);
+        assert!(result.is_err(), "{type_name} should be rejected");
+        assert!(result.unwrap_err().to_string().contains("must be u32"));
+    }
+}
+
+#[test]
+fn removed_settings_section_fails_with_migration_message() {
+    common::ensure_out_dir();
+
+    let layout = r#"
+[settings]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x100
+
+[block.data]
+value = { value = 0x42, type = "u32" }
+"#;
+
+    let layout_path = common::write_layout_file("legacy_settings", layout);
+    let result = mint_cli::layout::load_layout(&layout_path);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("`[settings]` was removed")
+    );
+}
+
+#[test]
+fn removed_mint_crc_fails_with_migration_message() {
+    common::ensure_out_dir();
+
+    let layout = r#"
+[mint]
+endianness = "little"
+
+[mint.crc]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+
+[block.header]
+start_address = 0x1000
+length = 0x100
+
+[block.data]
+value = { value = 0x42, type = "u32" }
+"#;
+
+    let layout_path = common::write_layout_file("legacy_mint_crc", layout);
+    let result = mint_cli::layout::load_layout(&layout_path);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("`[mint.crc]` was removed")
+    );
+}
+
+#[test]
+fn removed_header_crc_fails_with_migration_message() {
+    common::ensure_out_dir();
+
     let layout = r#"
 [mint]
 endianness = "little"
@@ -304,19 +441,48 @@ ref_out = true
 start_address = 0x1000
 length = 0x100
 
+[block.header.crc]
+location = "end_data"
+
 [block.data]
 value = { value = 0x42, type = "u32" }
-checksum = { checksum = "crc32", type = "u16" }
 "#;
 
-    let layout_path = common::write_layout_file("crc_wrong_type", layout);
-
-    let args = common::build_args(
-        &layout_path,
-        "block",
-        mint_cli::output::args::OutputFormat::Hex,
-    );
-    let result = commands::build(&args, None);
+    let layout_path = common::write_layout_file("legacy_header_crc", layout);
+    let result = mint_cli::layout::load_layout(&layout_path);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("must be u32"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("`[block.header.crc]` was removed")
+    );
+}
+
+#[test]
+fn removed_crc_location_fails_with_migration_message() {
+    common::ensure_out_dir();
+
+    let layout = r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x100
+crc_location = "end_data"
+
+[block.data]
+value = { value = 0x42, type = "u32" }
+"#;
+
+    let layout_path = common::write_layout_file("legacy_crc_location", layout);
+    let result = mint_cli::layout::load_layout(&layout_path);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("`[block.header].crc_location` was removed")
+    );
 }

@@ -116,7 +116,7 @@ val2 = { value = 0x5678, type = "u16" }
     );
 }
 
-/// Verifies that word_addressing with inline checksum builds successfully.
+/// Verifies that word_addressing computes checksums over flashed byte order.
 #[test]
 fn word_addressing_with_checksum() {
     let layout = r#"
@@ -163,10 +163,17 @@ checksum = { checksum = "crc32", type = "u32" }
         },
     };
 
-    commands::build(&args, None).expect("build with CRC should succeed");
+    let stats = commands::build(&args, None).expect("build with CRC should succeed");
 
     let hex_path = std::path::Path::new("out/word_crc.hex");
     assert!(hex_path.exists(), "output file should exist");
+    assert_eq!(stats.block_stats[0].checksum_values, vec![0x9C7F56F4]);
+
+    let content = std::fs::read_to_string(hex_path).expect("read hex file");
+    assert!(
+        content.contains("ABCDFFFF56F49C7F"),
+        "word-addressed checksum should match flashed byte order"
+    );
 }
 
 /// Verifies that u8 types are rejected when word_addressing is enabled.

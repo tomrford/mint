@@ -219,7 +219,7 @@ mint layout.toml --xlsx data.xlsx -v Default -o output.hex --stats
 +------------------+--------------+
 
 +--------------+-----------------------+-----------------------+------------+------------+
-| Block        | Address Range         | Used/Alloc            | Efficiency | CRC Value  |
+| Block        | Address Range         | Used/Alloc            | Efficiency | Checksum Value |
 +========================================================================================+
 | block        | 0x0008B000-0x0008BFFF | 308 bytes/4,096 bytes | 7.5%       | 0xB1FAC7CA |
 |--------------+-----------------------+-----------------------+------------+------------|

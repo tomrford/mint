@@ -9,7 +9,7 @@ mod common;
 
 // This integration test exercises:
 // - Big endian vs little endian
-// - CRC at end and at explicit address
+// - Inline checksums in different field layouts
 // - record width variations (16 and 64)
 // - Output formats HEX and MOT (SREC address length auto-selection)
 // - virtual_offset changing start addresses
@@ -77,7 +77,7 @@ checksum = { checksum = "crc32", type = "u32" }
     };
     let ds = mint_cli::data::create_data_source(&data_args).expect("datasource loads");
 
-    // Case 1: Big endian, CRC at explicit address, HEX with width 64
+    // Case 1: Big endian, inline checksum, HEX with width 64
     let args_be_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
@@ -100,7 +100,7 @@ checksum = { checksum = "crc32", type = "u32" }
     commands::build(&args_be_hex, ds.as_deref()).expect("be-hex");
     assert!(std::path::Path::new("out/mix_a.hex").exists());
 
-    // Case 2: Big endian, explicit CRC, MOT with width 16
+    // Case 2: Big endian, inline checksum, MOT with width 16
     let args_be_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
@@ -123,7 +123,7 @@ checksum = { checksum = "crc32", type = "u32" }
     commands::build(&args_be_mot, ds.as_deref()).expect("be-mot");
     assert!(std::path::Path::new("out/mix_b.mot").exists());
 
-    // Case 3: Little endian, CRC at end, HEX width 16, virtual_offset applied
+    // Case 3: Little endian, inline checksum, HEX width 16, virtual_offset applied
     let args_le_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
@@ -146,7 +146,7 @@ checksum = { checksum = "crc32", type = "u32" }
     commands::build(&args_le_hex, ds.as_deref()).expect("le-hex");
     assert!(std::path::Path::new("out/mix_c.hex").exists());
 
-    // Case 4: Little endian, CRC at end, MOT width 64
+    // Case 4: Little endian, inline checksum, MOT width 64
     let args_le_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {

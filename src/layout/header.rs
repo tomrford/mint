@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 /// Block header defining memory region.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Header {
     pub start_address: u32,
     pub length: u32,

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 /// Top-level `[mint]` configuration section.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MintConfig {
     pub endianness: Endianness,
     #[serde(default = "default_offset")]
