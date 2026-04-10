@@ -142,12 +142,6 @@ impl LeafEntry {
         value_sink: &mut dyn ValueSink,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
-        if config.word_addressing && matches!(self.scalar_type, ScalarType::U8 | ScalarType::I8) {
-            return Err(LayoutError::DataValueExportFailed(
-                "u8/i8 types are not supported with word_addressing enabled.".into(),
-            ));
-        }
-
         if let EntrySource::Ref(_) = &self.source {
             return Err(LayoutError::DataValueExportFailed(
                 "Ref entries are resolved in a fixup pass, not via emit_bytes.".into(),

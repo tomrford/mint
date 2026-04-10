@@ -1,19 +1,12 @@
 #[path = "common/mod.rs"]
 mod common;
 
-fn layout(
-    start_address: u32,
-    endianness: &str,
-    virtual_offset: u32,
-    word_addressing: bool,
-    data_content: &str,
-) -> String {
+fn layout(start_address: u32, endianness: &str, virtual_offset: u32, data_content: &str) -> String {
     format!(
         r#"
 [mint]
 endianness = "{endianness}"
 virtual_offset = 0x{virtual_offset:X}
-word_addressing = {word_addressing}
 
 [block.header]
 start_address = 0x{start_address:X}
@@ -28,11 +21,11 @@ padding = 0xFF
 
 /// Helper to create a minimal layout with given data content.
 fn ref_layout(start_address: u32, data_content: &str) -> String {
-    layout(start_address, "little", 0, false, data_content)
+    layout(start_address, "little", 0, data_content)
 }
 
 fn ref_layout_with_endian(start_address: u32, endianness: &str, data_content: &str) -> String {
-    layout(start_address, endianness, 0, false, data_content)
+    layout(start_address, endianness, 0, data_content)
 }
 
 fn ref_layout_with_virtual_offset(
@@ -40,7 +33,7 @@ fn ref_layout_with_virtual_offset(
     virtual_offset: u32,
     data_content: &str,
 ) -> String {
-    layout(start_address, "little", virtual_offset, false, data_content)
+    layout(start_address, "little", virtual_offset, data_content)
 }
 
 fn load_and_build(name: &str, toml_str: &str) -> (Vec<u8>, u32) {
@@ -391,76 +384,4 @@ ptr = { ref = "nested", type = "u32" }
     assert_eq!(bytes.len(), 12);
     // ptr at offset 8 should point to nested at offset 4 (after alignment), NOT offset 1
     assert_eq!(&bytes[8..12], &0x4u32.to_le_bytes());
-}
-
-fn word_addr_layout(data_content: &str) -> String {
-    layout(0x1000, "little", 0, true, data_content)
-}
-
-fn word_addr_layout_with_voffset(virtual_offset: u32, data_content: &str) -> String {
-    layout(0x1000, "little", virtual_offset, true, data_content)
-}
-
-#[test]
-fn ref_word_addressing_doubles_addresses() {
-    // Regression: ref address computation didn't account for word_addressing.
-    // In word_addressing mode:
-    //   output address = start_address * 2 + virtual_offset + offset * 2
-    // start_address = 0x1000, virtual_offset = 0
-    // field_a: u16 at offset 0 (2 bytes)
-    // field_b: u16 at offset 2 (2 bytes)
-    // ptr: u16 at offset 4, pointing to field_b
-    //   = 0x1000*2 + 0 + 2*2 = 0x2004
-    let toml = word_addr_layout(
-        r#"
-field_a = { value = 0xAA, type = "u16" }
-field_b = { value = 0xBB, type = "u16" }
-ptr = { ref = "field_b", type = "u16" }
-"#,
-    );
-
-    let (bytes, _) = load_and_build("ref_word_addr", &toml);
-    assert_eq!(bytes.len(), 6);
-    // ptr should be 0x1000*2 + 2*2 = 0x2004
-    assert_eq!(&bytes[4..6], &0x2004u16.to_le_bytes());
-}
-
-#[test]
-fn ref_word_addressing_with_virtual_offset() {
-    // start_address = 0x1000, virtual_offset = 0x100, word_addressing = true
-    // target at offset 2 (after u16 field_a)
-    //   address = 0x1000*2 + 0x100 + 2*2 = 0x2104
-    let toml = word_addr_layout_with_voffset(
-        0x100,
-        r#"
-field_a = { value = 0xAA, type = "u16" }
-target = { value = 0xBB, type = "u16" }
-ptr = { ref = "target", type = "u32" }
-"#,
-    );
-
-    let (bytes, _) = load_and_build("ref_word_voff", &toml);
-    // field_a(2) + target(2) + ptr(4) = 8
-    assert_eq!(bytes.len(), 8);
-    assert_eq!(&bytes[4..8], &0x2104u32.to_le_bytes());
-}
-
-#[test]
-fn ref_word_addressing_rejects_byte_sized_refs() {
-    for (name, scalar_type) in [("ref_err_word_u8", "u8"), ("ref_err_word_i8", "i8")] {
-        let toml = word_addr_layout(&format!(
-            r#"
-target = {{ value = 0x42, type = "u16" }}
-ptr = {{ ref = "target", type = "{scalar_type}" }}
-"#
-        ));
-
-        let err = load_and_fail(name, &toml);
-        assert!(
-            err.contains("u8/i8 types are not supported with word_addressing"),
-            "Expected word_addressing byte-sized ref error for {}: {}",
-            scalar_type,
-            err
-        );
-    }
 }

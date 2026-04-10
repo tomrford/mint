@@ -13,7 +13,7 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 | `endianness` | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values |
 | `virtual_offset` | `u32` (hex ok) | `0` | Offset added to all computed addresses (refs, output) |
 
-Legacy key `[settings]` is rejected with a migration hint.
+Legacy key `[mint].word_addressing` is rejected. mint now uses byte addressing only.
 
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 
@@ -27,7 +27,7 @@ Define as many as needed (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]
 | `ref_in` | `bool` | — (required) | Reflect each input byte |
 | `ref_out` | `bool` | — (required) | Reflect final CRC before XOR |
 
-All fields are required — no inheritance or partial configs. Legacy key `[mint.crc]` is rejected.
+All fields are required — no inheritance or partial configs.
 
 ### `[blockname.header]` — per-block memory region (required per block)
 
@@ -36,8 +36,6 @@ All fields are required — no inheritance or partial configs. Legacy key `[mint
 | `start_address` | `u32` (hex ok) | — (required) | Base address in flash |
 | `length` | `u32` (hex ok) | — (required) | Allocated size in bytes |
 | `padding` | `u8` (hex ok) | `0xFF` | Fill byte for unused space and alignment gaps |
-
-Legacy keys `crc` and `crc_location` on headers are rejected with migration hints.
 
 ### `[blockname.data]` — field definitions
 
@@ -52,7 +50,7 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `name` | string | Data source lookup key. Mutually exclusive with other sources. |
 | `bitmap` | array of bitmap fields | Bitfield packing. Mutually exclusive with other sources. |
 | `ref` | string | Dotted path to another field in same block. Mutually exclusive with other sources. |
-| `checksum` | string | Name of a `[mint.checksum.<name>]` config. Mutually exclusive with other sources. |
+| `checksum` | string | Name of a `[mint.checksum.<name>]` config, used inside `checksum = { checksum = \"name\", type = \"u32\" }`. Mutually exclusive with other sources. |
 | `size` | integer or `[rows, cols]` | Array/string dimensions. Pads if data is shorter. Cannot combine with `SIZE`, `ref`, `checksum`, or `bitmap`. |
 | `SIZE` | integer or `[rows, cols]` | Strict array dimensions. Errors if data is shorter. Cannot combine with `size`, `ref`, `checksum`, or `bitmap`. |
 
@@ -109,14 +107,14 @@ typedef struct {
   uint16_t flags; /* bitmap: [0] EnableDebug, [1:3] reserved, [4:7] RegionCode, [8:15] reserved */
   float coefficients[4];
   int16_t matrix[2][2];
-  uint32_t crc;
+  uint32_t checksum;
 } config_t; /* at 0x8000, 256 bytes allocated */
 
 typedef struct {
   uint64_t counter;
   uint8_t message[16];
   uint8_t ip[4];
-  uint32_t crc;
+  uint32_t checksum;
 } data_t; /* at 0x8100, 256 bytes allocated */
 ```
 

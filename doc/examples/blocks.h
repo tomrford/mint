@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /*
- * C structs corresponding to doc/examples/block.{toml,yaml,json}.
+ * C structs corresponding to doc/examples/block.toml.
  * Dotted paths map to nested struct members.
  */
 
@@ -17,13 +17,14 @@ typedef struct {
   uint16_t flags; /* bitmap */
   float coefficients[4];
   int16_t matrix[2][2];
-  uint32_t crc;
+  uint32_t checksum;
 } config_t;
 
 typedef struct {
   uint64_t counter;
   uint8_t message[16];
   uint8_t ip[4];
+  uint32_t checksum;
 } data_t;
 
 #endif /* EXAMPLES_BLOCKS_H */

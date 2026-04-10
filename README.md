@@ -23,17 +23,24 @@ mint block.toml --xlsx data.xlsx -v Default --stats
 mint layout.toml -j data.json -v Debug/Default
 
 # Multiple blocks with options
-mint layout.toml#config layout.toml#calibration --xlsx data.xlsx -v Production/Default --stats
+mint layout.toml#config layout.toml#data --xlsx data.xlsx -v Default --stats
 ```
 
 ### Layout Example
 
 ```toml
+[mint]
+endianness = "little"
+
 [config.data]
-device.info.version.major = { name = "FWVersionMajor", type = "u16" }
-device.info.name = { name = "DeviceName", type = "u8", size = 16 }
-calibration.coefficients = { name = "Coefficients1D", type = "f32", size = 8 }
-calibration.matrix = { name = "CalibrationMatrix", type = "i16", size = [3, 3] }
+device.id = { value = 0x1234, type = "u32" }
+device.name = { name = "DeviceName", type = "u8", size = 16 }
+version = { name = "Version", type = "u16" }
+coefficients = { name = "Coefficients", type = "f32", size = 4 }
+matrix = { name = "Matrix", type = "i16", size = [2, 2] }
+
+[data.data]
+counter = { name = "Counter", type = "u64" }
 message = { value = "Hello", type = "u8", size = 16 }
 ```
 
