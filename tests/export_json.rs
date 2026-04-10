@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use mint_cli::commands;
 use mint_cli::data;
 use mint_cli::layout::args::{BlockNames, LayoutArgs};
@@ -54,21 +52,21 @@ message = { value = "Hi", type = "u8", size = 4 }
         .expect("datasource loads")
         .expect("datasource available");
 
+    let json_out = common::unique_out_path("export", "json");
     let args = mint_cli::args::Args {
         layout: LayoutArgs {
             blocks: vec![BlockNames {
                 name: "".to_string(),
                 file: layout_path,
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: data_args,
         output: OutputArgs {
-            out: PathBuf::from("out/export.hex"),
+            out: common::unique_out_path("export", "hex"),
             record_width: 16,
             format: OutputFormat::Hex,
-            export_json: Some(PathBuf::from("out/export.json")),
+            export_json: Some(json_out.clone()),
             stats: false,
             quiet: true,
         },
@@ -76,7 +74,7 @@ message = { value = "Hi", type = "u8", size = 4 }
 
     commands::build(&args, Some(ds.as_ref())).expect("build should succeed");
 
-    let report = std::fs::read_to_string("out/export.json").expect("read json report");
+    let report = std::fs::read_to_string(&json_out).expect("read json report");
     let json: serde_json::Value = serde_json::from_str(&report).expect("parse json report");
 
     assert_eq!(

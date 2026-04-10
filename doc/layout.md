@@ -23,9 +23,7 @@ Global configuration applies to all blocks. The `[mint.checksum]` section define
 
 ```toml
 [mint]
-endianness = "little"      # "little" (default) or "big"
-virtual_offset = 0x0       # Offset added to all addresses
-word_addressing = false    # Enable for word-addressed memory (see below)
+endianness = "little"
 
 [mint.checksum.crc32]      # Named checksum config (can define multiple)
 polynomial = 0x04C11DB7    # CRC polynomial
@@ -37,16 +35,7 @@ ref_out = true             # Reflect output CRC
 
 Multiple named checksum configurations can be defined (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]`). Each is referenced by name in block data fields.
 
-**Word Addressing Mode:**
-
-When `word_addressing = true`:
-
-- Addresses in output are doubled (16-bit word addresses instead of byte addresses)
-- `start_address` and `length` values are expressed in word addresses (16-bit units)
-- Block length in bytes becomes `length * 2`
-- Byte pairs are swapped in the output to recreate the word-addressed byte order
-- `u8` and `i8` types are not allowed (strings also blocked)
-- `virtual_offset` is applied after doubling, so it is not doubled
+`virtual_offset` is optional. When present, it is added to output addresses and resolved ref addresses.
 
 ---
 
@@ -57,7 +46,7 @@ Each block requires a header section defining the memory region.
 ```toml
 [blockname.header]
 start_address = 0x8B000    # Start address in memory (required)
-length = 0x1000            # Block size in addresses (bytes unless word_addressing=true)
+length = 0x1000            # Block size in bytes
 padding = 0xFF             # Padding byte value (default: 0xFF)
 ```
 
@@ -91,10 +80,10 @@ Data fields are key-value pairs where the key is a dotted path (matching C struc
 device.id = { value = 0x1234, type = "u32" }
 
 # From data source
-device.serial = { name = "SerialNumber", type = "u32" }
+version = { name = "Version", type = "u16" }
 
-# Boolean (stored as integer)
-config.enable = { value = true, type = "u8" }
+# Larger scalar from data source
+counter = { name = "Counter", type = "u64" }
 ```
 
 ### Strings
@@ -107,7 +96,7 @@ Strings use `u8` type with `size` for fixed-length fields.
 message = { value = "Hello", type = "u8", size = 16 }
 
 # From data source
-device.name = { name = "DeviceName", type = "u8", size = 32 }
+device.name = { name = "DeviceName", type = "u8", size = 16 }
 ```
 
 ### Arrays
@@ -115,16 +104,16 @@ device.name = { name = "DeviceName", type = "u8", size = 32 }
 ```toml
 [block.data]
 # 1D literal array
-network.ip = { value = [192, 168, 1, 100], type = "u8", size = 4 }
+ip = { value = [192, 168, 1, 1], type = "u8", size = 4 }
 
 # 1D from data source
-calibration.coeffs = { name = "Coefficients1D", type = "f32", size = 8 }
+coefficients = { name = "Coefficients", type = "f32", size = 4 }
 
-# 2D array (e.g., 3x3 matrix)
-calibration.matrix = { name = "CalibrationMatrix", type = "i16", size = [3, 3] }
+# 2D array
+matrix = { name = "Matrix", type = "i16", size = [2, 2] }
 
 # Strict size (error if data source has fewer elements)
-strict.array = { name = "SomeArray", type = "f32", SIZE = 8 }
+matrix = { name = "Matrix", type = "i16", SIZE = [2, 2] }
 ```
 
 ### Bitmaps
@@ -133,12 +122,11 @@ Pack multiple values into a single integer.
 
 ```toml
 [block.data]
-config.flags = { type = "u16", bitmap = [
+flags = { type = "u16", bitmap = [
     { bits = 1, name = "EnableDebug" },   # 1 bit from data source
-    { bits = 3, name = "ModeSelect" },    # 3 bits from data source
-    { bits = 1, value = true },           # 1 bit literal
+    { bits = 3, value = 0 },              # 3 bits reserved
     { bits = 4, name = "RegionCode" },    # 4 bits from data source
-    { bits = 7, value = 0 },              # 7 bits padding
+    { bits = 8, value = 0 },              # 8 bits reserved
 ] }
 ```
 
@@ -167,7 +155,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 - `type` must be an unsigned integer type (`u16`, `u32`, `u64`)
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
-- The resolved address is `start_address + virtual_offset + target_offset` (with word-addressing multipliers applied when `word_addressing = true`)
+- The resolved address is `start_address + virtual_offset + target_offset`
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
 
 ### Checksums
@@ -231,12 +219,13 @@ length = 0x1000
 version = { value = 1, type = "u16" }
 checksum = { checksum = "crc32", type = "u32" }
 
-[calibration.header]
-start_address = 0x9000
-length = 0x1000
+[data.header]
+start_address = 0x8100
+length = 0x100
 
-[calibration.data]
-coefficients = { name = "Coefficients", type = "f32", size = 16 }
+[data.data]
+counter = { name = "Counter", type = "u64" }
+message = { value = "Hello", type = "u8", size = 16 }
 checksum = { checksum = "crc32c", type = "u32" }
 ```
 
@@ -258,6 +247,7 @@ length = 0x100
 [block.data]
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
+version = { name = "Version", type = "u16" }
 ```
 
 YAML layouts remain accepted, but TOML is the only format documented and recommended for authored layouts. JSON is reserved for data input.

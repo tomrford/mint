@@ -29,7 +29,20 @@ pub fn write_layout_file(file_stem: &str, contents: &str) -> String {
     path
 }
 
-/// Build test args with output written to out/{block_name}.{ext}
+/// Generate a unique output path under `out/`.
+pub fn unique_out_path(stem: &str, ext: &str) -> PathBuf {
+    ensure_out_dir();
+    let unique_id = UNIQUE_FILE_ID.fetch_add(1, Ordering::Relaxed);
+    PathBuf::from(format!(
+        "out/{}-{}-{}.{}",
+        stem,
+        std::process::id(),
+        unique_id,
+        ext
+    ))
+}
+
+/// Build test args with a unique output path.
 pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> Args {
     let ext = match format {
         OutputFormat::Hex => "hex",
@@ -40,7 +53,6 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
             blocks: vec![BlockNames {
                 name: block_name.to_string(),
                 file: layout_path.to_string(),
-                legacy_syntax: false,
             }],
             strict: false,
         },
@@ -50,7 +62,7 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
             ..Default::default()
         },
         output: OutputArgs {
-            out: PathBuf::from(format!("out/{}.{}", block_name, ext)),
+            out: unique_out_path(block_name, ext),
             record_width: 32,
             format,
             export_json: None,
@@ -110,12 +122,12 @@ pub fn build_block_with_values(
     ))
 }
 
-/// Build test args for multiple layouts, output to the specified path
-pub fn build_args_for_layouts(
-    layouts: Vec<BlockNames>,
-    format: OutputFormat,
-    out_path: &str,
-) -> Args {
+/// Build test args for multiple layouts with a unique output path.
+pub fn build_args_for_layouts(layouts: Vec<BlockNames>, format: OutputFormat, stem: &str) -> Args {
+    let ext = match format {
+        OutputFormat::Hex => "hex",
+        OutputFormat::Mot => "mot",
+    };
     Args {
         layout: LayoutArgs {
             blocks: layouts,
@@ -127,7 +139,7 @@ pub fn build_args_for_layouts(
             ..Default::default()
         },
         output: OutputArgs {
-            out: PathBuf::from(out_path),
+            out: unique_out_path(stem, ext),
             record_width: 32,
             format,
             export_json: None,

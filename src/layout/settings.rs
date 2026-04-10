@@ -9,8 +9,6 @@ pub struct MintConfig {
     #[serde(default = "default_offset")]
     pub virtual_offset: u32,
     #[serde(default)]
-    pub word_addressing: bool,
-    #[serde(default)]
     pub checksum: HashMap<String, ChecksumConfig>,
 }
 

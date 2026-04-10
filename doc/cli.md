@@ -24,20 +24,22 @@ Specifies which blocks to build. Two formats are supported:
 mint layout.toml#config --xlsx data.xlsx -v Default -o config.hex
 
 # Build multiple specific blocks
-mint layout.toml#config layout.toml#calibration --xlsx data.xlsx -v Default -o firmware.hex
+mint layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o firmware.hex
 
 # Build all blocks from a file
 mint layout.toml --xlsx data.xlsx -v Default -o output.hex
 
 # Mix both styles
-mint layout.toml#header calibration.toml --xlsx data.xlsx -v Default -o combined.hex
+mint layout.toml#config layout.toml --xlsx data.xlsx -v Default -o combined.hex
 ```
 
 ---
 
 ## Data Source Options
 
-You can specify exactly one supported data source (`-x`/`--xlsx` or `-j`/`--json`) along with versions (`-v`). The deprecated compatibility flags `--postgres` and `--http` now fail with a migration hint telling you to fetch first and pass JSON via `--json`.
+You can specify exactly one supported data source (`-x`/`--xlsx` or `-j`/`--json`) along with versions (`-v`).
+
+If your data currently comes from another system, fetch or transform it first and then pass the resulting JSON via `--json`.
 
 ### `-x, --xlsx <FILE>`
 
@@ -55,14 +57,6 @@ Override the default main sheet name (`Main`) for the excel data source.
 mint layout.toml --xlsx data.xlsx --main-sheet Config -v Default -o output.hex
 ```
 
-### `--postgres <PATH or JSON>`
-
-Deprecated compatibility flag. Fetch first and pass JSON via `--json`. See repo docs.
-
-### `--http <PATH or JSON>`
-
-Deprecated compatibility flag. Fetch first and pass JSON via `--json`. See repo docs.
-
 ### `-j, --json <PATH or JSON>`
 
 Use raw JSON as the data source. Accepts a JSON file path or inline JSON string.
@@ -74,7 +68,7 @@ The JSON format is an object with version names as top-level keys. Each version 
 mint layout.toml --json data.json -v Debug/Default -o output.hex
 
 # Using inline JSON
-mint layout.toml --json '{"Default":{"key1":123,"key2":"value"},"Debug":{"key1":456}}' -v Debug/Default -o output.hex
+mint layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' -v Debug/Default -o output.hex
 ```
 
 **Example JSON format:**
@@ -83,12 +77,17 @@ mint layout.toml --json '{"Default":{"key1":123,"key2":"value"},"Debug":{"key1":
 {
   "Default": {
     "DeviceName": "MyDevice",
-    "FWVersionMajor": 3,
-    "Coefficients1D": [1.0, 2.0, 3.0]
+    "Version": 1,
+    "Counter": 1000,
+    "Coefficients": [1.0, 2.5, 3.7, 4.2],
+    "Matrix": [
+      [10, 20],
+      [30, 40]
+    ]
   },
   "Debug": {
     "DeviceName": "DebugDevice",
-    "FWVersionMajor": 4
+    "Version": 2
   }
 }
 ```
@@ -204,35 +203,27 @@ mint layout.toml --xlsx data.xlsx -v Default -o output.hex --stats
 **Example output:**
 
 ```
-+------------------+--------------+
-| Build Summary    |              |
-+=================================+
-| Build Time       | 4.878ms      |
-|------------------+--------------|
-| Blocks Processed | 6            |
-|------------------+--------------|
-| Total Allocated  | 13,056 bytes |
-|------------------+--------------|
-| Total Used       | 627 bytes    |
-|------------------+--------------|
-| Space Efficiency | 4.8%         |
-+------------------+--------------+
++------------------+-----------+
+| Build Summary    |           |
++==============================+
+| Build Time       | 1.396ms   |
+|------------------+-----------|
+| Blocks Processed | 2         |
+|------------------+-----------|
+| Total Allocated  | 512 bytes |
+|------------------+-----------|
+| Total Used       | 84 bytes  |
+|------------------+-----------|
+| Space Efficiency | 16.4%     |
++------------------+-----------+
 
-+--------------+-----------------------+-----------------------+------------+----------------+
-| Block        | Address Range         | Used/Alloc            | Efficiency | Checksum Value |
-+============================================================================================+
-| block        | 0x0008B000-0x0008BFFF | 308 bytes/4,096 bytes | 7.5%       | 0xB1FAC7CA     |
-|--------------+-----------------------+-----------------------+------------+----------------|
-| block2       | 0x0008C000-0x0008CFFF | 80 bytes/4,096 bytes  | 2.0%       | 0x8CF01930     |
-|--------------+-----------------------+-----------------------+------------+----------------|
-| block3       | 0x0008D000-0x0008DFFF | 160 bytes/4,096 bytes | 3.9%       | 0x0E8D6A3D     |
-|--------------+-----------------------+-----------------------+------------+----------------|
-| block_bitmap | 0x0008E000-0x0008E0FF | 19 bytes/256 bytes    | 7.4%       | 0x54A08471     |
-|--------------+-----------------------+-----------------------+------------+----------------|
-| simple_block | 0x00008000-0x000080FF | 49 bytes/256 bytes    | 19.1%      | 0xFEBB07BD     |
-|--------------+-----------------------+-----------------------+------------+----------------|
-| pg_block     | 0x00001000-0x000010FF | 11 bytes/256 bytes    | 4.3%       | 0x5F67F442     |
-+--------------+-----------------------+-----------------------+------------+----------------+
++--------+---------------+--------------------+------------+----------------+
+| Block  | Address Range | Used/Alloc         | Efficiency | Checksum Value |
++===========================================================================+
+| config | 0x8000-0x80FF | 52 bytes/256 bytes | 20.3%      | 0x89ECCA27     |
+|--------+---------------+--------------------+------------+----------------|
+| data   | 0x8100-0x81FF | 32 bytes/256 bytes | 12.5%      | 0x160D17D3     |
++--------+---------------+--------------------+------------+----------------+
 ```
 
 ### `--quiet`
@@ -278,9 +269,9 @@ mint layout.toml --xlsx data.xlsx -v Default -o firmware.hex
 ```bash
 mint \
   layout.toml#config \
-  layout.toml#calibration \
+  layout.toml#data \
   --xlsx data.xlsx \
-  -v Production/Default \
+  -v Default \
   -o release/FW_v1.2.3.mot \
   --format mot \
   --record-width 32 \

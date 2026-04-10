@@ -5,7 +5,7 @@ use super::settings::{Endianness, MintConfig};
 use super::used_values::ValueSink;
 use super::value::DataValue;
 use crate::data::DataSource;
-use crate::output::{byte_swap_inplace, checksum};
+use crate::output::checksum;
 
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -55,7 +55,6 @@ pub struct BuildConfig<'a> {
     pub endianness: &'a Endianness,
     pub padding: u8,
     pub strict: bool,
-    pub word_addressing: bool,
 }
 
 pub struct BuildOutput {
@@ -107,7 +106,6 @@ impl Block {
             endianness: &settings.endianness,
             padding: self.header.padding,
             strict,
-            word_addressing: settings.word_addressing,
         };
 
         let mut field_path = Vec::new();
@@ -168,13 +166,6 @@ impl Block {
                 let leaf_offset = state.offset;
 
                 if let EntrySource::Ref(target) = &leaf.source {
-                    if config.word_addressing
-                        && matches!(leaf.scalar_type, ScalarType::U8 | ScalarType::I8)
-                    {
-                        return Err(LayoutError::DataValueExportFailed(
-                            "u8/i8 types are not supported with word_addressing enabled.".into(),
-                        ));
-                    }
                     leaf.validate_ref(target)?;
                     let size = leaf.scalar_type.size_bytes();
                     state.pending_refs.push(PendingRef {
@@ -276,16 +267,10 @@ impl Block {
                     ))
                 })?;
 
-            // In word-addressing mode, start_address and offsets are in word
-            // units; the output pipeline doubles them to byte addresses:
-            //   output_address = start_address * 2 + virtual_offset + offset * 2
-            // virtual_offset is NOT doubled. For normal mode: no multiplier.
-            let addr_mult: u32 = if config.word_addressing { 2 } else { 1 };
             let address = header
                 .start_address
-                .checked_mul(addr_mult)
-                .and_then(|a| a.checked_add(*virtual_offset))
-                .and_then(|a| a.checked_add((*target_offset as u32).checked_mul(addr_mult)?))
+                .checked_add(*virtual_offset)
+                .and_then(|a| a.checked_add(*target_offset as u32))
                 .ok_or_else(|| {
                     LayoutError::DataValueExportFailed(format!(
                         "Address overflow resolving ref to '{}'.",
@@ -325,15 +310,8 @@ impl Block {
                 ))
             })?;
 
-            // CRC covers all bytes from block data start up to (exclusive) this field.
-            // In word-addressing mode, compute against the final flashed byte order.
-            let crc_val = if config.word_addressing {
-                let mut swapped = state.buffer[..pending.buffer_position].to_vec();
-                byte_swap_inplace(&mut swapped);
-                checksum::calculate_crc(&swapped, crc_config)
-            } else {
-                checksum::calculate_crc(&state.buffer[..pending.buffer_position], crc_config)
-            };
+            let crc_val =
+                checksum::calculate_crc(&state.buffer[..pending.buffer_position], crc_config);
 
             // Convert CRC to bytes with proper endianness.
             let crc_bytes = match config.endianness {

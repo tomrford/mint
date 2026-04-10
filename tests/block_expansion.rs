@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 use mint_cli::commands;
 use mint_cli::layout::args::BlockNames;
 
@@ -21,13 +19,12 @@ fn test_file_expands_all_blocks() {
             blocks: vec![BlockNames {
                 name: String::new(),
                 file: layout_path.to_string(),
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: Default::default(),
         output: mint_cli::output::args::OutputArgs {
-            out: PathBuf::from("out/expand_test.hex"),
+            out: common::unique_out_path("expand_test", "hex"),
             record_width: 32,
             format: mint_cli::output::args::OutputFormat::Hex,
             export_json: None,
@@ -45,7 +42,7 @@ fn test_file_expands_all_blocks() {
         "Should build all blocks in the file"
     );
 
-    common::assert_out_file_exists(Path::new("out/expand_test.hex"));
+    common::assert_out_file_exists(&args.output.out);
 }
 
 #[test]
@@ -64,20 +61,18 @@ fn test_deduplication_file_and_specific() {
                 BlockNames {
                     name: String::new(),
                     file: layout_path.to_string(),
-                    legacy_syntax: false,
                 },
                 // Request specific block that exists in the combined file
                 BlockNames {
                     name: "block".to_string(),
                     file: layout_path.to_string(),
-                    legacy_syntax: false,
                 },
             ],
             strict: false,
         },
         data: Default::default(),
         output: mint_cli::output::args::OutputArgs {
-            out: PathBuf::from("out/dedup_test.hex"),
+            out: common::unique_out_path("dedup_test", "hex"),
             record_width: 32,
             format: mint_cli::output::args::OutputFormat::Hex,
             export_json: None,
@@ -111,13 +106,12 @@ fn test_file_expansion_builds_all_blocks() {
             blocks: vec![BlockNames {
                 name: String::new(),
                 file: layout_path.to_string(),
-                legacy_syntax: false,
             }],
             strict: false,
         },
         data: Default::default(),
         output: mint_cli::output::args::OutputArgs {
-            out: PathBuf::from("out/all_blocks.hex"),
+            out: common::unique_out_path("all_blocks", "hex"),
             record_width: 32,
             format: mint_cli::output::args::OutputFormat::Hex,
             export_json: None,
@@ -135,5 +129,5 @@ fn test_file_expansion_builds_all_blocks() {
         "Should build all blocks"
     );
 
-    common::assert_out_file_exists(Path::new("out/all_blocks.hex"));
+    common::assert_out_file_exists(&args.output.out);
 }

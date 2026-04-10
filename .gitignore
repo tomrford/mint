@@ -2,9 +2,4 @@ target
 .DS_Store
 .direnv
 out
-.pg_data
-
 examples/~$*.xlsx
-
-# This is a folder I keep LLM context in whilst working over a large task - stuff that doesn't belong in the repo
-context

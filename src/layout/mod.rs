@@ -10,7 +10,9 @@ pub mod value;
 
 use block::Config;
 use error::LayoutError;
+use serde_yaml::Value as YamlValue;
 use std::path::Path;
+use toml::Value as TomlValue;
 
 pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
     let text = std::fs::read_to_string(filename)
@@ -24,28 +26,22 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
 
     let cfg: Config = match ext.as_str() {
         "toml" => {
-            let raw: toml::Value = toml::from_str(&text).map_err(|e| {
+            let raw: TomlValue = toml::from_str(&text).map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
             })?;
-            validate_removed_toml_keys(&raw)?;
+            reject_removed_toml_keys(&raw)?;
             raw.try_into().map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
             })?
         }
         "yaml" | "yml" => {
-            let raw: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| {
+            let raw: YamlValue = serde_yaml::from_str(&text).map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
             })?;
-            validate_removed_yaml_keys(&raw)?;
-            serde_yaml::from_value(raw).map_err(|e| {
+            reject_removed_yaml_keys(&raw)?;
+            serde_yaml::from_str(&text).map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
             })?
-        }
-        "json" => {
-            return Err(LayoutError::FileError(format!(
-                "JSON layout files are no longer supported; migrate {} to TOML",
-                filename
-            )));
         }
         _ => {
             return Err(LayoutError::FileError(
@@ -57,108 +53,38 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
     Ok(cfg)
 }
 
-/// Abstraction over TOML/YAML map access for migration validation.
-trait MapAccess {
-    fn has_key(&self, key: &str) -> bool;
-    fn get_map(&self, key: &str) -> Option<&Self>;
-    /// Iterate top-level entries as `(key_name, value)` pairs.
-    fn entries(&self) -> Vec<(&str, &Self)>;
+fn removed_word_addressing_error() -> LayoutError {
+    LayoutError::FileError(
+        "`[mint].word_addressing` has been removed. mint now uses byte addressing only; convert word-addressed layouts with a dedicated pre/post-processing tool before calling mint.".to_string(),
+    )
 }
 
-impl MapAccess for toml::Value {
-    fn has_key(&self, key: &str) -> bool {
-        self.as_table().is_some_and(|t| t.contains_key(key))
-    }
-    fn get_map(&self, key: &str) -> Option<&Self> {
-        self.as_table()?.get(key).filter(|v| v.is_table())
-    }
-    fn entries(&self) -> Vec<(&str, &Self)> {
-        self.as_table()
-            .map(|t| t.iter().map(|(k, v)| (k.as_str(), v)).collect())
-            .unwrap_or_default()
-    }
-}
-
-impl MapAccess for serde_yaml::Value {
-    fn has_key(&self, key: &str) -> bool {
-        self.as_mapping()
-            .is_some_and(|m| m.contains_key(serde_yaml::Value::String(key.to_string())))
-    }
-    fn get_map(&self, key: &str) -> Option<&Self> {
-        self.as_mapping()?
-            .get(serde_yaml::Value::String(key.to_string()))
-            .filter(|v| v.is_mapping())
-    }
-    fn entries(&self) -> Vec<(&str, &Self)> {
-        self.as_mapping()
-            .map(|m| {
-                m.iter()
-                    .filter_map(|(k, v)| Some((k.as_str()?, v)))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-}
-
-// TODO: remove once deprecated `settings`, `mint.crc`, `header.crc`, and `crc_location`
-// keys are no longer in circulation.
-fn validate_removed_toml_keys(value: &toml::Value) -> Result<(), LayoutError> {
-    validate_removed_keys(value)
-}
-
-fn validate_removed_yaml_keys(value: &serde_yaml::Value) -> Result<(), LayoutError> {
-    validate_removed_keys(value)
-}
-
-fn validate_removed_keys(root: &impl MapAccess) -> Result<(), LayoutError> {
-    if root.has_key("settings") {
-        return Err(LayoutError::FileError(settings_removed_message()));
-    }
-
-    if let Some(mint) = root.get_map("mint")
-        && mint.has_key("crc")
+fn reject_removed_toml_keys(raw: &TomlValue) -> Result<(), LayoutError> {
+    if raw
+        .get("mint")
+        .and_then(TomlValue::as_table)
+        .is_some_and(|mint| mint.contains_key("word_addressing"))
     {
-        return Err(LayoutError::FileError(mint_crc_removed_message()));
-    }
-
-    for (block_name, block_value) in root.entries() {
-        if matches!(block_name, "mint" | "settings") {
-            continue;
-        }
-        let Some(header) = block_value.get_map("header") else {
-            continue;
-        };
-        if header.has_key("crc") {
-            return Err(LayoutError::FileError(header_crc_removed_message(
-                block_name,
-            )));
-        }
-        if header.has_key("crc_location") {
-            return Err(LayoutError::FileError(crc_location_removed_message(
-                block_name,
-            )));
-        }
+        return Err(removed_word_addressing_error());
     }
 
     Ok(())
 }
 
-fn settings_removed_message() -> String {
-    "`[settings]` was removed; rename it to `[mint]`. Define named checksum algorithms under `[mint.checksum.<name>]` and reference them from block data with `checksum = { checksum = \"<name>\", type = \"u32\" }`.".to_string()
-}
+fn reject_removed_yaml_keys(raw: &YamlValue) -> Result<(), LayoutError> {
+    let Some(root) = raw.as_mapping() else {
+        return Ok(());
+    };
+    let Some(mint) = root.get(YamlValue::String("mint".to_string())) else {
+        return Ok(());
+    };
+    let Some(mint) = mint.as_mapping() else {
+        return Ok(());
+    };
 
-fn mint_crc_removed_message() -> String {
-    "`[mint.crc]` was removed. Define named checksum algorithms under `[mint.checksum.<name>]` and place checksums inline in block data with `checksum = { checksum = \"<name>\", type = \"u32\" }`.".to_string()
-}
+    if mint.contains_key(YamlValue::String("word_addressing".to_string())) {
+        return Err(removed_word_addressing_error());
+    }
 
-fn header_crc_removed_message(block_name: &str) -> String {
-    format!(
-        "`[{block_name}.header.crc]` was removed. Place the checksum inline in `[{block_name}.data]` with `checksum = {{ checksum = \"<name>\", type = \"u32\" }}` and reference a named config from `[mint.checksum.<name>]`."
-    )
-}
-
-fn crc_location_removed_message(block_name: &str) -> String {
-    format!(
-        "`[{block_name}.header].crc_location` was removed. Place the checksum inline in `[{block_name}.data]` with `checksum = {{ checksum = \"<name>\", type = \"u32\" }}`."
-    )
+    Ok(())
 }

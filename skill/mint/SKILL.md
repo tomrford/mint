@@ -87,9 +87,10 @@ Strings and arrays require `size`. Strings are UTF-8 encoded into the byte array
 ### Data source lookup (`name`)
 
 ```toml
-device.serial = { name = "SerialNumber", type = "u32" }
-coefficients = { name = "Coefficients1D", type = "f32", size = 8 }
-matrix = { name = "CalibrationMatrix", type = "i16", size = [3, 3] }
+device.name = { name = "DeviceName", type = "u8", size = 16 }
+version = { name = "Version", type = "u16" }
+coefficients = { name = "Coefficients", type = "f32", size = 4 }
+matrix = { name = "Matrix", type = "i16", size = [2, 2] }
 ```
 
 The `name` string must match a key in the data source. For arrays, `size` specifies dimensions — use `size = N` for 1D, `size = [rows, cols]` for 2D.
@@ -161,15 +162,17 @@ A data source is optional — layouts with only `value` fields build without one
 
 The workbook has a **Main sheet** (or specify `--main-sheet`) with this structure:
 
-| Name         | Default       | Debug    | Production |
-| ------------ | ------------- | -------- | ---------- |
-| DeviceName   | MyDevice      | DebugDev |            |
-| FWVersion    | 3             |          | 4          |
-| Coefficients | #Coefficients |          |            |
+| Name         | Default              | Debug              | Production |
+| ------------ | -------------------- | ------------------ | ---------- |
+| DeviceName   | MyDevice             | DebugDev           |            |
+| Version      | 1                    | 2                  | 1          |
+| Counter      | 1000                 | 0                  | 50000      |
+| Coefficients | #DefaultCoefficients | #DebugCoefficients |            |
+| Matrix       | #CalibrationMatrix   | #CalibrationMatrix |            |
 
 - **Name column**: lookup keys matching layout `name` fields
 - **Variant columns**: one per build variant. First non-empty value in the `-v` priority chain wins.
-- **Array sheet refs**: A cell value like `#Coefficients` points to a separate sheet named `Coefficients` containing array data. First row is headers (ignored), values read row-by-row until an empty cell.
+- **Array sheet refs**: A cell value like `#DefaultCoefficients` points to a separate sheet containing array data. First row is headers (ignored), values read row-by-row until an empty cell.
 
 ### JSON (`--json`)
 
@@ -177,11 +180,17 @@ The workbook has a **Main sheet** (or specify `--main-sheet`) with this structur
 {
   "Default": {
     "DeviceName": "MyDevice",
-    "FWVersion": 3,
-    "Coefficients": [1.0, 2.0, 3.0]
+    "Version": 1,
+    "Counter": 1000,
+    "Coefficients": [1.0, 2.0, 3.0, 4.0],
+    "Matrix": [
+      [10, 20],
+      [30, 40]
+    ]
   },
   "Debug": {
-    "DeviceName": "DebugDev"
+    "DeviceName": "DebugDev",
+    "Version": 2
   }
 }
 ```
@@ -201,11 +210,11 @@ Top-level keys are variant names. Each contains an object of name:value pairs. A
 mint layout.toml --xlsx data.xlsx -v Default -o firmware.hex
 
 # Specific blocks
-mint layout.toml#config layout.toml#calibration --xlsx data.xlsx -v Production/Default -o out.hex
+mint layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o out.hex
 
 # JSON data source (file or inline)
 mint layout.toml --json data.json -v Debug/Default -o out.hex
-mint layout.toml --json '{"Default":{"key":123}}' -v Default -o out.hex
+mint layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}' -v Default -o out.hex
 
 # Output format options
 --format hex              # Intel HEX (default)

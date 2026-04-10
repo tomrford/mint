@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use mint_cli::commands;
 
 #[path = "common/mod.rs"]
@@ -43,7 +41,6 @@ fn smoke_build_examples_all_formats_and_options() {
             .map(|name| mint_cli::layout::args::BlockNames {
                 name: name.clone(),
                 file: layout_path.to_string(),
-                legacy_syntax: false,
             })
             .collect::<Vec<_>>();
 
@@ -51,11 +48,11 @@ fn smoke_build_examples_all_formats_and_options() {
             let args_combined = common::build_args_for_layouts(
                 block_inputs,
                 mint_cli::output::args::OutputFormat::Hex,
-                "out/combined.hex",
+                "combined",
             );
 
             commands::build(&args_combined, Some(ds.as_ref())).expect("build combined");
-            common::assert_out_file_exists(Path::new("out/combined.hex"));
+            common::assert_out_file_exists(&args_combined.output.out);
         }
     }
 }

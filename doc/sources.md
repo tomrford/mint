@@ -12,17 +12,20 @@ mint layout.toml --xlsx data.xlsx -v Default
 
 The `Main` sheet (or one specified via `--main-sheet`) contains variant data:
 
-| Name              | Default            | Debug | VarA |
-| ----------------- | ------------------ | ----- | ---- |
-| DeviceName        | MyDevice           |       |      |
-| FWVersionMajor    | 3                  |       | 4    |
-| Coefficients1D    | #Coefficients1D    |       |      |
-| CalibrationMatrix | #CalibrationMatrix |       |      |
+| Name         | Default              | Debug              |
+| ------------ | -------------------- | ------------------ |
+| DeviceName   | MyDevice             | DebugDevice        |
+| Version      | 1                    | 2                  |
+| Counter      | 1000                 | 0                  |
+| EnableDebug  | 0                    | 1                  |
+| RegionCode   | 5                    | 12                 |
+| Coefficients | #DefaultCoefficients | #DebugCoefficients |
+| Matrix       | #CalibrationMatrix   | #CalibrationMatrix |
 
 - **Name column**: lookup key used by layout files
-- **Variant columns**: values for each variant (e.g., Default, Debug, VarA)
-- **Precedence**: follows `-v` order; first non-empty wins, falls back to Default
-- **Sheet references**: cells starting with `#` reference array sheets (e.g., `#Coefficients1D`)
+- **Variant columns**: values for each variant (e.g., `Default`, `Debug`)
+- **Precedence**: follows the explicit `-v` order; first non-empty value wins
+- **Sheet references**: cells starting with `#` reference array sheets (e.g., `#DefaultCoefficients`)
 
 ### Array Sheets
 
@@ -45,7 +48,7 @@ For 1D/2D arrays, reference a sheet by name with `#` prefix:
 ```bash
 mint layout.toml --json data.json -v Debug/Default
 # or inline:
-mint layout.toml --json '{"Default":{"key1":123,"key2":"value"},"Debug":{"key1":456}}' -v Debug/Default
+mint layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' -v Debug/Default
 ```
 
 ### Format
@@ -59,17 +62,21 @@ The JSON data source expects an object where:
 {
   "Default": {
     "DeviceName": "MyDevice",
-    "FWVersionMajor": 3,
-    "Coefficients1D": [1.0, 2.0, 3.0],
-    "CalibrationMatrix": [
-      [1, 2],
-      [3, 4]
+    "Version": 1,
+    "Counter": 1000,
+    "EnableDebug": 0,
+    "RegionCode": 5,
+    "Coefficients": [1.0, 2.5, 3.7, 4.2],
+    "Matrix": [
+      [10, 20],
+      [30, 40]
     ]
   },
   "Debug": {
     "DeviceName": "DebugDevice",
-    "FWVersionMajor": 4,
-    "Coefficients1D": [0.5, 1.5, 2.5]
+    "Version": 2,
+    "Counter": 0,
+    "EnableDebug": 1
   }
 }
 ```

@@ -51,7 +51,6 @@ fn test_build_stats_aggregation() {
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
             file: layout_path.to_string(),
-            legacy_syntax: false,
         })
         .collect::<Vec<_>>();
 
@@ -62,7 +61,7 @@ fn test_build_stats_aggregation() {
     let args = common::build_args_for_layouts(
         block_inputs.clone(),
         mint_cli::output::args::OutputFormat::Hex,
-        "out/stats_aggregation.hex",
+        "stats_aggregation",
     );
 
     let stats = commands::build(&args, Some(ds.as_ref())).expect("build should succeed");
@@ -130,7 +129,6 @@ fn test_multi_block_stats() {
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
             file: layout_path.to_string(),
-            legacy_syntax: false,
         })
         .collect::<Vec<_>>();
 
@@ -141,7 +139,7 @@ fn test_multi_block_stats() {
     let args = common::build_args_for_layouts(
         block_inputs.clone(),
         mint_cli::output::args::OutputFormat::Hex,
-        "out/multi_block_stats.hex",
+        "multi_block_stats",
     );
 
     let stats = commands::build(&args, Some(ds.as_ref())).expect("build should succeed");
