@@ -36,6 +36,7 @@ endianness = "little"
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 version = { name = "Version", type = "u16" }
+gain = { value = 1.5, type = "uq8.8" }
 coefficients = { name = "Coefficients", type = "f32", size = 4 }
 matrix = { name = "Matrix", type = "i16", size = [2, 2] }
 
