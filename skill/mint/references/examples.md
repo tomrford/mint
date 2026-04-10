@@ -8,10 +8,10 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 
 ### `[mint]` — global configuration (required)
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `endianness` | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values |
-| `virtual_offset` | `u32` (hex ok) | `0` | Offset added to all computed addresses (refs, output) |
+| Key              | Type                  | Default      | Description                                           |
+| ---------------- | --------------------- | ------------ | ----------------------------------------------------- |
+| `endianness`     | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values                  |
+| `virtual_offset` | `u32` (hex ok)        | `0`          | Offset added to all computed addresses (refs, output) |
 
 Legacy key `[mint].word_addressing` is rejected. mint now uses byte addressing only.
 
@@ -19,23 +19,23 @@ Legacy key `[mint].word_addressing` is rejected. mint now uses byte addressing o
 
 Define as many as needed (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]`). Referenced by name in checksum fields.
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `polynomial` | `u32` | — (required) | CRC polynomial |
-| `start` | `u32` | — (required) | Initial CRC value |
-| `xor_out` | `u32` | — (required) | XOR applied to final CRC |
-| `ref_in` | `bool` | — (required) | Reflect each input byte |
-| `ref_out` | `bool` | — (required) | Reflect final CRC before XOR |
+| Key          | Type   | Default      | Description                  |
+| ------------ | ------ | ------------ | ---------------------------- |
+| `polynomial` | `u32`  | — (required) | CRC polynomial               |
+| `start`      | `u32`  | — (required) | Initial CRC value            |
+| `xor_out`    | `u32`  | — (required) | XOR applied to final CRC     |
+| `ref_in`     | `bool` | — (required) | Reflect each input byte      |
+| `ref_out`    | `bool` | — (required) | Reflect final CRC before XOR |
 
 All fields are required — no inheritance or partial configs.
 
 ### `[blockname.header]` — per-block memory region (required per block)
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `start_address` | `u32` (hex ok) | — (required) | Base address in flash |
-| `length` | `u32` (hex ok) | — (required) | Allocated size in bytes |
-| `padding` | `u8` (hex ok) | `0xFF` | Fill byte for unused space and alignment gaps |
+| Key             | Type           | Default      | Description                                   |
+| --------------- | -------------- | ------------ | --------------------------------------------- |
+| `start_address` | `u32` (hex ok) | — (required) | Base address in flash                         |
+| `length`        | `u32` (hex ok) | — (required) | Allocated size in bytes                       |
+| `padding`       | `u8` (hex ok)  | `0xFF`       | Fill byte for unused space and alignment gaps |
 
 ### `[blockname.data]` — field definitions
 
@@ -43,47 +43,48 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 
 #### Field attributes
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `type` | string | Required. One of: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64` |
-| `value` | scalar, string, or array | Literal value. Mutually exclusive with other sources. |
-| `name` | string | Data source lookup key. Mutually exclusive with other sources. |
-| `bitmap` | array of bitmap fields | Bitfield packing. Mutually exclusive with other sources. |
-| `ref` | string | Dotted path to another field in same block. Mutually exclusive with other sources. |
-| `checksum` | string | Name of a `[mint.checksum.<name>]` config, used inside `checksum = { checksum = \"name\", type = \"u32\" }`. Mutually exclusive with other sources. |
-| `size` | integer or `[rows, cols]` | Array/string dimensions. Pads if data is shorter. Cannot combine with `SIZE`, `ref`, `checksum`, or `bitmap`. |
-| `SIZE` | integer or `[rows, cols]` | Strict array dimensions. Errors if data is shorter. Cannot combine with `size`, `ref`, `checksum`, or `bitmap`. |
+| Attribute  | Type                      | Description                                                                                                                                         |
+| ---------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`     | string                    | Required. One of: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`                                                                |
+| `value`    | scalar, string, or array  | Literal value. Mutually exclusive with other sources.                                                                                               |
+| `name`     | string                    | Data source lookup key. Mutually exclusive with other sources.                                                                                      |
+| `bitmap`   | array of bitmap fields    | Bitfield packing. Mutually exclusive with other sources.                                                                                            |
+| `ref`      | string                    | Dotted path to another field in same block. Mutually exclusive with other sources.                                                                  |
+| `checksum` | string                    | Name of a `[mint.checksum.<name>]` config, used inside `checksum = { checksum = \"name\", type = \"u32\" }`. Mutually exclusive with other sources. |
+| `size`     | integer or `[rows, cols]` | Array/string dimensions. Pads if data is shorter. Cannot combine with `SIZE`, `ref`, `checksum`, or `bitmap`.                                       |
+| `SIZE`     | integer or `[rows, cols]` | Strict array dimensions. Errors if data is shorter. Cannot combine with `size`, `ref`, `checksum`, or `bitmap`.                                     |
 
 #### Source constraints
 
-| Source | Allowed types | `size`/`SIZE` | Notes |
-|--------|--------------|---------------|-------|
-| `value` (scalar) | any | no | Numeric, boolean, or string literal |
-| `value` (string) | `u8` | required | UTF-8 encoded into byte array |
-| `value` (1D array) | any | required | Inline array of values |
-| `value` (2D array) | — | — | **Not supported.** 2D arrays must come from a data source. |
-| `name` (scalar) | any | no | Single value from data source |
-| `name` (1D array) | any | required (`size = N`) | 1D array from data source |
-| `name` (2D array) | any | required (`size = [R, C]`) | 2D array from data source |
-| `bitmap` | integer types only | no | Sum of `bits` must equal type width |
-| `ref` | `u16`, `u32`, `u64` | no | Resolves to absolute address of target |
-| `checksum` | `u32` only | no | CRC over all preceding bytes in block |
+| Source             | Allowed types       | `size`/`SIZE`              | Notes                                                      |
+| ------------------ | ------------------- | -------------------------- | ---------------------------------------------------------- |
+| `value` (scalar)   | any                 | no                         | Numeric, boolean, or string literal                        |
+| `value` (string)   | `u8`                | required                   | UTF-8 encoded into byte array                              |
+| `value` (1D array) | any                 | required                   | Inline array of values                                     |
+| `value` (2D array) | —                   | —                          | **Not supported.** 2D arrays must come from a data source. |
+| `name` (scalar)    | any                 | no                         | Single value from data source                              |
+| `name` (1D array)  | any                 | required (`size = N`)      | 1D array from data source                                  |
+| `name` (2D array)  | any                 | required (`size = [R, C]`) | 2D array from data source                                  |
+| `bitmap`           | integer types only  | no                         | Sum of `bits` must equal type width                        |
+| `ref`              | `u16`, `u32`, `u64` | no                         | Resolves to absolute address of target                     |
+| `checksum`         | `u32` only          | no                         | CRC over all preceding bytes in block                      |
 
 #### Bitmap sub-field schema
 
 Each element in the `bitmap` array:
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `bits` | integer (>0) | Number of bits this sub-field occupies |
-| `name` | string | Data source lookup key (mutually exclusive with `value`) |
-| `value` | scalar | Literal value (mutually exclusive with `name`) |
+| Key     | Type         | Description                                              |
+| ------- | ------------ | -------------------------------------------------------- |
+| `bits`  | integer (>0) | Number of bits this sub-field occupies                   |
+| `name`  | string       | Data source lookup key (mutually exclusive with `value`) |
+| `value` | scalar       | Literal value (mutually exclusive with `name`)           |
 
 Fields pack LSB-first. Signed parent types use two's complement for negative sub-field values.
 
 ### Alignment behavior
 
 Fields are naturally aligned to their type width:
+
 - `u8`/`i8`: 1-byte aligned (no padding)
 - `u16`/`i16`: 2-byte aligned
 - `u32`/`i32`/`f32`: 4-byte aligned

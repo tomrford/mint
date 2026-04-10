@@ -80,7 +80,10 @@ mint layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counte
     "Version": 1,
     "Counter": 1000,
     "Coefficients": [1.0, 2.5, 3.7, 4.2],
-    "Matrix": [[10, 20], [30, 40]]
+    "Matrix": [
+      [10, 20],
+      [30, 40]
+    ]
   },
   "Debug": {
     "DeviceName": "DebugDevice",

@@ -12,15 +12,15 @@ mint layout.toml --xlsx data.xlsx -v Default
 
 The `Main` sheet (or one specified via `--main-sheet`) contains variant data:
 
-| Name        | Default              | Debug               |
-| ----------- | -------------------- | ------------------- |
-| DeviceName  | MyDevice             | DebugDevice         |
-| Version     | 1                    | 2                   |
-| Counter     | 1000                 | 0                   |
-| EnableDebug | 0                    | 1                   |
-| RegionCode  | 5                    | 12                  |
-| Coefficients| #DefaultCoefficients | #DebugCoefficients  |
-| Matrix      | #CalibrationMatrix   | #CalibrationMatrix  |
+| Name         | Default              | Debug              |
+| ------------ | -------------------- | ------------------ |
+| DeviceName   | MyDevice             | DebugDevice        |
+| Version      | 1                    | 2                  |
+| Counter      | 1000                 | 0                  |
+| EnableDebug  | 0                    | 1                  |
+| RegionCode   | 5                    | 12                 |
+| Coefficients | #DefaultCoefficients | #DebugCoefficients |
+| Matrix       | #CalibrationMatrix   | #CalibrationMatrix |
 
 - **Name column**: lookup key used by layout files
 - **Variant columns**: values for each variant (e.g., `Default`, `Debug`)
@@ -67,7 +67,10 @@ The JSON data source expects an object where:
     "EnableDebug": 0,
     "RegionCode": 5,
     "Coefficients": [1.0, 2.5, 3.7, 4.2],
-    "Matrix": [[10, 20], [30, 40]]
+    "Matrix": [
+      [10, 20],
+      [30, 40]
+    ]
   },
   "Debug": {
     "DeviceName": "DebugDevice",

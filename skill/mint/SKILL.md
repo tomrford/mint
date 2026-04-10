@@ -162,13 +162,13 @@ A data source is optional — layouts with only `value` fields build without one
 
 The workbook has a **Main sheet** (or specify `--main-sheet`) with this structure:
 
-| Name         | Default       | Debug    | Production |
-| ------------ | ------------- | -------- | ---------- |
-| DeviceName   | MyDevice      | DebugDev |            |
-| Version      | 1             | 2        | 1          |
-| Counter      | 1000          | 0        | 50000      |
+| Name         | Default              | Debug              | Production |
+| ------------ | -------------------- | ------------------ | ---------- |
+| DeviceName   | MyDevice             | DebugDev           |            |
+| Version      | 1                    | 2                  | 1          |
+| Counter      | 1000                 | 0                  | 50000      |
 | Coefficients | #DefaultCoefficients | #DebugCoefficients |            |
-| Matrix       | #CalibrationMatrix | #CalibrationMatrix |            |
+| Matrix       | #CalibrationMatrix   | #CalibrationMatrix |            |
 
 - **Name column**: lookup keys matching layout `name` fields
 - **Variant columns**: one per build variant. First non-empty value in the `-v` priority chain wins.
@@ -183,7 +183,10 @@ The workbook has a **Main sheet** (or specify `--main-sheet`) with this structur
     "Version": 1,
     "Counter": 1000,
     "Coefficients": [1.0, 2.0, 3.0, 4.0],
-    "Matrix": [[10, 20], [30, 40]]
+    "Matrix": [
+      [10, 20],
+      [30, 40]
+    ]
   },
   "Debug": {
     "DeviceName": "DebugDev",
