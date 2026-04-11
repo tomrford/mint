@@ -351,20 +351,21 @@ fn clamp_fixed_point_float(
     }
 
     let rounded = scaled.round_ties_even();
-    if rounded < min as f64 {
+    let rounded_int = rounded as i128;
+    if rounded_int < min {
         if strict {
             return Err(fixed_point_overflow_error(fixed, original, rounded));
         }
         return Ok(min);
     }
-    if rounded > max as f64 {
+    if rounded_int > max {
         if strict {
             return Err(fixed_point_overflow_error(fixed, original, rounded));
         }
         return Ok(max);
     }
 
-    Ok(rounded as i128)
+    Ok(rounded_int)
 }
 
 fn encode_integer_bytes(

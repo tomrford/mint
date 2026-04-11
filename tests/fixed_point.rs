@@ -155,6 +155,43 @@ gain = { value = 300.5, type = "uq8.8" }
 }
 
 #[test]
+fn fixed_point_64bit_float_overflow_clamps_in_non_strict_mode() {
+    let layout = r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x80000
+length = 0x100
+padding = 0x00
+
+[block.data]
+unsigned_limit = { value = 18446744073709551616.0, type = "uq64.0" }
+signed_limit = { value = 9223372036854775808.0, type = "q63.0" }
+"#;
+
+    let path = common::write_layout_file("fixed-point-64bit-float-overflow", layout);
+    let cfg = mint_cli::layout::load_layout(&path).expect("layout loads");
+    let block = cfg.blocks.get("block").expect("block present");
+
+    let err = common::build_block(block, &cfg.mint, true, None).expect_err("strict should fail");
+    assert!(
+        err.to_string().contains("fixed-point type 'uq64.0'"),
+        "unexpected strict error: {err}"
+    );
+
+    let (bytes, _) = common::build_block(block, &cfg.mint, false, None)
+        .expect("non-strict overflow should clamp");
+    assert_eq!(
+        bytes,
+        vec![
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0x7F,
+        ]
+    );
+}
+
+#[test]
 fn fixed_point_rejects_non_finite_input() {
     let layout = r#"
 [mint]
