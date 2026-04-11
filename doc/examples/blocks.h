@@ -14,6 +14,7 @@ typedef struct {
     uint8_t name[16];
   } device;
   uint16_t version;
+  uint16_t gain_q8_8; /* uq8.8 fixed-point */
   uint16_t flags; /* bitmap */
   float coefficients[4];
   int16_t matrix[2][2];

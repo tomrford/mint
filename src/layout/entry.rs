@@ -1,6 +1,7 @@
 use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
+use super::scalar_type::{ScalarType, fixed_point_unsupported_error};
 use super::settings::MintConfig;
 use super::used_values::{
     ValueSink, array_2d_to_json, array_to_json, data_value_to_json, i128_to_json,
@@ -19,31 +20,6 @@ pub struct LeafEntry {
     size_keys: SizeKeys,
     #[serde(flatten)]
     pub source: EntrySource,
-}
-
-/// Scalar type enum derived from 'type' string in leaf entries.
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub enum ScalarType {
-    #[serde(rename = "u8")]
-    U8,
-    #[serde(rename = "u16")]
-    U16,
-    #[serde(rename = "u32")]
-    U32,
-    #[serde(rename = "u64")]
-    U64,
-    #[serde(rename = "i8")]
-    I8,
-    #[serde(rename = "i16")]
-    I16,
-    #[serde(rename = "i32")]
-    I32,
-    #[serde(rename = "i64")]
-    I64,
-    #[serde(rename = "f32")]
-    F32,
-    #[serde(rename = "f64")]
-    F64,
 }
 
 /// Size source enum.
@@ -183,6 +159,9 @@ impl LeafEntry {
 
     /// Validates ref entry rules.
     pub fn validate_ref(&self, target: &str) -> Result<(), LayoutError> {
+        if self.scalar_type.fixed_point().is_some() {
+            return Err(fixed_point_unsupported_error("Ref", self.scalar_type));
+        }
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
             return Err(LayoutError::DataValueExportFailed(
                 "size/SIZE keys are forbidden with ref.".into(),
@@ -207,6 +186,9 @@ impl LeafEntry {
         config_name: &str,
         settings: &MintConfig,
     ) -> Result<(), LayoutError> {
+        if self.scalar_type.fixed_point().is_some() {
+            return Err(fixed_point_unsupported_error("Checksum", self.scalar_type));
+        }
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
             return Err(LayoutError::DataValueExportFailed(
                 "size/SIZE keys are forbidden with checksum.".into(),
@@ -241,6 +223,9 @@ impl LeafEntry {
 
     /// Validates bitmap entry rules.
     fn validate_bitmap(&self, fields: &[BitmapField]) -> Result<(), LayoutError> {
+        if self.scalar_type.fixed_point().is_some() {
+            return Err(fixed_point_unsupported_error("Bitmap", self.scalar_type));
+        }
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
             return Err(LayoutError::DataValueExportFailed(
                 "size/SIZE keys are forbidden with bitmap.".into(),
@@ -320,12 +305,14 @@ impl LeafEntry {
                     )));
                 };
                 let value = ds.retrieve_single_value(name)?;
+                let bytes = value.to_bytes(self.scalar_type, config.endianness, config.strict)?;
                 value_sink.record_value(field_path, data_value_to_json(&value)?)?;
-                value.to_bytes(self.scalar_type, config.endianness, config.strict)
+                Ok(bytes)
             }
             EntrySource::Value(ValueSource::Single(v)) => {
+                let bytes = v.to_bytes(self.scalar_type, config.endianness, config.strict)?;
                 value_sink.record_value(field_path, data_value_to_json(v)?)?;
-                v.to_bytes(self.scalar_type, config.endianness, config.strict)
+                Ok(bytes)
             }
             EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
                 "Single value expected for scalar type.".to_string(),
@@ -368,26 +355,30 @@ impl LeafEntry {
                                 "Strings should have type u8.".to_string(),
                             ));
                         }
-                        value_sink.record_value(field_path, data_value_to_json(&v)?)?;
                         out.extend(v.string_to_bytes()?);
+                        value_sink.record_value(field_path, data_value_to_json(&v)?)?;
                     }
                     ValueSource::Array(v) => {
-                        value_sink.record_value(field_path, array_to_json(&v)?)?;
-                        for v in v {
-                            out.extend(v.to_bytes(
+                        for value in &v {
+                            out.extend(value.to_bytes(
                                 self.scalar_type,
                                 config.endianness,
                                 config.strict,
                             )?);
                         }
+                        value_sink.record_value(field_path, array_to_json(&v)?)?;
                     }
                 }
             }
             EntrySource::Value(ValueSource::Array(v)) => {
-                value_sink.record_value(field_path, array_to_json(v)?)?;
-                for v in v {
-                    out.extend(v.to_bytes(self.scalar_type, config.endianness, config.strict)?);
+                for value in v {
+                    out.extend(value.to_bytes(
+                        self.scalar_type,
+                        config.endianness,
+                        config.strict,
+                    )?);
                 }
+                value_sink.record_value(field_path, array_to_json(v)?)?;
             }
             EntrySource::Value(ValueSource::Single(v)) => {
                 if !matches!(self.scalar_type, ScalarType::U8) {
@@ -395,8 +386,8 @@ impl LeafEntry {
                         "Strings should have type u8.".to_string(),
                     ));
                 }
-                value_sink.record_value(field_path, data_value_to_json(v)?)?;
                 out.extend(v.string_to_bytes()?);
+                value_sink.record_value(field_path, data_value_to_json(v)?)?;
             }
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
@@ -472,10 +463,8 @@ impl LeafEntry {
                     ));
                 }
 
-                value_sink.record_value(field_path, array_2d_to_json(&data)?)?;
-
                 let mut out = Vec::with_capacity(total_bytes);
-                for row in data {
+                for row in &data {
                     for v in row {
                         out.extend(v.to_bytes(
                             self.scalar_type,
@@ -484,6 +473,7 @@ impl LeafEntry {
                         )?);
                     }
                 }
+                value_sink.record_value(field_path, array_2d_to_json(&data)?)?;
 
                 while out.len() < total_bytes {
                     out.push(config.padding);
@@ -505,54 +495,5 @@ fn bitmap_field_key(field: &BitmapField, offset: usize) -> String {
     match &field.source {
         BitmapFieldSource::Name(name) => name.clone(),
         BitmapFieldSource::Value(_) => format!("reserved_{}_{}", offset, field.bits),
-    }
-}
-
-impl ScalarType {
-    /// Returns the size of the scalar type in bytes.
-    pub fn size_bytes(&self) -> usize {
-        match self {
-            ScalarType::U8 | ScalarType::I8 => 1,
-            ScalarType::U16 | ScalarType::I16 => 2,
-            ScalarType::U32 | ScalarType::I32 | ScalarType::F32 => 4,
-            ScalarType::U64 | ScalarType::I64 | ScalarType::F64 => 8,
-        }
-    }
-
-    /// Returns true if this is an integer type (not floating-point).
-    pub fn is_integer(&self) -> bool {
-        !matches!(self, ScalarType::F32 | ScalarType::F64)
-    }
-
-    /// Returns true if this is an unsigned integer type.
-    pub fn is_unsigned_integer(&self) -> bool {
-        matches!(
-            self,
-            ScalarType::U8 | ScalarType::U16 | ScalarType::U32 | ScalarType::U64
-        )
-    }
-
-    /// Returns the type name as a string.
-    pub fn name(&self) -> &'static str {
-        match self {
-            ScalarType::U8 => "u8",
-            ScalarType::U16 => "u16",
-            ScalarType::U32 => "u32",
-            ScalarType::U64 => "u64",
-            ScalarType::I8 => "i8",
-            ScalarType::I16 => "i16",
-            ScalarType::I32 => "i32",
-            ScalarType::I64 => "i64",
-            ScalarType::F32 => "f32",
-            ScalarType::F64 => "f64",
-        }
-    }
-
-    /// Returns true if this is a signed type.
-    pub fn is_signed(&self) -> bool {
-        matches!(
-            self,
-            ScalarType::I8 | ScalarType::I16 | ScalarType::I32 | ScalarType::I64
-        )
     }
 }

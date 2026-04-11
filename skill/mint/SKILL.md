@@ -67,8 +67,11 @@ When setting up mint for a project, these parameters need to be established. If 
 | `u8`, `u16`, `u32`, `u64` | 1–8 bytes  | Unsigned integers                  |
 | `i8`, `i16`, `i32`, `i64` | 1–8 bytes  | Signed integers (two's complement) |
 | `f32`, `f64`              | 4, 8 bytes | IEEE 754 floats                    |
+| `qI.F`, `uqI.F`           | 1–8 bytes  | Binary fixed-point, width must be 8/16/32/64 bits |
 
 Booleans use integer types: `{ value = true, type = "u8" }` stores 1.
+
+Fixed-point examples: `uq8.8` (unsigned 16-bit), `uq0.16` (unsigned 16-bit pure fraction), `q7.8` (signed 16-bit), `q15.16` (signed 32-bit). mint encodes them as `round_ties_even(input * 2^F)`.
 
 ## Field sources
 
@@ -89,6 +92,7 @@ Strings and arrays require `size`. Strings are UTF-8 encoded into the byte array
 ```toml
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 version = { name = "Version", type = "u16" }
+gain = { value = 1.5, type = "uq8.8" }
 coefficients = { name = "Coefficients", type = "f32", size = 4 }
 matrix = { name = "Matrix", type = "i16", size = [2, 2] }
 ```
@@ -112,6 +116,8 @@ config.flags = { type = "u16", bitmap = [
 
 Fields pack LSB-first. The total bits **must** equal the type's bit width (e.g., 16 for `u16`). Each bitmap sub-field can use `name` (data source) or `value` (literal). Signed types use two's complement for negative values.
 
+Fixed-point types are not valid with `bitmap`.
+
 ### Refs / pointers (`ref`)
 
 Store the absolute address of another field within the same block.
@@ -123,7 +129,7 @@ table_ptr = { ref = "table", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
 ```
 
-The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + virtual_offset + field_offset`. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Forward and backward refs both work. Cross-block refs are not supported.
+The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + virtual_offset + field_offset`. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
 
 ### Checksums (`checksum`)
 
@@ -142,13 +148,13 @@ ref_out = true
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
-The checksum covers everything from the start of the block's data up to (but not including) the checksum field itself, including any alignment padding between fields. Type must be `u32`. The referenced name must match a `[mint.checksum.<name>]` config. Multiple checksum fields are resolved in order, so later checksums include earlier ones.
+The checksum covers everything from the start of the block's data up to (but not including) the checksum field itself, including any alignment padding between fields. Type must be `u32`. Fixed-point types are not valid with `checksum`. The referenced name must match a `[mint.checksum.<name>]` config. Multiple checksum fields are resolved in order, so later checksums include earlier ones.
 
 For cross-block CRC or non-CRC algorithms, use a separate hex post-processing tool.
 
 ## Alignment
 
-mint applies **natural alignment**: each field is aligned to a boundary matching its type width (e.g., `u32` aligns to 4 bytes, `u16` to 2 bytes). Gaps are filled with the block's `padding` byte.
+mint applies **natural alignment**: each field is aligned to a boundary matching its type width (e.g., `u32` aligns to 4 bytes, `u16` / `uq8.8` to 2 bytes). Gaps are filled with the block's `padding` byte.
 
 **This means mint does not support packed structs.** If the target C code uses `__attribute__((packed))`, `#pragma pack(1)`, or similar, the TOML layout will produce different offsets than the firmware expects. There is no way to disable alignment in mint. If the firmware uses packed structs, this is a fundamental incompatibility — raise it with the user immediately.
 
@@ -247,7 +253,7 @@ Run `mint --help` for the full argument list.
 - **Checksum type**: Must be `u32`. No other widths are supported.
 - **Ref type**: Must be unsigned (`u16`, `u32`, `u64`).
 - **`size`/`SIZE` cannot combine with `ref`, `checksum`, or `bitmap`.**
-- **Strict mode**: Without `--strict`, out-of-range values silently saturate (e.g., 300 into `u8` becomes 255, 1.5 into `u8` becomes 1). Enable `--strict` in production builds to catch these.
+- **Strict mode**: Without `--strict`, out-of-range integer values saturate and float-to-int casts truncate (e.g., 300 into `u8` becomes 255, 1.5 into `u8` becomes 1). Fixed-point values scale by `2^F`, round ties-to-even, then clamp. With `--strict`, mint errors instead.
 
 ## Further reference
 

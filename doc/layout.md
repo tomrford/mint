@@ -82,9 +82,31 @@ device.id = { value = 0x1234, type = "u32" }
 # From data source
 version = { name = "Version", type = "u16" }
 
+# Unsigned Q-format fixed-point
+gain = { value = 1.5, type = "uq8.8" }
+
+# Signed Q-format fixed-point
+offset = { value = -1.25, type = "q7.8" }
+
 # Larger scalar from data source
 counter = { name = "Counter", type = "u64" }
 ```
+
+mint also supports binary Q-format fixed-point storage directly in `type`:
+
+- `qI.F` = signed fixed-point, total width `1 + I + F`
+- `uqI.F` = unsigned fixed-point, total width `I + F`
+- total width must be exactly 8, 16, 32, or 64 bits
+- alignment and byte order follow the implied storage width
+
+Examples:
+
+- `q0.15` = signed 16-bit fixed-point
+- `uq0.16` = unsigned 16-bit pure-fraction format
+- `q15.16` = signed 32-bit fixed-point
+- `uq8.8` = unsigned 16-bit fixed-point
+
+mint encodes fixed-point as `round_ties_even(input * 2^fractional_bits)`. In strict mode, overflow is an error. Without `--strict`, the rounded encoded value is clamped to the storage range.
 
 ### Strings
 
@@ -132,6 +154,8 @@ flags = { type = "u16", bitmap = [
 
 Bitmap fields are packed LSB-first into the specified type. signedness of fields match the type. Negative values are represented as two's complement. The sum of the bits in the bitmap must match the type size.
 
+Fixed-point types are not valid with `bitmap`.
+
 ### Refs (Pointers)
 
 A `ref` entry resolves to the absolute memory address of another field within the same block. The ref target is a dotted path rooted at `block.data` — for example, `device.info.version` refers to `[block.data] device.info.version`. Refs can point to leaf fields or branch nodes (nested structs); a branch ref resolves to the address of the branch's first child (post-alignment).
@@ -153,6 +177,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 
 - `ref` is mutually exclusive with `name`, `value`, `bitmap`, and `checksum`
 - `type` must be an unsigned integer type (`u16`, `u32`, `u64`)
+- fixed-point types are not valid with `ref`
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
 - The resolved address is `start_address + virtual_offset + target_offset`
@@ -183,6 +208,7 @@ The CRC covers all bytes from the start of the block data up to (but not includi
 
 - `checksum` is mutually exclusive with `name`, `value`, `bitmap`, and `ref`
 - `type` must be `u32` (matching CRC-32 output width)
+- fixed-point types are not valid with `checksum`
 - `size`/`SIZE` cannot be used with `checksum`
 - The referenced config name must exist in `[mint.checksum]`
 - For more complex checksum operations (cross-block CRC or non-CRC algorithms), use a dedicated hex post-processing tool

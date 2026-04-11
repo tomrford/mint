@@ -1,7 +1,8 @@
-use super::entry::ScalarType;
 use super::error::LayoutError;
+use super::scalar_type::{FixedPointType, ScalarType};
 use super::settings::{EndianBytes, Endianness};
 use super::value::DataValue;
+use std::fmt;
 
 macro_rules! impl_try_from_data_value {
     ($($t:ty),* $(,)?) => {$(
@@ -225,6 +226,183 @@ pub fn clamp_bitfield_value(
     Ok(raw.clamp(min, max))
 }
 
+fn data_value_display(value: &DataValue) -> String {
+    match value {
+        DataValue::Bool(value) => value.to_string(),
+        DataValue::U64(value) => value.to_string(),
+        DataValue::I64(value) => value.to_string(),
+        DataValue::F64(value) => value.to_string(),
+        DataValue::Str(value) => format!("{value:?}"),
+    }
+}
+
+fn fixed_point_overflow_error(
+    fixed: FixedPointType,
+    value: &DataValue,
+    scaled: impl fmt::Display,
+) -> LayoutError {
+    LayoutError::DataValueExportFailed(format!(
+        "fixed-point type '{}' overflows {} for value {} (scaled to {})",
+        fixed,
+        fixed.storage_label(),
+        data_value_display(value),
+        scaled
+    ))
+}
+
+fn fixed_point_non_finite_error(fixed: FixedPointType, value: &DataValue) -> LayoutError {
+    LayoutError::DataValueExportFailed(format!(
+        "fixed-point type '{}' cannot encode non-finite value {}",
+        fixed,
+        data_value_display(value)
+    ))
+}
+
+fn encode_fixed_point_bytes(
+    value: &DataValue,
+    fixed: FixedPointType,
+    endianness: &Endianness,
+    strict: bool,
+) -> Result<Vec<u8>, LayoutError> {
+    let encoded = encode_fixed_point_value(value, fixed, strict)?;
+    encode_integer_bytes(encoded, fixed, endianness)
+}
+
+fn encode_fixed_point_value(
+    value: &DataValue,
+    fixed: FixedPointType,
+    strict: bool,
+) -> Result<i128, LayoutError> {
+    let (min, max) = fixed.encoded_bounds();
+    let scale = 1i128 << fixed.fractional_bits;
+
+    let encoded = match value {
+        DataValue::Bool(raw) => clamp_fixed_point_integer(
+            if *raw { 1 } else { 0 },
+            scale,
+            min,
+            max,
+            fixed,
+            value,
+            strict,
+        )?,
+        DataValue::U64(raw) => {
+            clamp_fixed_point_integer(i128::from(*raw), scale, min, max, fixed, value, strict)?
+        }
+        DataValue::I64(raw) => {
+            clamp_fixed_point_integer(i128::from(*raw), scale, min, max, fixed, value, strict)?
+        }
+        DataValue::F64(raw) => clamp_fixed_point_float(*raw, min, max, fixed, strict, value)?,
+        DataValue::Str(_) => {
+            return Err(LayoutError::DataValueExportFailed(
+                "Cannot convert string to scalar type.".to_string(),
+            ));
+        }
+    };
+
+    Ok(encoded)
+}
+
+fn clamp_fixed_point_integer(
+    raw: i128,
+    scale: i128,
+    min: i128,
+    max: i128,
+    fixed: FixedPointType,
+    original: &DataValue,
+    strict: bool,
+) -> Result<i128, LayoutError> {
+    let Some(scaled) = raw.checked_mul(scale) else {
+        if strict {
+            return Err(fixed_point_overflow_error(
+                fixed,
+                original,
+                "integer scaling overflow",
+            ));
+        }
+        return Ok(if raw.is_negative() { min } else { max });
+    };
+
+    if strict && (scaled < min || scaled > max) {
+        return Err(fixed_point_overflow_error(fixed, original, scaled));
+    }
+
+    Ok(scaled.clamp(min, max))
+}
+
+fn clamp_fixed_point_float(
+    raw: f64,
+    min: i128,
+    max: i128,
+    fixed: FixedPointType,
+    strict: bool,
+    original: &DataValue,
+) -> Result<i128, LayoutError> {
+    if !raw.is_finite() {
+        return Err(fixed_point_non_finite_error(fixed, original));
+    }
+
+    let scaled = raw * (2f64).powi(i32::from(fixed.fractional_bits));
+    if !scaled.is_finite() {
+        if strict {
+            return Err(fixed_point_overflow_error(fixed, original, scaled));
+        }
+        return Ok(if scaled.is_sign_negative() { min } else { max });
+    }
+
+    let rounded = scaled.round_ties_even();
+    let rounded_int = rounded as i128;
+    if rounded_int < min {
+        if strict {
+            return Err(fixed_point_overflow_error(fixed, original, rounded));
+        }
+        return Ok(min);
+    }
+    if rounded_int > max {
+        if strict {
+            return Err(fixed_point_overflow_error(fixed, original, rounded));
+        }
+        return Ok(max);
+    }
+
+    Ok(rounded_int)
+}
+
+fn encode_integer_bytes(
+    encoded: i128,
+    fixed: FixedPointType,
+    endianness: &Endianness,
+) -> Result<Vec<u8>, LayoutError> {
+    match (fixed.signed, fixed.total_bits) {
+        (false, 8) => Ok((encoded as u8).to_endian_bytes(endianness)),
+        (false, 16) => Ok((encoded as u16).to_endian_bytes(endianness)),
+        (false, 32) => Ok((encoded as u32).to_endian_bytes(endianness)),
+        (false, 64) => Ok(u64::try_from(encoded)
+            .map_err(|_| {
+                LayoutError::DataValueExportFailed(format!(
+                    "fixed-point type '{}' encoded value {} could not be written as u64",
+                    fixed, encoded
+                ))
+            })?
+            .to_endian_bytes(endianness)),
+        (true, 8) => Ok((encoded as i8).to_endian_bytes(endianness)),
+        (true, 16) => Ok((encoded as i16).to_endian_bytes(endianness)),
+        (true, 32) => Ok((encoded as i32).to_endian_bytes(endianness)),
+        (true, 64) => Ok(i64::try_from(encoded)
+            .map_err(|_| {
+                LayoutError::DataValueExportFailed(format!(
+                    "fixed-point type '{}' encoded value {} could not be written as i64",
+                    fixed, encoded
+                ))
+            })?
+            .to_endian_bytes(endianness)),
+        _ => Err(LayoutError::DataValueExportFailed(format!(
+            "unsupported fixed-point width '{}'",
+            fixed
+        ))),
+    }
+}
+
 pub fn convert_value_to_bytes(
     value: &DataValue,
     scalar_type: ScalarType,
@@ -253,5 +431,6 @@ pub fn convert_value_to_bytes(
         ScalarType::I64 => to_bytes!(i64),
         ScalarType::F32 => to_bytes!(f32),
         ScalarType::F64 => to_bytes!(f64),
+        ScalarType::Fixed(fixed) => encode_fixed_point_bytes(value, fixed, endianness, strict),
     }
 }

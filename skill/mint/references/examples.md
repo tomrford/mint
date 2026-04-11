@@ -45,7 +45,7 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 
 | Attribute  | Type                      | Description                                                                                                                                         |
 | ---------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`     | string                    | Required. One of: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`                                                                |
+| `type`     | string                    | Required. One of: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, or fixed-point `qI.F` / `uqI.F` with total width 8/16/32/64 |
 | `value`    | scalar, string, or array  | Literal value. Mutually exclusive with other sources.                                                                                               |
 | `name`     | string                    | Data source lookup key. Mutually exclusive with other sources.                                                                                      |
 | `bitmap`   | array of bitmap fields    | Bitfield packing. Mutually exclusive with other sources.                                                                                            |
@@ -65,9 +65,9 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `name` (scalar)    | any                 | no                         | Single value from data source                              |
 | `name` (1D array)  | any                 | required (`size = N`)      | 1D array from data source                                  |
 | `name` (2D array)  | any                 | required (`size = [R, C]`) | 2D array from data source                                  |
-| `bitmap`           | integer types only  | no                         | Sum of `bits` must equal type width                        |
-| `ref`              | `u16`, `u32`, `u64` | no                         | Resolves to absolute address of target                     |
-| `checksum`         | `u32` only          | no                         | CRC over all preceding bytes in block                      |
+| `bitmap`           | integer types only  | no                         | Sum of `bits` must equal type width; fixed-point not allowed |
+| `ref`              | `u16`, `u32`, `u64` | no                         | Resolves to absolute address of target; fixed-point not allowed |
+| `checksum`         | `u32` only          | no                         | CRC over all preceding bytes in block; fixed-point not allowed |
 
 #### Bitmap sub-field schema
 
@@ -89,6 +89,7 @@ Fields are naturally aligned to their type width:
 - `u16`/`i16`: 2-byte aligned
 - `u32`/`i32`/`f32`: 4-byte aligned
 - `u64`/`i64`/`f64`: 8-byte aligned
+- fixed-point aligns to its storage width (`uq8.8` = 2-byte aligned, `q15.16` = 4-byte aligned)
 
 Gaps between fields are filled with the block's `padding` byte. This alignment is always applied — mint does not support packed structs (`__attribute__((packed))`, `#pragma pack(1)`, etc.).
 
@@ -141,6 +142,7 @@ length = 0x100
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 version = { name = "Version", type = "u16" }
+gain_q8_8 = { value = 1.5, type = "uq8.8" }
 flags = { type = "u16", bitmap = [
     { bits = 1, name = "EnableDebug" },
     { bits = 3, value = 0 },
@@ -168,6 +170,7 @@ Key observations:
 - Dotted paths (`device.id`, `device.name`) reproduce the struct nesting.
 - `uint8_t name[16]` becomes `type = "u8", size = 16` — this is how strings and byte arrays work.
 - The bitmap's total bits (1+3+4+8 = 16) match the `u16` type width.
+- `gain_q8_8` stores `1.5` as a Q8.8 fixed-point value in a `uint16_t`-sized slot.
 - `device.id` uses `value` (constant), while `device.name` uses `name` (from data source).
 - Checksum is the last field — it covers everything above it in the block.
 

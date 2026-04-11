@@ -1,6 +1,7 @@
-use super::entry::{EntrySource, LeafEntry, ScalarType};
+use super::entry::{EntrySource, LeafEntry};
 use super::error::LayoutError;
 use super::header::Header;
+use super::scalar_type::ScalarType;
 use super::settings::{Endianness, MintConfig};
 use super::used_values::ValueSink;
 use super::value::DataValue;

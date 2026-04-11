@@ -172,7 +172,7 @@ mint layout.toml --xlsx data.xlsx -v Default -o output.hex --export-json build/r
 
 ### `--strict`
 
-Enable strict type conversions. Errors on lossy casts instead of saturating/truncating.
+Enable strict type conversions. Errors on lossy casts instead of saturating/truncating/clamping.
 
 ```bash
 mint layout.toml --xlsx data.xlsx -v Default -o output.hex --strict
@@ -182,11 +182,15 @@ mint layout.toml --xlsx data.xlsx -v Default -o output.hex --strict
 
 - Float `1.5` → `u8` becomes `1` (truncated)
 - Value `300` → `u8` becomes `255` (saturated)
+- Fixed-point `300.5` → `uq8.8` becomes `65535` after scaling, ties-to-even rounding, and clamping
 
 **With `--strict`:**
 
 - Float `1.5` → `u8` produces an error
 - Value `300` → `u8` produces an error
+- Fixed-point `300.5` → `uq8.8` produces an error after scaling and ties-to-even rounding
+
+For fixed-point `qI.F` / `uqI.F` types, mint always scales by `2^F` and rounds to nearest with ties to even before checking the storage range. Non-finite values are always rejected.
 
 ---
 

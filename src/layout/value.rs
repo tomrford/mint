@@ -1,6 +1,6 @@
 use super::conversions::convert_value_to_bytes;
-use super::entry::ScalarType;
 use super::error::LayoutError;
+use super::scalar_type::ScalarType;
 use super::settings::Endianness;
 use serde::Deserialize;
 

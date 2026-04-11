@@ -22,6 +22,8 @@ device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 # Scalar from data source
 version = { name = "Version", type = "u16" }
+# Unsigned fixed-point (Q8.8 stored in uint16_t)
+gain_q8_8 = { value = 1.5, type = "uq8.8" }
 # Bitmap with mixed sources
 flags = { type = "u16", bitmap = [
     { bits = 1, name = "EnableDebug" },
