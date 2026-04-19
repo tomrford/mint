@@ -16,14 +16,14 @@ pub fn parse_block_arg(block: &str) -> Result<BlockNames, LayoutError> {
         }
 
         return Ok(BlockNames {
-            name: name.to_string(),
-            file: file.to_string(),
+            name: name.to_owned(),
+            file: file.to_owned(),
         });
     }
 
     Ok(BlockNames {
         name: String::new(),
-        file: block.to_string(),
+        file: block.to_owned(),
     })
 }
 

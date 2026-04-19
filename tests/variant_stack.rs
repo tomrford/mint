@@ -4,8 +4,8 @@ use mint_cli::layout::value::DataValue;
 
 fn build_args(version: &str) -> DataArgs {
     DataArgs {
-        xlsx: Some("tests/data/data.xlsx".to_string()),
-        versions: Some(version.to_string()),
+        xlsx: Some("tests/data/data.xlsx".to_owned()),
+        versions: Some(version.to_owned()),
         ..Default::default()
     }
 }

@@ -40,7 +40,7 @@ fn smoke_build_examples_all_formats_and_options() {
             .keys()
             .map(|name| mint_cli::layout::args::BlockNames {
                 name: name.clone(),
-                file: layout_path.to_string(),
+                file: layout_path.to_owned(),
             })
             .collect::<Vec<_>>();
 

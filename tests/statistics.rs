@@ -50,7 +50,7 @@ fn test_build_stats_aggregation() {
         .take(2)
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
-            file: layout_path.to_string(),
+            file: layout_path.to_owned(),
         })
         .collect::<Vec<_>>();
 
@@ -88,7 +88,7 @@ fn test_space_efficiency_calculation() {
     let mut stats = BuildStats::new();
 
     stats.add_block(BlockStat {
-        name: "test1".to_string(),
+        name: "test1".to_owned(),
         start_address: 0x1000,
         allocated_size: 100,
         used_size: 80,
@@ -96,7 +96,7 @@ fn test_space_efficiency_calculation() {
     });
 
     stats.add_block(BlockStat {
-        name: "test2".to_string(),
+        name: "test2".to_owned(),
         start_address: 0x2000,
         allocated_size: 200,
         used_size: 120,
@@ -128,7 +128,7 @@ fn test_multi_block_stats() {
         .keys()
         .map(|name| mint_cli::layout::args::BlockNames {
             name: name.clone(),
-            file: layout_path.to_string(),
+            file: layout_path.to_owned(),
         })
         .collect::<Vec<_>>();
 
@@ -159,7 +159,7 @@ fn test_space_efficiency_edge_cases() {
     assert_eq!(stats.space_efficiency(), 0.0);
 
     stats.add_block(BlockStat {
-        name: "full".to_string(),
+        name: "full".to_owned(),
         start_address: 0x1000,
         allocated_size: 100,
         used_size: 100,

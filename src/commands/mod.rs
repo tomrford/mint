@@ -243,16 +243,14 @@ fn take_used_values_report(
     let mut report = serde_json::Map::new();
     for result in results {
         let value = result.used_values.take().ok_or_else(|| {
-            OutputError::FileError(
-                "JSON export requested but values were not captured.".to_string(),
-            )
+            OutputError::FileError("JSON export requested but values were not captured.".to_owned())
         })?;
         let file_entry = report
             .entry(result.block_names.file.clone())
             .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
         let serde_json::Value::Object(blocks) = file_entry else {
             return Err(OutputError::FileError(
-                "JSON export contains unexpected non-object entry.".to_string(),
+                "JSON export contains unexpected non-object entry.".to_owned(),
             )
             .into());
         };

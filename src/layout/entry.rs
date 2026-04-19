@@ -315,7 +315,7 @@ impl LeafEntry {
                 Ok(bytes)
             }
             EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
-                "Single value expected for scalar type.".to_string(),
+                "Single value expected for scalar type.".to_owned(),
             )),
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
@@ -352,7 +352,7 @@ impl LeafEntry {
                     ValueSource::Single(v) => {
                         if !matches!(self.scalar_type, ScalarType::U8) {
                             return Err(LayoutError::DataValueExportFailed(
-                                "Strings should have type u8.".to_string(),
+                                "Strings should have type u8.".to_owned(),
                             ));
                         }
                         out.extend(v.string_to_bytes()?);
@@ -383,7 +383,7 @@ impl LeafEntry {
             EntrySource::Value(ValueSource::Single(v)) => {
                 if !matches!(self.scalar_type, ScalarType::U8) {
                     return Err(LayoutError::DataValueExportFailed(
-                        "Strings should have type u8.".to_string(),
+                        "Strings should have type u8.".to_owned(),
                     ));
                 }
                 out.extend(v.string_to_bytes()?);
@@ -396,12 +396,12 @@ impl LeafEntry {
 
         if out.len() > total_bytes {
             return Err(LayoutError::DataValueExportFailed(
-                "Array/string is larger than defined size.".to_string(),
+                "Array/string is larger than defined size.".to_owned(),
             ));
         }
         if strict_len && out.len() < total_bytes {
             return Err(LayoutError::DataValueExportFailed(
-                "Array/string is smaller than defined size (strict SIZE).".to_string(),
+                "Array/string is smaller than defined size (strict SIZE).".to_owned(),
             ));
         }
         while out.len() < total_bytes {
@@ -447,19 +447,19 @@ impl LeafEntry {
 
                 if data.iter().any(|row| row.len() != cols) {
                     return Err(LayoutError::DataValueExportFailed(
-                        "2D array column count mismatch.".to_string(),
+                        "2D array column count mismatch.".to_owned(),
                     ));
                 }
 
                 if data.len() > rows {
                     return Err(LayoutError::DataValueExportFailed(
-                        "2D array row count greater than defined size.".to_string(),
+                        "2D array row count greater than defined size.".to_owned(),
                     ));
                 }
 
                 if strict_len && data.len() < rows {
                     return Err(LayoutError::DataValueExportFailed(
-                        "2D array row count smaller than defined size (strict SIZE).".to_string(),
+                        "2D array row count smaller than defined size (strict SIZE).".to_owned(),
                     ));
                 }
 
@@ -482,7 +482,7 @@ impl LeafEntry {
                 Ok(out)
             }
             EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
-                "2D arrays within the layout file are not supported.".to_string(),
+                "2D arrays within the layout file are not supported.".to_owned(),
             )),
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),

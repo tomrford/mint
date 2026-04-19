@@ -32,6 +32,10 @@ mint layout.toml#config layout.toml#data --xlsx data.xlsx -v Default --stats
 [mint]
 endianness = "little"
 
+[config.header]
+start_address = 0x8000
+length = 0x100
+
 [config.data]
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
@@ -39,6 +43,10 @@ version = { name = "Version", type = "u16" }
 gain = { value = 1.5, type = "uq8.8" }
 coefficients = { name = "Coefficients", type = "f32", size = 4 }
 matrix = { name = "Matrix", type = "i16", size = [2, 2] }
+
+[data.header]
+start_address = 0x8100
+length = 0x100
 
 [data.data]
 counter = { name = "Counter", type = "u64" }

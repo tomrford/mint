@@ -88,8 +88,8 @@ matrix = { name = "CalibrationMatrix", type = "i16", SIZE = [5, 3] }
     let block = cfg.blocks.get("block").expect("block present");
 
     let ver_args = mint_cli::data::args::DataArgs {
-        xlsx: Some("tests/data/data.xlsx".to_string()),
-        versions: Some("Default".to_string()),
+        xlsx: Some("tests/data/data.xlsx".to_owned()),
+        versions: Some("Default".to_owned()),
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&ver_args).expect("datasource loads");

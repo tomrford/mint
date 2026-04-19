@@ -6,8 +6,8 @@ use mint_cli::layout::value::{DataValue, ValueSource};
 
 fn build_json_args(version: &str, json_data: &str) -> DataArgs {
     DataArgs {
-        json: Some(json_data.to_string()),
-        versions: Some(version.to_string()),
+        json: Some(json_data.to_owned()),
+        versions: Some(version.to_owned()),
         ..Default::default()
     }
 }
@@ -194,8 +194,8 @@ fn json_from_file() {
     fs::write(test_file, json_data).expect("write test file");
 
     let args = DataArgs {
-        json: Some(test_file.to_str().unwrap().to_string()),
-        versions: Some("Default".to_string()),
+        json: Some(test_file.to_str().unwrap().to_owned()),
+        versions: Some("Default".to_owned()),
         ..Default::default()
     };
 

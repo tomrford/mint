@@ -51,14 +51,14 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
     Args {
         layout: LayoutArgs {
             blocks: vec![BlockNames {
-                name: block_name.to_string(),
-                file: layout_path.to_string(),
+                name: block_name.to_owned(),
+                file: layout_path.to_owned(),
             }],
             strict: false,
         },
         data: data::args::DataArgs {
-            xlsx: Some("tests/data/data.xlsx".to_string()),
-            versions: Some("Default".to_string()),
+            xlsx: Some("tests/data/data.xlsx".to_owned()),
+            versions: Some("Default".to_owned()),
             ..Default::default()
         },
         output: OutputArgs {
@@ -77,8 +77,8 @@ pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
 
     for ver in &version_candidates {
         let ver_args = data::args::DataArgs {
-            xlsx: Some("tests/data/data.xlsx".to_string()),
-            versions: Some(ver.to_string()),
+            xlsx: Some("tests/data/data.xlsx".to_owned()),
+            versions: Some((*ver).to_owned()),
             ..Default::default()
         };
         if let Ok(Some(ds)) = data::create_data_source(&ver_args) {
@@ -134,8 +134,8 @@ pub fn build_args_for_layouts(layouts: Vec<BlockNames>, format: OutputFormat, st
             strict: false,
         },
         data: data::args::DataArgs {
-            xlsx: Some("tests/data/data.xlsx".to_string()),
-            versions: Some("Default".to_string()),
+            xlsx: Some("tests/data/data.xlsx".to_owned()),
+            versions: Some("Default".to_owned()),
             ..Default::default()
         },
         output: OutputArgs {
