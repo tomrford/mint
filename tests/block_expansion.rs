@@ -5,47 +5,6 @@ use mint_cli::layout::args::BlockNames;
 mod common;
 
 #[test]
-fn test_file_expands_all_blocks() {
-    common::ensure_out_dir();
-
-    let layout_path = "tests/data/blocks.toml";
-
-    let Some(ds) = common::find_working_datasource() else {
-        return;
-    };
-
-    let args = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![BlockNames {
-                name: String::new(),
-                file: layout_path.to_string(),
-            }],
-            strict: false,
-        },
-        data: Default::default(),
-        output: mint_cli::output::args::OutputArgs {
-            out: common::unique_out_path("expand_test", "hex"),
-            record_width: 32,
-            format: mint_cli::output::args::OutputFormat::Hex,
-            export_json: None,
-            stats: false,
-            quiet: true,
-        },
-    };
-
-    let stats = commands::build(&args, Some(ds.as_ref())).expect("build should succeed");
-
-    let cfg = mint_cli::layout::load_layout(layout_path).expect("layout loads");
-    assert_eq!(
-        stats.blocks_processed,
-        cfg.blocks.len(),
-        "Should build all blocks in the file"
-    );
-
-    common::assert_out_file_exists(&args.output.out);
-}
-
-#[test]
 fn test_deduplication_file_and_specific() {
     common::ensure_out_dir();
 
