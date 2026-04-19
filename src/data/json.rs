@@ -11,7 +11,7 @@ fn load_json_string_or_file(input: &str) -> Result<String, DataError> {
         std::fs::read_to_string(input)
             .map_err(|_| DataError::FileError(format!("failed to open file: {}", input)))
     } else {
-        Ok(input.to_string())
+        Ok(input.to_owned())
     }
 }
 
@@ -32,7 +32,7 @@ impl JsonDataSource {
         let json_str = args
             .json
             .as_ref()
-            .ok_or_else(|| DataError::MiscError("missing json config".to_string()))?;
+            .ok_or_else(|| DataError::MiscError("missing json config".to_owned()))?;
 
         let json_content = load_json_string_or_file(json_str)?;
         let data: HashMap<String, HashMap<String, Value>> = serde_json::from_str(&json_content)
@@ -75,13 +75,13 @@ impl JsonDataSource {
                     Ok(DataValue::F64(f))
                 } else {
                     Err(DataError::RetrievalError(
-                        "unsupported numeric type".to_string(),
+                        "unsupported numeric type".to_owned(),
                     ))
                 }
             }
             Value::String(s) => Ok(DataValue::Str(s.clone())),
             _ => Err(DataError::RetrievalError(
-                "expected scalar value".to_string(),
+                "expected scalar value".to_owned(),
             )),
         }
     }
@@ -97,14 +97,14 @@ impl DataSource for JsonDataSource {
             let dv = Self::value_to_data_value(value)?;
             match dv {
                 DataValue::Str(_) => Err(DataError::RetrievalError(
-                    "Found non-numeric single value".to_string(),
+                    "Found non-numeric single value".to_owned(),
                 )),
                 _ => Ok(dv),
             }
         })();
 
         result.map_err(|e| DataError::WhileRetrieving {
-            name: name.to_string(),
+            name: name.to_owned(),
             source: Box::new(e),
         })
     }
@@ -123,13 +123,13 @@ impl DataSource for JsonDataSource {
                 }
                 Value::String(s) => Ok(ValueSource::Single(DataValue::Str(s.clone()))),
                 _ => Err(DataError::RetrievalError(
-                    "expected array or string for 1D array".to_string(),
+                    "expected array or string for 1D array".to_owned(),
                 )),
             }
         })();
 
         result.map_err(|e| DataError::WhileRetrieving {
-            name: name.to_string(),
+            name: name.to_owned(),
             source: Box::new(e),
         })
     }
@@ -142,7 +142,7 @@ impl DataSource for JsonDataSource {
 
             let Value::Array(outer) = value else {
                 return Err(DataError::RetrievalError(
-                    "expected 2D array (array of arrays)".to_string(),
+                    "expected 2D array (array of arrays)".to_owned(),
                 ));
             };
 
@@ -151,7 +151,7 @@ impl DataSource for JsonDataSource {
                 .map(|row_val| {
                     let Value::Array(inner) = row_val else {
                         return Err(DataError::RetrievalError(
-                            "expected array for 2D array row".to_string(),
+                            "expected array for 2D array row".to_owned(),
                         ));
                     };
                     inner.iter().map(Self::value_to_data_value).collect()
@@ -160,7 +160,7 @@ impl DataSource for JsonDataSource {
         })();
 
         result.map_err(|e| DataError::WhileRetrieving {
-            name: name.to_string(),
+            name: name.to_owned(),
             source: Box::new(e),
         })
     }

@@ -74,7 +74,7 @@ pub fn print_detailed(stats: &BuildStats) {
 
 fn format_checksum_values(values: &[u32]) -> String {
     if values.is_empty() {
-        return "N/A".to_string();
+        return "N/A".to_owned();
     }
 
     values

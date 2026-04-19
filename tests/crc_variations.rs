@@ -210,15 +210,15 @@ value = { value = 0x33333333, type = "u32" }
 
     let blocks = vec![
         mint_cli::layout::args::BlockNames {
-            name: "block_a".to_string(),
+            name: "block_a".to_owned(),
             file: layout_path.clone(),
         },
         mint_cli::layout::args::BlockNames {
-            name: "block_b".to_string(),
+            name: "block_b".to_owned(),
             file: layout_path.clone(),
         },
         mint_cli::layout::args::BlockNames {
-            name: "block_c".to_string(),
+            name: "block_c".to_owned(),
             file: layout_path,
         },
     ];

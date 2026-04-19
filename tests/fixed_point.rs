@@ -80,8 +80,8 @@ grid = { name = "Grid", type = "uq8.8", size = [2, 2] }
     let block = cfg.blocks.get("block").expect("block present");
 
     let data_args = data::args::DataArgs {
-        json: Some(r#"{"Default":{"Ratio":0.25,"Grid":[[0.5,1.0],[1.5,2.0]]}}"#.to_string()),
-        versions: Some("Default".to_string()),
+        json: Some(r#"{"Default":{"Ratio":0.25,"Grid":[[0.5,1.0],[1.5,2.0]]}}"#.to_owned()),
+        versions: Some("Default".to_owned()),
         ..Default::default()
     };
     let ds = data::create_data_source(&data_args)
@@ -235,8 +235,8 @@ phase = { name = "Phase", type = "uq0.16" }
     let layout_path = common::write_layout_file("fixed-point-export", layout);
     let layout_key = layout_path.clone();
     let data_args = data::args::DataArgs {
-        json: Some(r#"{"Default":{"Phase":0.25}}"#.to_string()),
-        versions: Some("Default".to_string()),
+        json: Some(r#"{"Default":{"Phase":0.25}}"#.to_owned()),
+        versions: Some("Default".to_owned()),
         ..Default::default()
     };
     let ds = data::create_data_source(&data_args)
@@ -247,7 +247,7 @@ phase = { name = "Phase", type = "uq0.16" }
     let args = mint_cli::args::Args {
         layout: LayoutArgs {
             blocks: vec![BlockNames {
-                name: "".to_string(),
+                name: "".to_owned(),
                 file: layout_path,
             }],
             strict: true,

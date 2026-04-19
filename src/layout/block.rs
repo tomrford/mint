@@ -202,7 +202,7 @@ impl Block {
             Entry::Branch(branch) => {
                 if branch.is_empty() {
                     let branch_path = if field_path.is_empty() {
-                        "<root>".to_string()
+                        "<root>".to_owned()
                     } else {
                         field_path.join(".")
                     };
@@ -344,5 +344,5 @@ fn split_field_path(field_name: &str) -> Result<Vec<String>, LayoutError> {
             field_name
         )));
     }
-    Ok(segments.into_iter().map(|s| s.to_string()).collect())
+    Ok(segments.into_iter().map(|s| s.to_owned()).collect())
 }

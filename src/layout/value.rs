@@ -35,7 +35,7 @@ impl DataValue {
         match self {
             DataValue::Str(val) => Ok(val.as_bytes().to_vec()),
             _ => Err(LayoutError::DataValueExportFailed(
-                "String expected for string type.".to_string(),
+                "String expected for string type.".to_owned(),
             )),
         }
     }

@@ -27,3 +27,21 @@ serde_json = { version = "1.0.142", features = ["preserve_order"] }
 serde_yaml = "0.9.34"
 thiserror = "2.0.12"
 toml = { version = "1.1.2", features = ["preserve_order"] }
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+clone_on_ref_ptr = "warn"
+redundant_clone = "warn"
+implicit_clone = "warn"
+assigning_clones = "warn"
+cloned_instead_of_copied = "warn"
+map_clone = "warn"
+inefficient_to_string = "warn"
+str_to_string = "warn"

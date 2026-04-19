@@ -1,3 +1,14 @@
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::unwrap_used
+    )
+)]
+
 use clap::Parser;
 
 use mint_cli::args::Args;

@@ -16,7 +16,10 @@ pub struct ExcelDataSource {
 
 impl ExcelDataSource {
     pub(crate) fn new(args: &DataArgs) -> Result<Self, DataError> {
-        let xlsx_path = args.xlsx.as_ref().expect("xlsx path required");
+        let xlsx_path = args
+            .xlsx
+            .as_ref()
+            .ok_or_else(|| DataError::MiscError("xlsx path required".to_owned()))?;
 
         let mut workbook: Xlsx<_> = open_workbook(xlsx_path)
             .map_err(|_| DataError::FileError(format!("failed to open file: {}", xlsx_path)))?;
@@ -24,14 +27,14 @@ impl ExcelDataSource {
         let main_sheet_name = args.main_sheet.as_deref().unwrap_or("Main");
         let main_sheet = workbook
             .worksheet_range(main_sheet_name)
-            .map_err(|_| DataError::MiscError("Main sheet not found.".to_string()))?;
+            .map_err(|_| DataError::MiscError("Main sheet not found.".to_owned()))?;
 
         let rows: Vec<_> = main_sheet.rows().collect();
         let (headers, data_rows) = match rows.split_first() {
             Some((hdr, tail)) => (hdr, tail.len()),
             None => {
                 return Err(DataError::RetrievalError(
-                    "invalid main sheet format.".to_string(),
+                    "invalid main sheet format.".to_owned(),
                 ));
             }
         };
@@ -39,12 +42,12 @@ impl ExcelDataSource {
         let name_index = headers
             .iter()
             .position(|cell| Self::cell_eq_ascii(cell, "Name"))
-            .ok_or(DataError::ColumnNotFound("Name".to_string()))?;
+            .ok_or(DataError::ColumnNotFound("Name".to_owned()))?;
 
         let mut names: Vec<String> = Vec::with_capacity(data_rows);
         names.extend(rows.iter().skip(1).map(|row| {
             row.get(name_index)
-                .map(|c| c.to_string().trim().to_string())
+                .map(|c| c.to_string().trim().to_owned())
                 .unwrap_or_default()
         }));
         helpers::warn_duplicate_names(&names);
@@ -55,7 +58,7 @@ impl ExcelDataSource {
             HashMap::with_capacity(workbook.worksheets().len().saturating_sub(1));
         for (name, sheet) in workbook.worksheets() {
             if name != main_sheet_name {
-                sheets.insert(name.to_string(), sheet);
+                sheets.insert(name.clone(), sheet);
             }
         }
 
@@ -72,7 +75,7 @@ impl ExcelDataSource {
             .iter()
             .position(|n| n == name)
             .ok_or(DataError::RetrievalError(
-                "index not found in data sheet".to_string(),
+                "index not found in data sheet".to_owned(),
             ))?;
 
         for column in &self.version_columns {
@@ -82,7 +85,7 @@ impl ExcelDataSource {
         }
 
         Err(DataError::RetrievalError(
-            "data not found in any version column".to_string(),
+            "data not found in any version column".to_owned(),
         ))
     }
 
@@ -144,12 +147,12 @@ impl DataSource for ExcelDataSource {
             Data::Float(f) => Ok(DataValue::F64(*f)),
             Data::Bool(b) => Ok(DataValue::Bool(*b)),
             _ => Err(DataError::RetrievalError(
-                "Found non-numeric single value".to_string(),
+                "Found non-numeric single value".to_owned(),
             )),
         })();
 
         result.map_err(|e| DataError::WhileRetrieving {
-            name: name.to_string(),
+            name: name.to_owned(),
             source: Box::new(e),
         })
     }
@@ -158,7 +161,7 @@ impl DataSource for ExcelDataSource {
         let result = (|| {
             let Data::String(cell_string) = self.retrieve_cell(name)? else {
                 return Err(DataError::RetrievalError(
-                    "Expected string value for 1D array or string".to_string(),
+                    "Expected string value for 1D array or string".to_owned(),
                 ));
             };
 
@@ -185,7 +188,7 @@ impl DataSource for ExcelDataSource {
                                 Data::String(s) => DataValue::Str(s.to_owned()),
                                 _ => {
                                     return Err(DataError::RetrievalError(
-                                        "Unsupported data type in 1D array".to_string(),
+                                        "Unsupported data type in 1D array".to_owned(),
                                     ));
                                 }
                             };
@@ -202,7 +205,7 @@ impl DataSource for ExcelDataSource {
         })();
 
         result.map_err(|e| DataError::WhileRetrieving {
-            name: name.to_string(),
+            name: name.to_owned(),
             source: Box::new(e),
         })
     }
@@ -211,7 +214,7 @@ impl DataSource for ExcelDataSource {
         let result = (|| {
             let Data::String(cell_string) = self.retrieve_cell(name)? else {
                 return Err(DataError::RetrievalError(
-                    "Expected string value for 2D array".to_string(),
+                    "Expected string value for 2D array".to_owned(),
                 ));
             };
 
@@ -237,19 +240,19 @@ impl DataSource for ExcelDataSource {
                     Data::Float(f) => Ok(DataValue::F64(*f)),
                     Data::Bool(b) => Ok(DataValue::Bool(*b)),
                     _ => Err(DataError::RetrievalError(
-                        "Unsupported data type in 2D array".to_string(),
+                        "Unsupported data type in 2D array".to_owned(),
                     )),
                 }
             };
 
             let mut rows = sheet.rows();
             let hdrs = rows.next().ok_or_else(|| {
-                DataError::RetrievalError("No headers found in 2D array".to_string())
+                DataError::RetrievalError("No headers found in 2D array".to_owned())
             })?;
             let width = hdrs.iter().take_while(|c| !Self::cell_is_empty(c)).count();
             if width == 0 {
                 return Err(DataError::RetrievalError(
-                    "Detected zero width 2D array".to_string(),
+                    "Detected zero width 2D array".to_owned(),
                 ));
             }
 
@@ -277,7 +280,7 @@ impl DataSource for ExcelDataSource {
         })();
 
         result.map_err(|e| DataError::WhileRetrieving {
-            name: name.to_string(),
+            name: name.to_owned(),
             source: Box::new(e),
         })
     }
@@ -291,7 +294,7 @@ mod tests {
 
     fn datasource_with_version(value: Data) -> ExcelDataSource {
         ExcelDataSource {
-            names: vec!["Flag".to_string()],
+            names: vec!["Flag".to_owned()],
             version_columns: vec![vec![value]],
             sheets: HashMap::new(),
         }

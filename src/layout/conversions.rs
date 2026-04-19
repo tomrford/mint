@@ -19,7 +19,7 @@ macro_rules! impl_try_from_data_value {
                     DataValue::F64(val) => Ok(*val as $t),
                     DataValue::Str(_) => {
                         return Err(LayoutError::DataValueExportFailed(
-                            "Cannot convert string to scalar type.".to_string(),
+                            "Cannot convert string to scalar type.".to_owned(),
                         ));
                     }
                 }
@@ -35,7 +35,7 @@ pub trait TryFromStrict<T>: Sized {
 
 macro_rules! err {
     ($msg:expr) => {
-        LayoutError::DataValueExportFailed($msg.to_string())
+        LayoutError::DataValueExportFailed($msg.to_owned())
     };
 }
 
@@ -295,7 +295,7 @@ fn encode_fixed_point_value(
         DataValue::F64(raw) => clamp_fixed_point_float(*raw, min, max, fixed, strict, value)?,
         DataValue::Str(_) => {
             return Err(LayoutError::DataValueExportFailed(
-                "Cannot convert string to scalar type.".to_string(),
+                "Cannot convert string to scalar type.".to_owned(),
             ));
         }
     };

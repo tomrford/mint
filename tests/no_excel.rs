@@ -14,8 +14,8 @@ fn test_build_without_excel() {
     let args = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![mint_cli::layout::args::BlockNames {
-                name: "simple_block".to_string(),
-                file: layout_path.to_string(),
+                name: "simple_block".to_owned(),
+                file: layout_path.to_owned(),
             }],
             strict: false,
         },
@@ -49,8 +49,8 @@ fn test_error_when_name_without_excel() {
     let layout_path = "tests/data/blocks.toml";
 
     let input = mint_cli::layout::args::BlockNames {
-        name: "block".to_string(),
-        file: layout_path.to_string(),
+        name: "block".to_owned(),
+        file: layout_path.to_owned(),
     };
 
     let args = mint_cli::args::Args {
@@ -99,7 +99,7 @@ fn test_factory_returns_none_without_datasource() {
 
     // Test with versions flag but no datasource
     let args_version_no_datasource = mint_cli::data::args::DataArgs {
-        versions: Some("Default".to_string()),
+        versions: Some("Default".to_owned()),
         ..Default::default()
     };
 

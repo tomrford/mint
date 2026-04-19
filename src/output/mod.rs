@@ -26,7 +26,7 @@ pub fn bytestream_to_datarange(
 ) -> Result<DataRange, OutputError> {
     if bytestream.len() > header.length as usize {
         return Err(OutputError::HexOutputError(
-            "Bytestream length exceeds block length.".to_string(),
+            "Bytestream length exceeds block length.".to_owned(),
         ));
     }
 
@@ -35,7 +35,7 @@ pub fn bytestream_to_datarange(
         .start_address
         .checked_add(settings.virtual_offset)
         .ok_or_else(|| {
-            OutputError::HexOutputError("Start address overflows address space.".to_string())
+            OutputError::HexOutputError("Start address overflows address space.".to_owned())
         })?;
 
     Ok(DataRange {
@@ -53,7 +53,7 @@ pub fn emit_hex(
 ) -> Result<String, OutputError> {
     if !(1..=128).contains(&record_width) {
         return Err(OutputError::HexOutputError(
-            "Record width must be between 1 and 128".to_string(),
+            "Record width must be between 1 and 128".to_owned(),
         ));
     }
 

@@ -49,7 +49,7 @@ pub fn data_value_to_json(value: &DataValue) -> Result<Value, LayoutError> {
         DataValue::I64(v) => Ok(Value::Number(Number::from(*v))),
         DataValue::F64(v) => Number::from_f64(*v).map(Value::Number).ok_or_else(|| {
             LayoutError::DataValueExportFailed(
-                "Non-finite float cannot be serialized to JSON.".to_string(),
+                "Non-finite float cannot be serialized to JSON.".to_owned(),
             )
         }),
         DataValue::Str(v) => Ok(Value::String(v.clone())),
@@ -59,12 +59,12 @@ pub fn data_value_to_json(value: &DataValue) -> Result<Value, LayoutError> {
 pub fn i128_to_json(value: i128) -> Result<Value, LayoutError> {
     if value >= 0 {
         let unsigned = u64::try_from(value).map_err(|_| {
-            LayoutError::DataValueExportFailed("Value out of range for JSON number.".to_string())
+            LayoutError::DataValueExportFailed("Value out of range for JSON number.".to_owned())
         })?;
         Ok(Value::Number(Number::from(unsigned)))
     } else {
         let signed = i64::try_from(value).map_err(|_| {
-            LayoutError::DataValueExportFailed("Value out of range for JSON number.".to_string())
+            LayoutError::DataValueExportFailed("Value out of range for JSON number.".to_owned())
         })?;
         Ok(Value::Number(Number::from(signed)))
     }
@@ -93,7 +93,7 @@ fn insert_value(
 ) -> Result<(), LayoutError> {
     if path.is_empty() {
         return Err(LayoutError::DataValueExportFailed(
-            "Cannot record value with empty path.".to_string(),
+            "Cannot record value with empty path.".to_owned(),
         ));
     }
 

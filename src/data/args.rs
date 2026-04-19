@@ -44,7 +44,7 @@ impl DataArgs {
             r.split('/')
                 .map(|name| name.trim())
                 .filter(|name| !name.is_empty())
-                .map(|name| name.to_string())
+                .map(|name| name.to_owned())
                 .collect()
         })
         .unwrap_or_default()

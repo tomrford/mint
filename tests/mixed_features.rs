@@ -69,8 +69,8 @@ checksum = { checksum = "crc32", type = "u32" }
 
     // Prepare a datasheet (may be no-op for these, but keep realistic flow)
     let data_args = mint_cli::data::args::DataArgs {
-        xlsx: Some("tests/data/data.xlsx".to_string()),
-        versions: Some("Default".to_string()),
+        xlsx: Some("tests/data/data.xlsx".to_owned()),
+        versions: Some("Default".to_owned()),
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&data_args).expect("datasource loads");
@@ -79,7 +79,7 @@ checksum = { checksum = "crc32", type = "u32" }
     let args_be_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
-                name: "block".to_string(),
+                name: "block".to_owned(),
                 file: be_path.clone(),
             }],
             strict: false,
@@ -101,7 +101,7 @@ checksum = { checksum = "crc32", type = "u32" }
     let args_be_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
-                name: "block".to_string(),
+                name: "block".to_owned(),
                 file: be_path.clone(),
             }],
             strict: false,
@@ -123,7 +123,7 @@ checksum = { checksum = "crc32", type = "u32" }
     let args_le_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
-                name: "block".to_string(),
+                name: "block".to_owned(),
                 file: le_path.clone(),
             }],
             strict: true, // exercise strict path on numeric arrays
@@ -145,7 +145,7 @@ checksum = { checksum = "crc32", type = "u32" }
     let args_le_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {
-                name: "block".to_string(),
+                name: "block".to_owned(),
                 file: le_path.clone(),
             }],
             strict: true,

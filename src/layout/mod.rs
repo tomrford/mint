@@ -48,7 +48,7 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
         }
         _ => {
             return Err(LayoutError::FileError(
-                "Unsupported layout file format; use .toml or .yaml".to_string(),
+                "Unsupported layout file format; use .toml or .yaml".to_owned(),
             ));
         }
     };
@@ -99,7 +99,7 @@ fn validate_yaml_scalar_types_inner(
     match value {
         YamlValue::Mapping(mapping) => {
             if let Some(YamlValue::String(type_name)) =
-                mapping.get(YamlValue::String("type".to_string()))
+                mapping.get(YamlValue::String("type".to_owned()))
             {
                 validate_scalar_type(type_name, path)?;
             }
@@ -125,7 +125,7 @@ fn validate_yaml_scalar_types_inner(
 fn validate_scalar_type(type_name: &str, path: &[String]) -> Result<(), LayoutError> {
     ScalarType::from_str(type_name).map_err(|message| {
         let field_path = if path.is_empty() {
-            "<root>".to_string()
+            "<root>".to_owned()
         } else {
             path.join(".")
         };
