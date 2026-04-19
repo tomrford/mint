@@ -92,7 +92,7 @@ Strings and arrays require `size`. Strings are UTF-8 encoded into the byte array
 ```toml
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 version = { name = "Version", type = "u16" }
-gain = { value = 1.5, type = "uq8.8" }
+gain = { name = "VoltageGain", type = "uq8.8" }
 coefficients = { name = "Coefficients", type = "f32", size = 4 }
 matrix = { name = "Matrix", type = "i16", size = [2, 2] }
 ```
