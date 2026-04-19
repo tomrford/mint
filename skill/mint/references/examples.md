@@ -13,8 +13,6 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 | `endianness`     | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values                  |
 | `virtual_offset` | `u32` (hex ok)        | `0`          | Offset added to all computed addresses (refs, output) |
 
-Legacy key `[mint].word_addressing` is rejected. mint now uses byte addressing only.
-
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 
 Define as many as needed (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]`). Referenced by name in checksum fields.

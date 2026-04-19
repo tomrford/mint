@@ -14,8 +14,8 @@ Install: `cargo install mint-cli` or via nix flake.
 A layout file has three levels: global config, per-block headers, and per-block data fields.
 
 ```toml
-[mint]                    # Global config (required, even if empty)
-endianness = "little"     # "little" (default) or "big"
+[mint]                    # Global config (required)
+endianness = "little"     # Required: "little" or "big"
 virtual_offset = 0x0      # Added to all computed addresses (default: 0)
 
 [mint.checksum.crc32]     # Named CRC config (define as many as needed)

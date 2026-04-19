@@ -11,14 +11,14 @@ fn write_layout(file_stem: &str, ext: &str, contents: &str) -> String {
 }
 
 #[test]
-fn toml_rejects_removed_word_addressing_key() {
+fn toml_rejects_unknown_mint_key() {
     let path = write_layout(
-        "removed-word-addressing",
+        "unknown-mint-key",
         "toml",
         r#"
 [mint]
 endianness = "little"
-word_addressing = true
+unknown = true
 
 [block.header]
 start_address = 0x1000
@@ -32,21 +32,21 @@ value = { value = 1, type = "u16" }
     let err = mint_cli::layout::load_layout(&path).expect_err("layout should be rejected");
     let message = err.to_string();
     assert!(
-        message.contains("[mint].word_addressing") && message.contains("removed"),
-        "expected removal hint, got: {}",
+        message.contains("unknown field") && message.contains("unknown"),
+        "expected unknown-field error, got: {}",
         message
     );
 }
 
 #[test]
-fn yaml_rejects_removed_word_addressing_key() {
+fn yaml_rejects_unknown_mint_key() {
     let path = write_layout(
-        "removed-word-addressing",
+        "unknown-mint-key",
         "yaml",
         r#"
 mint:
   endianness: little
-  word_addressing: true
+  unknown: true
 
 block:
   header:
@@ -62,8 +62,8 @@ block:
     let err = mint_cli::layout::load_layout(&path).expect_err("layout should be rejected");
     let message = err.to_string();
     assert!(
-        message.contains("[mint].word_addressing") && message.contains("removed"),
-        "expected removal hint, got: {}",
+        message.contains("unknown field") && message.contains("unknown"),
+        "expected unknown-field error, got: {}",
         message
     );
 }

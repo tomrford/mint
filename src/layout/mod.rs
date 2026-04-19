@@ -32,7 +32,6 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
             let raw: TomlValue = toml::from_str(&text).map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
             })?;
-            reject_removed_toml_keys(&raw)?;
             validate_toml_scalar_types(&raw)?;
             raw.try_into().map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
@@ -42,7 +41,6 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
             let raw: YamlValue = serde_yaml::from_str(&text).map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
             })?;
-            reject_removed_yaml_keys(&raw)?;
             validate_yaml_scalar_types(&raw)?;
             serde_yaml::from_str(&text).map_err(|e| {
                 LayoutError::FileError(format!("failed to parse file {}: {}", filename, e))
@@ -56,42 +54,6 @@ pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
     };
 
     Ok(cfg)
-}
-
-fn removed_word_addressing_error() -> LayoutError {
-    LayoutError::FileError(
-        "`[mint].word_addressing` has been removed. mint now uses byte addressing only; convert word-addressed layouts with a dedicated pre/post-processing tool before calling mint.".to_string(),
-    )
-}
-
-fn reject_removed_toml_keys(raw: &TomlValue) -> Result<(), LayoutError> {
-    if raw
-        .get("mint")
-        .and_then(TomlValue::as_table)
-        .is_some_and(|mint| mint.contains_key("word_addressing"))
-    {
-        return Err(removed_word_addressing_error());
-    }
-
-    Ok(())
-}
-
-fn reject_removed_yaml_keys(raw: &YamlValue) -> Result<(), LayoutError> {
-    let Some(root) = raw.as_mapping() else {
-        return Ok(());
-    };
-    let Some(mint) = root.get(YamlValue::String("mint".to_string())) else {
-        return Ok(());
-    };
-    let Some(mint) = mint.as_mapping() else {
-        return Ok(());
-    };
-
-    if mint.contains_key(YamlValue::String("word_addressing".to_string())) {
-        return Err(removed_word_addressing_error());
-    }
-
-    Ok(())
 }
 
 fn validate_toml_scalar_types(raw: &TomlValue) -> Result<(), LayoutError> {
