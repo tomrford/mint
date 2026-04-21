@@ -2,14 +2,14 @@ mod formatters;
 
 use crate::commands::stats::BuildStats;
 use comfy_table::{Attribute, Cell, ContentArrangement, Table};
-use formatters::{format_address_range, format_bytes, format_duration, format_efficiency};
+use formatters::{format_address_range, format_bytes, format_duration, format_space_used};
 
 pub fn print_summary(stats: &BuildStats) {
     println!(
-        "✓ Built {} blocks in {} ({:.1}% efficiency)",
+        "✓ Built {} blocks in {} ({:.1}% space used)",
         stats.blocks_processed,
         format_duration(stats.total_duration),
-        stats.space_efficiency()
+        stats.space_used_pct()
     );
 }
 
@@ -35,8 +35,8 @@ pub fn print_detailed(stats: &BuildStats) {
     ]);
     summary_table.add_row(vec!["Total Used", &format_bytes(stats.total_used)]);
     summary_table.add_row(vec![
-        "Space Efficiency",
-        &format!("{:.1}%", stats.space_efficiency()),
+        "Space Used",
+        &format!("{:.1}%", stats.space_used_pct()),
     ]);
 
     println!("{summary_table}\n");
@@ -48,7 +48,7 @@ pub fn print_detailed(stats: &BuildStats) {
             Cell::new("Block").add_attribute(Attribute::Bold),
             Cell::new("Address Range").add_attribute(Attribute::Bold),
             Cell::new("Used/Alloc").add_attribute(Attribute::Bold),
-            Cell::new("Efficiency").add_attribute(Attribute::Bold),
+            Cell::new("Space Used").add_attribute(Attribute::Bold),
             Cell::new("Checksum Value").add_attribute(Attribute::Bold),
         ]);
 
@@ -64,7 +64,7 @@ pub fn print_detailed(stats: &BuildStats) {
                 format_bytes(block.used_size as usize),
                 format_bytes(block.allocated_size as usize)
             )),
-            Cell::new(format_efficiency(block.used_size, block.allocated_size)),
+            Cell::new(format_space_used(block.used_size, block.allocated_size)),
             Cell::new(format_checksum_values(&block.checksum_values)),
         ]);
     }

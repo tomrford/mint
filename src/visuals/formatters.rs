@@ -17,7 +17,7 @@ pub fn format_address_range(start: u32, allocated: u32) -> String {
     format!("0x{:X}-0x{:X}", start, end)
 }
 
-pub fn format_efficiency(used: u32, allocated: u32) -> String {
+pub fn format_space_used(used: u32, allocated: u32) -> String {
     if allocated == 0 {
         "0.0%".to_owned()
     } else {

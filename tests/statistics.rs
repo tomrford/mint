@@ -84,7 +84,7 @@ fn test_build_stats_aggregation() {
 }
 
 #[test]
-fn test_space_efficiency_calculation() {
+fn test_space_used_pct_calculation() {
     let mut stats = BuildStats::new();
 
     stats.add_block(BlockStat {
@@ -107,9 +107,9 @@ fn test_space_efficiency_calculation() {
     assert_eq!(stats.total_allocated, 300);
     assert_eq!(stats.total_used, 200);
 
-    let efficiency = stats.space_efficiency();
+    let space_used_pct = stats.space_used_pct();
     let expected = (200.0 / 300.0) * 100.0;
-    assert!((efficiency - expected).abs() < 0.01);
+    assert!((space_used_pct - expected).abs() < 0.01);
 }
 
 #[test]
@@ -154,9 +154,9 @@ fn test_multi_block_stats() {
 }
 
 #[test]
-fn test_space_efficiency_edge_cases() {
+fn test_space_used_pct_edge_cases() {
     let mut stats = BuildStats::new();
-    assert_eq!(stats.space_efficiency(), 0.0);
+    assert_eq!(stats.space_used_pct(), 0.0);
 
     stats.add_block(BlockStat {
         name: "full".to_owned(),
@@ -166,8 +166,8 @@ fn test_space_efficiency_edge_cases() {
         checksum_values: Vec::new(),
     });
 
-    let efficiency = stats.space_efficiency();
-    assert!((efficiency - 100.0).abs() < 0.01);
+    let space_used_pct = stats.space_used_pct();
+    assert!((space_used_pct - 100.0).abs() < 0.01);
 }
 
 #[test]

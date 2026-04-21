@@ -42,7 +42,7 @@ impl BuildStats {
         self.block_stats.push(stat);
     }
 
-    pub fn space_efficiency(&self) -> f64 {
+    pub fn space_used_pct(&self) -> f64 {
         if self.total_allocated == 0 {
             0.0
         } else {

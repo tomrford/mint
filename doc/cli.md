@@ -218,11 +218,11 @@ mint layout.toml --xlsx data.xlsx -v Default -o output.hex --stats
 |------------------+-----------|
 | Total Used       | 84 bytes  |
 |------------------+-----------|
-| Space Efficiency | 16.4%     |
+| Space Used       | 16.4%     |
 +------------------+-----------+
 
 +--------+---------------+--------------------+------------+----------------+
-| Block  | Address Range | Used/Alloc         | Efficiency | Checksum Value |
+| Block  | Address Range | Used/Alloc         | Space Used | Checksum Value |
 +===========================================================================+
 | config | 0x8000-0x80FF | 52 bytes/256 bytes | 20.3%      | 0x89ECCA27     |
 |--------+---------------+--------------------+------------+----------------|
