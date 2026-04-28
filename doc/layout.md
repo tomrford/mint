@@ -35,7 +35,19 @@ ref_out = true             # Reflect output CRC
 
 Multiple named checksum configurations can be defined (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]`). Each is referenced by name in block data fields.
 
-`virtual_offset` is optional. When present, it is added to output addresses and resolved ref addresses.
+Reusable constants are defined in `[mint.const]`. Const values use the same literal shapes as field `value`: scalar values, strings, booleans, and one-dimensional arrays. The const table is flat; quote names that contain dots.
+
+```toml
+[mint.const]
+default_voltage = 3.3
+fw_name = "BootloaderV2"
+ip_octets = [192, 168, 1, 10]
+"app.length" = 0x4000
+```
+
+Each block also exposes `<block_name>.start_address` and `<block_name>.length` as consts. These promoted values use the raw block header values and do not include `virtual_offset`.
+
+`virtual_offset` is optional. When present, it is added to output addresses. Values embedded in block data, including refs, use real block addresses without the virtual offset.
 
 ---
 
@@ -61,8 +73,9 @@ Data fields are key-value pairs where the key is a dotted path (matching C struc
 | Attribute     | Description                                                                           |
 | ------------- | ------------------------------------------------------------------------------------- |
 | `type`        | Data type (required)                                                                  |
-| `value`       | Literal value (mutually exclusive with `name`, `bitmap`, `ref`, `checksum`)           |
-| `name`        | Data source lookup key (mutually exclusive with `value`, `bitmap`, `ref`, `checksum`) |
+| `value`       | Literal value (mutually exclusive with `name`, `const`, `bitmap`, `ref`, `checksum`)  |
+| `name`        | Data source lookup key (mutually exclusive with `value`, `const`, `bitmap`, `ref`, `checksum`) |
+| `const`       | Const lookup key from `[mint.const]` or an auto-promoted block header const            |
 | `bitmap`      | Bitmap field definitions (see below)                                                  |
 | `ref`         | Pointer to another field in the same block (see below)                                |
 | `checksum`    | Inline checksum referencing a named config (see below)                                |
@@ -107,6 +120,28 @@ Examples:
 - `uq8.8` = unsigned 16-bit fixed-point
 
 mint encodes fixed-point as `round_ties_even(input * 2^fractional_bits)`. In strict mode, overflow is an error. Without `--strict`, the rounded encoded value is clamped to the storage range.
+
+### Const Values
+
+```toml
+[mint.const]
+default_voltage = 3.3
+fw_name = "BootloaderV2"
+ip_octets = [192, 168, 1, 10]
+
+[app.header]
+start_address = 0x8000
+length = 0x100
+
+[app.data]
+voltage = { const = "default_voltage", type = "f32" }
+label = { const = "fw_name", type = "u8", size = 16 }
+ip = { const = "ip_octets", type = "u8", size = 4 }
+base = { const = "app.start_address", type = "u32" }
+len = { const = "app.length", type = "u32" }
+```
+
+`const` uses the same conversion and size rules as `value`. Scalar consts do not use `size`; string and array consts use a one-dimensional `size` or `SIZE`.
 
 ### Strings
 
@@ -180,7 +215,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 - fixed-point types are not valid with `ref`
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
-- The resolved address is `start_address + virtual_offset + target_offset`
+- The resolved address is `start_address + target_offset`
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
 
 ### Checksums

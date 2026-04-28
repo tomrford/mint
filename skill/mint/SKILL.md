@@ -16,7 +16,7 @@ A layout file has three levels: global config, per-block headers, and per-block 
 ```toml
 [mint]                    # Global config (required)
 endianness = "little"     # Required: "little" or "big"
-virtual_offset = 0x0      # Added to all computed addresses (default: 0)
+virtual_offset = 0x0      # Added to output addresses (default: 0)
 
 [mint.checksum.crc32]     # Named CRC config (define as many as needed)
 polynomial = 0x04C11DB7
@@ -24,6 +24,10 @@ start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
+
+[mint.const]              # Optional reusable literals
+default_voltage = 3.3
+fw_name = "BootloaderV2"
 
 [myblock.header]          # Per-block memory region
 start_address = 0x8000    # Required — base address in flash
@@ -33,6 +37,7 @@ padding = 0xFF            # Fill byte for unused space (default: 0xFF)
 [myblock.data]            # Field definitions (dotted paths = nested structs)
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
+voltage = { const = "default_voltage", type = "f32" }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
@@ -56,7 +61,7 @@ When setting up mint for a project, these parameters need to be established. If 
 
 **From the data/build side:**
 
-- **Which values are constants vs. configurable** — constants go as `value = ...` in the layout; configurable values use `name = "..."` to pull from a data source.
+- **Which values are constants vs. configurable** — one-off constants go as `value = ...`; reusable constants go in `[mint.const]` and fields use `const = "..."`; configurable values use `name = "..."` to pull from a data source.
 - **Data source format** — Excel workbook (typical for manufacturing/calibration workflows) or JSON (typical for CI pipelines that fetch or generate data).
 - **Variant names** — the columns/keys that represent build variants (e.g., Default, Debug, Production). The `-v` flag controls fallback priority.
 
@@ -86,6 +91,23 @@ ip_addr = { value = [192, 168, 1, 1], type = "u8", size = 4 }
 ```
 
 Strings and arrays require `size`. Strings are UTF-8 encoded into the byte array.
+
+### Reusable constants (`const`)
+
+```toml
+[mint.const]
+default_voltage = 3.3
+fw_name = "BootloaderV2"
+ip_addr = [192, 168, 1, 1]
+
+[block.data]
+voltage = { const = "default_voltage", type = "f32" }
+message = { const = "fw_name", type = "u8", size = 16 }
+ip_addr = { const = "ip_addr", type = "u8", size = 4 }
+base = { const = "block.start_address", type = "u32" }
+```
+
+Const values use the same literal shapes and conversion rules as `value`. Each block automatically exposes `<block>.start_address` and `<block>.length` using real header values without `virtual_offset`.
 
 ### Data source lookup (`name`)
 
@@ -129,7 +151,7 @@ table_ptr = { ref = "table", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
 ```
 
-The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + virtual_offset + field_offset`. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
+The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + field_offset`; `virtual_offset` is output-only. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
 
 ### Checksums (`checksum`)
 

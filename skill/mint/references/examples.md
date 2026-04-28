@@ -11,7 +11,7 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 | Key              | Type                  | Default      | Description                                           |
 | ---------------- | --------------------- | ------------ | ----------------------------------------------------- |
 | `endianness`     | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values                  |
-| `virtual_offset` | `u32` (hex ok)        | `0`          | Offset added to all computed addresses (refs, output) |
+| `virtual_offset` | `u32` (hex ok)        | `0`          | Offset added to output addresses                       |
 
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 
@@ -46,6 +46,7 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `type`     | string                    | Required. One of: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, or fixed-point `qI.F` / `uqI.F` with total width 8/16/32/64 |
 | `value`    | scalar, string, or array  | Literal value. Mutually exclusive with other sources.                                                                                               |
 | `name`     | string                    | Data source lookup key. Mutually exclusive with other sources.                                                                                      |
+| `const`    | string                    | Const lookup key from `[mint.const]` or an auto-promoted block header const. Mutually exclusive with other sources.                                 |
 | `bitmap`   | array of bitmap fields    | Bitfield packing. Mutually exclusive with other sources.                                                                                            |
 | `ref`      | string                    | Dotted path to another field in same block. Mutually exclusive with other sources.                                                                  |
 | `checksum` | string                    | Name of a `[mint.checksum.<name>]` config, used inside `checksum = { checksum = \"name\", type = \"u32\" }`. Mutually exclusive with other sources. |
@@ -60,6 +61,9 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `value` (string)   | `u8`                | required                   | UTF-8 encoded into byte array                              |
 | `value` (1D array) | any                 | required                   | Inline array of values                                     |
 | `value` (2D array) | —                   | —                          | **Not supported.** 2D arrays must come from a data source. |
+| `const` (scalar)   | any                 | no                         | Reusable literal from `[mint.const]`                       |
+| `const` (string)   | `u8`                | required                   | Reusable UTF-8 string from `[mint.const]`                  |
+| `const` (1D array) | any                 | required                   | Reusable inline array from `[mint.const]`                  |
 | `name` (scalar)    | any                 | no                         | Single value from data source                              |
 | `name` (1D array)  | any                 | required (`size = N`)      | 1D array from data source                                  |
 | `name` (2D array)  | any                 | required (`size = [R, C]`) | 2D array from data source                                  |
@@ -199,7 +203,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 
 Ref targets are dotted paths rooted at the block's data section. `ref = "table"` would resolve to the address of the first field under `table` (i.e., `table.entries`). Forward and backward refs both work. Cross-block refs are not supported.
 
-Resolved address: `start_address + virtual_offset + field_offset`.
+Resolved address: `start_address + field_offset`.
 
 ## Excel data source
 

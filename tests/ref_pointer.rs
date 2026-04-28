@@ -158,8 +158,23 @@ target = { value = 0xBB, type = "u32" }
 
     let (bytes, _) = load_and_build("ref_voffset", &toml);
     assert_eq!(bytes.len(), 8);
-    // address = start_address + virtual_offset + offset = 0x1000 + 0x2000 + 4 = 0x3004
-    assert_eq!(&bytes[0..4], &0x3004u32.to_le_bytes());
+    // Refs encode real device addresses. virtual_offset is output-only.
+    assert_eq!(&bytes[0..4], &0x1004u32.to_le_bytes());
+
+    let path = common::write_layout_file("ref_voffset_output", &toml);
+    let config = mint_cli::layout::load_layout(&path).expect("layout loads");
+    let block = &config.blocks["block"];
+    let (bytes, padding_count) =
+        common::build_block(block, &config.mint, false, None).expect("build succeeds");
+    let range = mint_cli::output::bytestream_to_datarange(
+        bytes,
+        &block.header,
+        &config.mint,
+        padding_count,
+    )
+    .expect("range builds");
+
+    assert_eq!(range.start_address, 0x3000);
 }
 
 #[test]

@@ -4,7 +4,7 @@ use super::scalar_type::ScalarType;
 use super::settings::Endianness;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum ValueSource {
     Single(DataValue),
