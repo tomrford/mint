@@ -1,6 +1,6 @@
 # Const handling — design notes
 
-Status: pre-implementation, awaiting second pass.
+Status: implemented on this branch.
 Branch: `claude/expand-cross-block-refs-VsaDF`.
 
 ## Problem
@@ -18,17 +18,25 @@ known from layout *parse* alone, independent of which blocks are being built.
 
 ### `[mint.const]` table
 
-User-declared scalar/string consts, sibling of `[mint.checksum]`:
+User-declared consts, sibling of `[mint.checksum]`:
 
 ```toml
 [mint.const]
 default_voltage = 3.3
 fw_name         = "BootloaderV2"
 magic           = 0xDEADBEEF
+ip_octets       = [192, 168, 1, 10]
+"app.length"    = 0x4000
 ```
 
-Values are TOML scalars; conversion to the leaf's storage type happens at
-use site through the same path `value =` already uses (`DataValue::to_bytes`).
+Values use the same shape accepted by leaf `value = ...`: scalar literals,
+strings, booleans, and one-dimensional arrays. Conversion to the leaf's
+storage type happens at use site through the same emission path `value =`
+already uses.
+
+The table is one level deep. Nested tables under `[mint.const]` are rejected.
+Const names containing dots are allowed only as flat string keys, e.g.
+`"app.length" = 0x4000`.
 
 ### Implicit promotion of header values
 
@@ -42,6 +50,12 @@ promotion is precisely what allows that: if you want one block to reference
 another block's bounds, you do it from the *leaf* side using the auto-exported
 name; you don't need to put a const in the header itself.
 
+Auto-promoted addresses are real device addresses. They do not include
+`[mint].virtual_offset`. The virtual offset is applied only when mint writes
+output ranges, so the emitted HEX/S-record can use remapped transport
+addresses while data embedded for firmware consumption still points at real
+memory.
+
 ### Leaf entry usage
 
 New `EntrySource` variant, used like:
@@ -51,6 +65,7 @@ peer_base = { type = "u32", const = "main.start_address" }
 peer_size = { type = "u32", const = "main.length" }
 voltage   = { type = "f32", const = "default_voltage" }
 fw_label  = { type = "u8",  size = 32, const = "fw_name" }
+ip        = { type = "u8",  size = 4, const = "ip_octets" }
 ```
 
 One syntax for both implicit (`block.field`) and explicit (`name`) consts;
@@ -60,13 +75,16 @@ no `CONST[...]` wrapper.
 
 - `const = ""` rejected (empty name).
 - Unknown name → error listing available const names.
-- Value/storage-type mismatch → existing `DataValue::to_bytes` errors apply
-  (range overflow, signedness, fixed-point unsupported, etc.).
+- Value/storage-type mismatch → existing `value =` errors apply (range
+  overflow, signedness, fixed-point unsupported, string/array size mismatch,
+  etc.).
 - `const` is mutually exclusive with `name` / `value` / `bitmap` / `ref` /
   `checksum` (already enforced by the `EntrySource` enum shape).
-- `size` / `SIZE` allowed with `const` only when the resolved value is a
-  string (paralleling how strings work under `value =`). For scalar consts
-  the entry is single-valued and `size` is rejected.
+- `size` / `SIZE` with `const` follows the same rules as `value =`: strings
+  and one-dimensional arrays require a one-dimensional size, scalar values
+  reject size, and two-dimensional sizes are unsupported for consts.
+- Nested `[mint.const]` values are rejected. Dotted implicit names are flat
+  lookup strings, not nested table paths.
 - Collision check: a user `[mint.const]` key matching an auto-promoted name
   (`foo.start_address` / `foo.length` for any block named `foo` in the same
   config) → error at config-load time.
@@ -76,53 +94,66 @@ no `CONST[...]` wrapper.
 Three small staged steps after layout parse, before block build:
 
 1. Capture user-declared `[mint.const]` entries into a single table on
-   `MintConfig` (e.g. `pub const_table: HashMap<String, ConstValue>`).
+   `MintConfig` (e.g. `#[serde(rename = "const")] pub consts:
+   HashMap<String, ValueSource>`). Nested values fail serde deserialization
+   because they do not match `ValueSource`.
 2. For each block in the config, insert `<block_name>.start_address` and
-   `<block_name>.length` into the same table. Error on collision with step 1.
-3. During `build_bytestream_inner`, leaf entries with
-   `EntrySource::Const(name)` look up the table on `&MintConfig` (already
-   threaded through) and dispatch through the same scalar-conversion path
-   used by `EntrySource::Value(Single)`. No fixup pass; no `pending_*` state.
+   `<block_name>.length` into the same table as `ValueSource::Single`
+   `DataValue::U64` values. Error on collision with step 1. Start address
+   uses the raw header address, without `virtual_offset`.
+3. During leaf emission, `EntrySource::Const(name)` looks up the table on
+   `&MintConfig` and dispatches through the same scalar/string/array path
+   used by `EntrySource::Value`. No fixup pass; no `pending_*` state.
 
 Builds remain fully parallel — the table is read-only by the time block
 building starts.
 
+### Ref address model
+
+Refs also resolve to real device addresses, not virtualized output addresses.
+`ref = "target"` should encode `block.header.start_address + target_offset`
+only. `[mint].virtual_offset` remains an output formatting concern and is
+applied by `bytestream_to_datarange`.
+
 ## Code changes
 
 - `src/layout/settings.rs`
-  - Add `pub const_table: HashMap<String, ConstValue>` on `MintConfig` (or
-    `#[serde(rename = "const")] pub consts: ...`; pick a field name that
-    does not shadow the Rust keyword).
-  - Define `ConstValue` — minimal enum over the `DataValue` shapes accepted
-    in `value =` (integer, float, string). Reuse `DataValue` directly if the
-    serde shape is compatible; otherwise a thin wrapper.
+  - Add `#[serde(rename = "const", default)] pub consts:
+    HashMap<String, ValueSource>` on `MintConfig`.
+  - Keep `ValueSource` as the const value type so consts are a true
+    alternative to `value =`.
 - `src/layout/entry.rs`
   - Add `EntrySource::Const(String)` next to `Ref` / `Checksum`.
   - Add `validate_const` mirroring `validate_ref` / `validate_checksum`
-    (empty-name check, size-key rules per "Validation" above).
-  - Update `emit_bytes_*` arms to dispatch `Const` correctly (most likely
-    handled at one site that resolves the const to a `DataValue` then falls
-    through to existing single/array logic).
+    (empty-name check, unknown-name error, size-key rules per "Validation"
+    above).
+  - Update `emit_bytes`, `emit_bytes_single`, and `emit_bytes_1d` so
+    `EntrySource::Const` reuses the existing `ValueSource::Single` /
+    `ValueSource::Array` emission behavior.
+  - Return the same unsupported-2D error for `const` that `value =` returns
+    for two-dimensional sizes.
 - `src/layout/block.rs`
-  - In `build_bytestream_inner` leaf branch, before the existing
-    `EntrySource::Ref` / `EntrySource::Checksum` early returns: handle
-    `EntrySource::Const` by looking up against `&MintConfig.const_table`
-    and emitting through the standard path (no pending state).
-  - Pass `&MintConfig` (already available via `settings`) to wherever the
-    lookup happens.
+  - Pass `&MintConfig` into leaf emission so const lookup happens in
+    `LeafEntry`.
+  - Change `resolve_pending_refs` to encode
+    `header.start_address + target_offset`, without adding
+    `settings.virtual_offset`.
 - `src/layout/mod.rs` (or new helper near `load_layout`)
   - Post-parse pass: iterate `Config.blocks`, insert auto-promoted entries
-    into `cfg.mint.const_table`, error on collision with user keys.
+    into `cfg.mint.consts`, error on collision with user keys.
   - Runs once per loaded layout file, immediately after `try_into::<Config>`.
 - Tests
-  - Leaf consuming a `[mint.const]` literal of each scalar shape (int,
-    float, string with `size`).
+  - Leaf consuming a `[mint.const]` literal of each `value =` shape: bool,
+    int, float, string with `size`, and one-dimensional array with `size`.
   - Leaf consuming an auto-promoted `<block>.start_address` / `<block>.length`.
   - Collision: user const named `foo.start_address` while block `foo` exists
     → error.
   - Unknown const name → error message lists available names.
   - Type mismatch (e.g. const string into a `u32` leaf) → existing error.
-  - Const used with conflicting `size`/`SIZE` keys for non-string → error.
+  - Const used with scalar plus `size`/`SIZE` → error.
+  - Nested `[mint.const]` tables → error.
+  - Ref encodes the raw block address when `[mint].virtual_offset` is set;
+    output `DataRange.start_address` still includes the virtual offset.
 
 ## Open question — multi-file `[mint.const]` merge
 
@@ -159,5 +190,6 @@ more consistent.
 - Const-of-const chaining (a `[mint.const]` entry whose value names another
   const). Keep entries flat literals; relax later if needed.
 - Const usage inside `[block.header]` fields. Headers stay strict `u32`.
-- 2D array consts. Single values and 1D strings only, matching `value =`.
+- 2D array consts. Single values and 1D arrays only, matching inline
+  `value =`.
 - Cross-file const resolution (see open question above).

@@ -132,6 +132,7 @@ mod tests {
             endianness: Endianness::Little,
             virtual_offset: 0,
             checksum: HashMap::new(),
+            consts: HashMap::new(),
         }
     }
 

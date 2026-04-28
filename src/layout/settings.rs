@@ -1,3 +1,4 @@
+use super::value::ValueSource;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -10,6 +11,8 @@ pub struct MintConfig {
     pub virtual_offset: u32,
     #[serde(default)]
     pub checksum: HashMap<String, ChecksumConfig>,
+    #[serde(rename = "const", default)]
+    pub consts: HashMap<String, ValueSource>,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]

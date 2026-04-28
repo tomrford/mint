@@ -65,6 +65,8 @@ pub enum EntrySource {
     Ref(String),
     #[serde(rename = "checksum")]
     Checksum(String),
+    #[serde(rename = "const")]
+    Const(String),
 }
 
 /// Single bitmap field within a bitmap entry.
@@ -155,6 +157,43 @@ impl LeafEntry {
                 field_path,
             ),
         }
+    }
+
+    /// Validates const entry rules and returns the resolved const value.
+    pub fn validate_const<'a>(
+        &self,
+        name: &str,
+        config: &'a BuildConfig<'a>,
+        size: Option<&SizeSource>,
+    ) -> Result<&'a ValueSource, LayoutError> {
+        if name.is_empty() {
+            return Err(LayoutError::DataValueExportFailed(
+                "Const name must not be empty.".into(),
+            ));
+        }
+        let value = config.consts.get(name).ok_or_else(|| {
+            let available = config.consts.keys().cloned().collect::<Vec<_>>().join(", ");
+            LayoutError::DataValueExportFailed(format!(
+                "Const '{}' not found in [mint.const]. Available: [{}]",
+                name, available
+            ))
+        })?;
+        match (size, value) {
+            (Some(SizeSource::TwoD(_)), _) => {
+                return Err(LayoutError::DataValueExportFailed(
+                    "2D arrays within the layout file are not supported.".to_owned(),
+                ));
+            }
+            (Some(SizeSource::OneD(_)), ValueSource::Single(DataValue::Str(_))) => {}
+            (Some(SizeSource::OneD(_)), ValueSource::Array(_)) => {}
+            (Some(SizeSource::OneD(_)), ValueSource::Single(_)) => {
+                return Err(LayoutError::DataValueExportFailed(
+                    "size/SIZE keys are forbidden with scalar const.".into(),
+                ));
+            }
+            (None, _) => {}
+        }
+        Ok(value)
     }
 
     /// Validates ref entry rules.
@@ -317,6 +356,16 @@ impl LeafEntry {
             EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
                 "Single value expected for scalar type.".to_owned(),
             )),
+            EntrySource::Const(name) => match self.validate_const(name, config, None)? {
+                ValueSource::Single(v) => {
+                    let bytes = v.to_bytes(self.scalar_type, config.endianness, config.strict)?;
+                    value_sink.record_value(field_path, data_value_to_json(v)?)?;
+                    Ok(bytes)
+                }
+                ValueSource::Array(_) => Err(LayoutError::DataValueExportFailed(
+                    "Single value expected for scalar type.".to_owned(),
+                )),
+            },
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
@@ -388,6 +437,29 @@ impl LeafEntry {
                 }
                 out.extend(v.string_to_bytes()?);
                 value_sink.record_value(field_path, data_value_to_json(v)?)?;
+            }
+            EntrySource::Const(name) => {
+                match self.validate_const(name, config, Some(&SizeSource::OneD(size)))? {
+                    ValueSource::Array(v) => {
+                        for value in v {
+                            out.extend(value.to_bytes(
+                                self.scalar_type,
+                                config.endianness,
+                                config.strict,
+                            )?);
+                        }
+                        value_sink.record_value(field_path, array_to_json(v)?)?;
+                    }
+                    ValueSource::Single(v) => {
+                        if !matches!(self.scalar_type, ScalarType::U8) {
+                            return Err(LayoutError::DataValueExportFailed(
+                                "Strings should have type u8.".to_owned(),
+                            ));
+                        }
+                        out.extend(v.string_to_bytes()?);
+                        value_sink.record_value(field_path, data_value_to_json(v)?)?;
+                    }
+                }
             }
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
@@ -484,6 +556,12 @@ impl LeafEntry {
             EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
                 "2D arrays within the layout file are not supported.".to_owned(),
             )),
+            EntrySource::Const(name) => {
+                self.validate_const(name, config, Some(&SizeSource::TwoD(size)))?;
+                Err(LayoutError::DataValueExportFailed(
+                    "2D arrays within the layout file are not supported.".to_owned(),
+                ))
+            }
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),

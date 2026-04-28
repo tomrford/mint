@@ -4,7 +4,7 @@ use super::header::Header;
 use super::scalar_type::ScalarType;
 use super::settings::{Endianness, MintConfig};
 use super::used_values::ValueSink;
-use super::value::DataValue;
+use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
 use crate::output::checksum;
 
@@ -56,6 +56,7 @@ pub struct BuildConfig<'a> {
     pub endianness: &'a Endianness,
     pub padding: u8,
     pub strict: bool,
+    pub consts: &'a HashMap<String, ValueSource>,
 }
 
 pub struct BuildOutput {
@@ -107,6 +108,7 @@ impl Block {
             endianness: &settings.endianness,
             padding: self.header.padding,
             strict,
+            consts: &settings.consts,
         };
 
         let mut field_path = Vec::new();
@@ -122,13 +124,7 @@ impl Block {
 
         // Resolve pending refs now that all offsets are known.
         if !state.pending_refs.is_empty() {
-            Self::resolve_pending_refs(
-                &mut state,
-                &config,
-                &self.header,
-                &settings.virtual_offset,
-                value_sink,
-            )?;
+            Self::resolve_pending_refs(&mut state, &config, &self.header, value_sink)?;
         }
 
         // Resolve pending checksums now that the bytestream is complete.
@@ -248,7 +244,6 @@ impl Block {
         state: &mut BuildState,
         config: &BuildConfig,
         header: &Header,
-        virtual_offset: &u32,
         value_sink: &mut dyn ValueSink,
     ) -> Result<(), LayoutError> {
         for pending in &state.pending_refs {
@@ -270,8 +265,7 @@ impl Block {
 
             let address = header
                 .start_address
-                .checked_add(*virtual_offset)
-                .and_then(|a| a.checked_add(*target_offset as u32))
+                .checked_add(*target_offset as u32)
                 .ok_or_else(|| {
                     LayoutError::DataValueExportFailed(format!(
                         "Address overflow resolving ref to '{}'.",
