@@ -79,7 +79,9 @@ pub struct Block {
     pub data: Entry,
 }
 
-/// Any entry - should always be either a leaf or a branch (more entries).
+/// TODO: Replace the untagged derive with a custom deserializer that treats
+/// maps with `type` as leaves, preserving scalar type parse errors without a
+/// raw-layout validation pass.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum Entry {
