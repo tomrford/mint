@@ -45,9 +45,7 @@ ip_octets = [192, 168, 1, 10]
 "app.length" = 0x4000
 ```
 
-Each block also exposes `<block_name>.start_address` and `<block_name>.length` as consts. These promoted values use the raw block header values and do not include `virtual_offset`.
-
-`virtual_offset` is optional. When present, it is added to output addresses. Values embedded in block data, including refs, use real block addresses without the virtual offset.
+Each block also exposes `<block_name>.start_address` and `<block_name>.length` as consts. These promoted values use the block header values.
 
 ---
 

@@ -1,7 +1,6 @@
 # YAML format test layout - contains block for format parsing verification
 mint:
   endianness: "little"
-  virtual_offset: 0x0
   checksum:
     crc32:
       polynomial: 0x04C11DB7

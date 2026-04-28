@@ -127,7 +127,6 @@ fn build_single_bytestream(
         let data_range = output::bytestream_to_datarange(
             build_output.bytestream,
             &block.header,
-            &layout.mint,
             build_output.padding_count,
         )?;
 
