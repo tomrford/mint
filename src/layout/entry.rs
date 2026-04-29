@@ -2,7 +2,7 @@ use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
 use super::scalar_type::{ScalarType, fixed_point_unsupported_error};
-use super::settings::MintConfig;
+use super::settings::{Endianness, MintConfig};
 use super::used_values::{
     ValueSink, array_2d_to_json, array_to_json, data_value_to_json, i128_to_json,
 };
@@ -206,7 +206,10 @@ impl LeafEntry {
                 "size/SIZE keys are forbidden with ref.".into(),
             ));
         }
-        if !self.scalar_type.is_unsigned_integer() {
+        if !matches!(
+            self.scalar_type,
+            ScalarType::U16 | ScalarType::U32 | ScalarType::U64
+        ) {
             return Err(LayoutError::DataValueExportFailed(
                 "Ref requires unsigned integer storage type (u16, u32, u64).".into(),
             ));
@@ -325,7 +328,7 @@ impl LeafEntry {
             offset += field.bits;
         }
 
-        DataValue::U64(accumulator as u64).to_bytes(self.scalar_type, config.endianness, false)
+        encode_bitmap_storage(accumulator, self.scalar_type, config.endianness)
     }
 
     fn emit_bytes_single(
@@ -567,6 +570,25 @@ impl LeafEntry {
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
         }
     }
+}
+
+fn encode_bitmap_storage(
+    accumulator: u128,
+    scalar_type: ScalarType,
+    endianness: &Endianness,
+) -> Result<Vec<u8>, LayoutError> {
+    if !scalar_type.is_integer() {
+        return Err(LayoutError::DataValueExportFailed(
+            "Bitmap requires integer storage type.".into(),
+        ));
+    }
+
+    let width = scalar_type.size_bytes();
+    let bytes = match endianness {
+        Endianness::Little => (accumulator as u64).to_le_bytes()[..width].to_vec(),
+        Endianness::Big => (accumulator as u64).to_be_bytes()[8 - width..].to_vec(),
+    };
+    Ok(bytes)
 }
 
 fn bitmap_field_key(field: &BitmapField, offset: usize) -> String {

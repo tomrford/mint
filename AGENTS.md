@@ -15,7 +15,7 @@ mint is an embedded development tool that works with TOML layout files and data 
 
 ### Build Flow
 
-1. **Parse Args**: `clap` defines arguments in `src/args.rs`.
+1. **Parse Args**: `clap` defines top-level arguments in `src/lib.rs`, with flattened groups in `src/layout/args.rs`, `src/data/args.rs`, and `src/output/args.rs`.
 2. **Resolve Blocks**: Parallel loading of layout files (`rayon`).
 3. **Build Bytestreams**: Each block is built by combining layout config with data from the selected source.
 4. **Output**: Binary files are generated (either per-block or combined).

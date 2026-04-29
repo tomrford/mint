@@ -115,6 +115,33 @@ fn bitmap_i16_signed_negative_values() {
 }
 
 #[test]
+fn bitmap_signed_storage_preserves_high_bit_patterns() {
+    common::ensure_out_dir();
+
+    let i8_layout = bitmap_layout(
+        r#"flags = { type = "i8", bitmap = [
+    { bits = 8, value = -1 },
+] }"#,
+    );
+    let i8_path = common::write_layout_file("bitmap_i8_high_bit", &i8_layout);
+    let i8_cfg = mint_cli::layout::load_layout(&i8_path).expect("parse");
+    let i8_block = i8_cfg.blocks.get("block").expect("block");
+    let (i8_bytes, _) = common::build_block(i8_block, &i8_cfg.mint, false, None).expect("build");
+    assert_eq!(&i8_bytes[0..1], &[0xFF]);
+
+    let i16_layout = bitmap_layout(
+        r#"flags = { type = "i16", bitmap = [
+    { bits = 16, value = -32768 },
+] }"#,
+    );
+    let i16_path = common::write_layout_file("bitmap_i16_high_bit", &i16_layout);
+    let i16_cfg = mint_cli::layout::load_layout(&i16_path).expect("parse");
+    let i16_block = i16_cfg.blocks.get("block").expect("block");
+    let (i16_bytes, _) = common::build_block(i16_block, &i16_cfg.mint, false, None).expect("build");
+    assert_eq!(&i16_bytes[0..2], &[0x00, 0x80]);
+}
+
+#[test]
 fn bitmap_u32_mixed_fields() {
     common::ensure_out_dir();
 
