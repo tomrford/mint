@@ -276,8 +276,7 @@ impl Block {
                 })?;
 
             let address_value = DataValue::U64(address as u64);
-            let bytes =
-                address_value.to_bytes(pending.scalar_type, config.endianness, config.strict)?;
+            let bytes = address_value.to_bytes(pending.scalar_type, config.endianness, true)?;
 
             // Patch the placeholder bytes in the buffer.
             let pos = pending.buffer_position;

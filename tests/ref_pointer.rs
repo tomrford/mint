@@ -103,6 +103,23 @@ ptr = { ref = "field_b", type = "u16" }
 }
 
 #[test]
+fn ref_u16_rejects_address_out_of_range_without_strict_flag() {
+    let toml = ref_layout(
+        0x1_0000,
+        r#"
+target = { value = 0x42, type = "u32" }
+ptr = { ref = "target", type = "u16" }
+"#,
+    );
+
+    let err = load_and_fail("ref_u16_overflow", &toml);
+    assert!(
+        err.contains("out of range for u16"),
+        "expected u16 range error, got: {err}"
+    );
+}
+
+#[test]
 fn ref_with_u64_type() {
     let toml = ref_layout(
         0x2000,
@@ -282,6 +299,17 @@ ptr = { ref = "target", type = "f32" }
 "#,
             ),
             "integer",
+        ),
+        (
+            "ref_err_u8",
+            ref_layout(
+                0x0,
+                r#"
+target = { value = 0x42, type = "u32" }
+ptr = { ref = "target", type = "u8" }
+"#,
+            ),
+            "u16, u32, u64",
         ),
         (
             "ref_err_empty",
