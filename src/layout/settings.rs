@@ -7,8 +7,6 @@ use std::collections::HashMap;
 #[serde(deny_unknown_fields)]
 pub struct MintConfig {
     pub endianness: Endianness,
-    #[serde(default = "default_offset")]
-    pub virtual_offset: u32,
     #[serde(default)]
     pub checksum: HashMap<String, ChecksumConfig>,
     #[serde(rename = "const", default)]
@@ -32,10 +30,6 @@ pub struct ChecksumConfig {
     pub xor_out: u32,
     pub ref_in: bool,
     pub ref_out: bool,
-}
-
-fn default_offset() -> u32 {
-    0
 }
 
 pub trait EndianBytes {

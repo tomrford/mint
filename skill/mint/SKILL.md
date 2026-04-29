@@ -16,7 +16,6 @@ A layout file has three levels: global config, per-block headers, and per-block 
 ```toml
 [mint]                    # Global config (required)
 endianness = "little"     # Required: "little" or "big"
-virtual_offset = 0x0      # Added to output addresses (default: 0)
 
 [mint.checksum.crc32]     # Named CRC config (define as many as needed)
 polynomial = 0x04C11DB7
@@ -107,7 +106,7 @@ ip_addr = { const = "ip_addr", type = "u8", size = 4 }
 base = { const = "block.start_address", type = "u32" }
 ```
 
-Const values use the same literal shapes and conversion rules as `value`. Each block automatically exposes `<block>.start_address` and `<block>.length` using real header values without `virtual_offset`.
+Const values use the same literal shapes and conversion rules as `value`. Each block automatically exposes `<block>.start_address` and `<block>.length` using block header values.
 
 ### Data source lookup (`name`)
 
@@ -151,7 +150,7 @@ table_ptr = { ref = "table", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
 ```
 
-The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + field_offset`; `virtual_offset` is output-only. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
+The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + field_offset`. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
 
 ### Checksums (`checksum`)
 

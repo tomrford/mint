@@ -37,3 +37,31 @@ value = { value = 1, type = "u16" }
         message
     );
 }
+
+#[test]
+fn toml_rejects_virtual_offset() {
+    let path = write_layout(
+        "virtual-offset",
+        "toml",
+        r#"
+[mint]
+endianness = "little"
+virtual_offset = 0
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+value = { value = 1, type = "u16" }
+"#,
+    );
+
+    let err = mint_cli::layout::load_layout(&path).expect_err("layout should be rejected");
+    let message = err.to_string();
+    assert!(
+        message.contains("unknown field") && message.contains("virtual_offset"),
+        "expected virtual_offset unknown-field error, got: {}",
+        message
+    );
+}

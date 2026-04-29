@@ -11,7 +11,6 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 | Key              | Type                  | Default      | Description                                           |
 | ---------------- | --------------------- | ------------ | ----------------------------------------------------- |
 | `endianness`     | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values                  |
-| `virtual_offset` | `u32` (hex ok)        | `0`          | Offset added to output addresses                       |
 
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 

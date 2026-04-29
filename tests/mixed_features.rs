@@ -10,7 +10,6 @@ mod common;
 // - Inline checksums in different field layouts
 // - record width variations (16 and 64)
 // - Output formats HEX and MOT (SREC address length auto-selection)
-// - virtual_offset changing start addresses
 // - 1D array strings and numeric arrays
 // - 2D array retrieval and padding
 // - mix of value sources (Value and Name)
@@ -43,7 +42,6 @@ checksum = { checksum = "crc32", type = "u32" }
     let layout_le_end = r#"
 [mint]
 endianness = "little"
-virtual_offset = 0x20000
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -119,7 +117,7 @@ checksum = { checksum = "crc32", type = "u32" }
     commands::build(&args_be_mot, ds.as_deref()).expect("be-mot");
     assert!(args_be_mot.output.out.exists());
 
-    // Case 3: Little endian, inline checksum, HEX width 16, virtual_offset applied
+    // Case 3: Little endian, inline checksum, HEX width 16
     let args_le_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![BlockNames {

@@ -4,7 +4,6 @@ pub mod error;
 pub mod report;
 
 use crate::layout::header::Header;
-use crate::layout::settings::MintConfig;
 use crate::output::args::OutputFormat;
 use error::OutputError;
 
@@ -21,7 +20,6 @@ pub struct DataRange {
 pub fn bytestream_to_datarange(
     bytestream: Vec<u8>,
     header: &Header,
-    settings: &MintConfig,
     padding_bytes: u32,
 ) -> Result<DataRange, OutputError> {
     if bytestream.len() > header.length as usize {
@@ -31,15 +29,9 @@ pub fn bytestream_to_datarange(
     }
 
     let used_size = (bytestream.len() as u32).saturating_sub(padding_bytes);
-    let start_address = header
-        .start_address
-        .checked_add(settings.virtual_offset)
-        .ok_or_else(|| {
-            OutputError::HexOutputError("Start address overflows address space.".to_owned())
-        })?;
 
     Ok(DataRange {
-        start_address,
+        start_address: header.start_address,
         bytestream,
         used_size,
         allocated_size: header.length,
@@ -123,18 +115,6 @@ impl OutputFile {
 mod tests {
     use super::*;
     use crate::layout::header::Header;
-    use crate::layout::settings::Endianness;
-    use crate::layout::settings::MintConfig;
-    use std::collections::HashMap;
-
-    fn sample_settings() -> MintConfig {
-        MintConfig {
-            endianness: Endianness::Little,
-            virtual_offset: 0,
-            checksum: HashMap::new(),
-            consts: HashMap::new(),
-        }
-    }
 
     fn sample_header(len: u32) -> Header {
         Header {
@@ -146,11 +126,10 @@ mod tests {
 
     #[test]
     fn basic_datarange_generation() {
-        let settings = sample_settings();
         let header = sample_header(16);
 
         let bytestream = vec![1u8, 2, 3, 4];
-        let dr = bytestream_to_datarange(bytestream.clone(), &header, &settings, 0)
+        let dr = bytestream_to_datarange(bytestream.clone(), &header, 0)
             .expect("data range generation failed");
 
         assert_eq!(dr.bytestream.len(), 4);
@@ -161,22 +140,20 @@ mod tests {
 
     #[test]
     fn bytestream_exceeds_block_length_errors() {
-        let settings = sample_settings();
         let header = sample_header(4);
 
         let bytestream = vec![1u8; 8]; // 8 bytes > 4 byte block
-        let result = bytestream_to_datarange(bytestream, &header, &settings, 0);
+        let result = bytestream_to_datarange(bytestream, &header, 0);
         assert!(result.is_err());
     }
 
     #[test]
     fn hex_output_format() {
-        let settings = sample_settings();
         let header = sample_header(16);
 
         let bytestream = vec![1u8, 2, 3, 4];
-        let dr = bytestream_to_datarange(bytestream, &header, &settings, 0)
-            .expect("data range generation failed");
+        let dr =
+            bytestream_to_datarange(bytestream, &header, 0).expect("data range generation failed");
         let hex = emit_hex(&[dr], 16, OutputFormat::Hex).expect("hex generation failed");
 
         assert!(!hex.is_empty());

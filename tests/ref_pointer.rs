@@ -1,12 +1,11 @@
 #[path = "common/mod.rs"]
 mod common;
 
-fn layout(start_address: u32, endianness: &str, virtual_offset: u32, data_content: &str) -> String {
+fn layout(start_address: u32, endianness: &str, data_content: &str) -> String {
     format!(
         r#"
 [mint]
 endianness = "{endianness}"
-virtual_offset = 0x{virtual_offset:X}
 
 [block.header]
 start_address = 0x{start_address:X}
@@ -21,19 +20,11 @@ padding = 0xFF
 
 /// Helper to create a minimal layout with given data content.
 fn ref_layout(start_address: u32, data_content: &str) -> String {
-    layout(start_address, "little", 0, data_content)
+    layout(start_address, "little", data_content)
 }
 
 fn ref_layout_with_endian(start_address: u32, endianness: &str, data_content: &str) -> String {
-    layout(start_address, endianness, 0, data_content)
-}
-
-fn ref_layout_with_virtual_offset(
-    start_address: u32,
-    virtual_offset: u32,
-    data_content: &str,
-) -> String {
-    layout(start_address, "little", virtual_offset, data_content)
+    layout(start_address, endianness, data_content)
 }
 
 fn load_and_build(name: &str, toml_str: &str) -> (Vec<u8>, u32) {
@@ -143,38 +134,6 @@ target = { value = 0xAB, type = "u32" }
     assert_eq!(bytes.len(), 8);
     assert_eq!(&bytes[0..4], &0x4004u32.to_be_bytes());
     assert_eq!(&bytes[4..8], &0xABu32.to_be_bytes());
-}
-
-#[test]
-fn ref_with_virtual_offset() {
-    let toml = ref_layout_with_virtual_offset(
-        0x1000,
-        0x2000,
-        r#"
-ptr = { ref = "target", type = "u32" }
-target = { value = 0xBB, type = "u32" }
-"#,
-    );
-
-    let (bytes, _) = load_and_build("ref_voffset", &toml);
-    assert_eq!(bytes.len(), 8);
-    // Refs encode real device addresses. virtual_offset is output-only.
-    assert_eq!(&bytes[0..4], &0x1004u32.to_le_bytes());
-
-    let path = common::write_layout_file("ref_voffset_output", &toml);
-    let config = mint_cli::layout::load_layout(&path).expect("layout loads");
-    let block = &config.blocks["block"];
-    let (bytes, padding_count) =
-        common::build_block(block, &config.mint, false, None).expect("build succeeds");
-    let range = mint_cli::output::bytestream_to_datarange(
-        bytes,
-        &block.header,
-        &config.mint,
-        padding_count,
-    )
-    .expect("range builds");
-
-    assert_eq!(range.start_address, 0x3000);
 }
 
 #[test]

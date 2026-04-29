@@ -7,7 +7,6 @@
 
 [mint]
 endianness = "little"
-virtual_offset = 0x0
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
