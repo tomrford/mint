@@ -4,7 +4,62 @@ use super::settings::{EndianBytes, Endianness};
 use super::value::DataValue;
 use std::fmt;
 
-macro_rules! impl_try_from_data_value {
+macro_rules! impl_saturating_unsigned_try_from_data_value {
+    ($($t:ty),* $(,)?) => {$(
+        impl TryFrom<&DataValue> for $t {
+            type Error = LayoutError;
+            fn try_from(value: &DataValue) -> Result<Self, LayoutError> {
+                match value {
+                    DataValue::Bool(val) => {
+                        let n: u8 = if *val { 1 } else { 0 };
+                        Ok(n as $t)
+                    }
+                    DataValue::U64(val) => Ok((*val).min(<$t>::MAX as u64) as $t),
+                    DataValue::I64(val) => {
+                        if *val < 0 {
+                            Ok(<$t>::MIN)
+                        } else {
+                            Ok((*val as u64).min(<$t>::MAX as u64) as $t)
+                        }
+                    }
+                    DataValue::F64(val) => Ok(*val as $t),
+                    DataValue::Str(_) => {
+                        return Err(LayoutError::DataValueExportFailed(
+                            "Cannot convert string to scalar type.".to_owned(),
+                        ));
+                    }
+                }
+            }
+        }
+    )* }; }
+
+macro_rules! impl_saturating_signed_try_from_data_value {
+    ($($t:ty),* $(,)?) => {$(
+        impl TryFrom<&DataValue> for $t {
+            type Error = LayoutError;
+            fn try_from(value: &DataValue) -> Result<Self, LayoutError> {
+                match value {
+                    DataValue::Bool(val) => {
+                        let n: u8 = if *val { 1 } else { 0 };
+                        Ok(n as $t)
+                    }
+                    DataValue::U64(val) => Ok((*val).min(<$t>::MAX as u64) as $t),
+                    DataValue::I64(val) => {
+                        let clamped = i128::from(*val).clamp(<$t>::MIN as i128, <$t>::MAX as i128);
+                        Ok(clamped as $t)
+                    }
+                    DataValue::F64(val) => Ok(*val as $t),
+                    DataValue::Str(_) => {
+                        return Err(LayoutError::DataValueExportFailed(
+                            "Cannot convert string to scalar type.".to_owned(),
+                        ));
+                    }
+                }
+            }
+        }
+    )* }; }
+
+macro_rules! impl_float_try_from_data_value {
     ($($t:ty),* $(,)?) => {$(
         impl TryFrom<&DataValue> for $t {
             type Error = LayoutError;
@@ -27,7 +82,9 @@ macro_rules! impl_try_from_data_value {
         }
     )* }; }
 
-impl_try_from_data_value!(u8, u16, u32, u64, i8, i16, i32, i64, i128, f32, f64);
+impl_saturating_unsigned_try_from_data_value!(u8, u16, u32, u64);
+impl_saturating_signed_try_from_data_value!(i8, i16, i32, i64, i128);
+impl_float_try_from_data_value!(f32, f64);
 
 pub trait TryFromStrict<T>: Sized {
     fn try_from_strict(value: T) -> Result<Self, LayoutError>;
