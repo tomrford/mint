@@ -4,6 +4,44 @@ use std::io::Write;
 mod common;
 
 #[test]
+fn non_strict_integer_conversions_saturate() {
+    common::ensure_out_dir();
+
+    let layout_toml = r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x80000
+length = 0x100
+padding = 0x00
+
+[block.data]
+overflow.u8_high = { value = 256, type = "u8" }
+overflow.u8_low = { value = -1, type = "u8" }
+overflow.i8_high = { value = 128, type = "i8" }
+overflow.i8_low = { value = -129, type = "i8" }
+overflow.u8_float_trunc = { value = 1.5, type = "u8" }
+overflow.u8_float_high = { value = 300.0, type = "u8" }
+"#;
+
+    let path = std::path::Path::new("out").join("test_non_strict_saturation.toml");
+    let mut f = std::fs::File::create(&path).unwrap();
+    f.write_all(layout_toml.as_bytes()).unwrap();
+
+    let cfg = mint_cli::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
+    let block = cfg.blocks.get("block").expect("block present");
+
+    let (bytes, _) =
+        common::build_block(block, &cfg.mint, false, None).expect("non-strict converts");
+    assert_eq!(
+        &bytes[..6],
+        &[0xff, 0x00, 0x7f, 0x80, 0x01, 0xff],
+        "non-strict integer conversions should saturate, while floats still truncate"
+    );
+}
+
+#[test]
 fn strict_conversions_success() {
     common::ensure_out_dir();
 
