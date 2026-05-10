@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CICD_INTERMEDIATES_DIR: "_cicd-intermediates"
@@ -21,6 +21,8 @@ jobs:
   create-release:
     name: Create release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       GH_REPO: ${{ github.repository }}
     outputs:
@@ -151,3 +153,56 @@ jobs:
         run: |
           TAG="${{ needs.create-release.outputs.tag_name }}"
           gh release upload "$TAG" "${{ env.PKG_PATH }}" "${{ env.PKG_CHECKSUM }}" --clobber
+
+  publish-crate:
+    name: Publish crate
+    runs-on: ubuntu-latest
+    needs: build-release
+    environment: crates
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Extract crate metadata
+        id: metadata
+        shell: bash
+        run: |
+          echo "name=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')" >> "$GITHUB_OUTPUT"
+          echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" >> "$GITHUB_OUTPUT"
+
+      - name: Check publish status
+        id: publish_status
+        shell: bash
+        run: |
+          CRATE="${{ steps.metadata.outputs.name }}"
+          VERSION="${{ steps.metadata.outputs.version }}"
+          if curl -fsSL "https://crates.io/api/v1/crates/${CRATE}/${VERSION}" >/dev/null; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "${CRATE} ${VERSION} is already published."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check package
+        if: steps.publish_status.outputs.published != 'true'
+        run: cargo publish --locked --dry-run
+
+      - name: Authenticate with crates.io
+        if: steps.publish_status.outputs.published != 'true'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish to crates.io
+        if: steps.publish_status.outputs.published != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked
