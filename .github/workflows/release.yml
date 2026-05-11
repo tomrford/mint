@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -165,7 +165,7 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -185,7 +185,7 @@ jobs:
         run: |
           CRATE="${{ steps.metadata.outputs.name }}"
           VERSION="${{ steps.metadata.outputs.version }}"
-          if curl -fsSL "https://crates.io/api/v1/crates/${CRATE}/${VERSION}" >/dev/null; then
+          if curl -fsSL -H "User-Agent: mint-release-workflow" "https://crates.io/api/v1/crates/${CRATE}/${VERSION}" >/dev/null; then
             echo "published=true" >> "$GITHUB_OUTPUT"
             echo "${CRATE} ${VERSION} is already published."
           else
@@ -199,7 +199,7 @@ jobs:
       - name: Authenticate with crates.io
         if: steps.publish_status.outputs.published != 'true'
         id: auth
-        uses: rust-lang/crates-io-auth-action@v1
+        uses: rust-lang/crates-io-auth-action@v1.0.4
 
       - name: Publish to crates.io
         if: steps.publish_status.outputs.published != 'true'
