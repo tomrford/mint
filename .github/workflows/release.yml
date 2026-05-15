@@ -81,8 +81,8 @@ jobs:
       - name: Extract crate metadata
         shell: bash
         run: |
-          echo "PROJECT_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] == "bin") | .name')" >> $GITHUB_ENV
-          echo "PROJECT_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" >> $GITHUB_ENV
+          echo "PROJECT_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .targets[] | select(.kind[] == "bin") | .name')" >> $GITHUB_ENV
+          echo "PROJECT_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -102,7 +102,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: $BUILD_CMD build --locked --release --target=${{ matrix.job.target }}
+        run: $BUILD_CMD build -p mint-cli --bin mint --locked --release --target=${{ matrix.job.target }}
 
       - name: Build archive
         shell: bash
@@ -154,8 +154,8 @@ jobs:
           TAG="${{ needs.create-release.outputs.tag_name }}"
           gh release upload "$TAG" "${{ env.PKG_PATH }}" "${{ env.PKG_CHECKSUM }}" --clobber
 
-  publish-crate:
-    name: Publish crate
+  publish-crates:
+    name: Publish crates
     runs-on: ubuntu-latest
     needs: build-release
     environment: crates
@@ -172,18 +172,17 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Extract crate metadata
+      - name: Extract crate version
         id: metadata
         shell: bash
         run: |
-          echo "name=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')" >> "$GITHUB_OUTPUT"
-          echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" >> "$GITHUB_OUTPUT"
+          echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')" >> "$GITHUB_OUTPUT"
 
-      - name: Check publish status
-        id: publish_status
+      - name: Check publish status for mint-core
+        id: mint_core_status
         shell: bash
         run: |
-          CRATE="${{ steps.metadata.outputs.name }}"
+          CRATE="mint-core"
           VERSION="${{ steps.metadata.outputs.version }}"
           if curl -fsSL -H "User-Agent: mint-release-workflow" "https://crates.io/api/v1/crates/${CRATE}/${VERSION}" >/dev/null; then
             echo "published=true" >> "$GITHUB_OUTPUT"
@@ -192,17 +191,53 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check package
-        if: steps.publish_status.outputs.published != 'true'
-        run: cargo publish --locked --dry-run
+      - name: Check package mint-core
+        if: steps.mint_core_status.outputs.published != 'true'
+        run: cargo publish -p mint-core --locked --dry-run
 
       - name: Authenticate with crates.io
-        if: steps.publish_status.outputs.published != 'true'
         id: auth
         uses: rust-lang/crates-io-auth-action@v1.0.4
 
-      - name: Publish to crates.io
-        if: steps.publish_status.outputs.published != 'true'
+      - name: Publish mint-core to crates.io
+        if: steps.mint_core_status.outputs.published != 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish --locked
+        run: cargo publish -p mint-core --locked
+
+      - name: Wait for mint-core index
+        if: steps.mint_core_status.outputs.published != 'true'
+        shell: bash
+        run: |
+          VERSION="${{ steps.metadata.outputs.version }}"
+          for attempt in {1..30}; do
+            if curl -fsSL -H "User-Agent: mint-release-workflow" "https://crates.io/api/v1/crates/mint-core/${VERSION}" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "mint-core ${VERSION} was not visible on crates.io in time."
+          exit 1
+
+      - name: Check publish status for mint-cli
+        id: mint_cli_status
+        shell: bash
+        run: |
+          CRATE="mint-cli"
+          VERSION="${{ steps.metadata.outputs.version }}"
+          if curl -fsSL -H "User-Agent: mint-release-workflow" "https://crates.io/api/v1/crates/${CRATE}/${VERSION}" >/dev/null; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "${CRATE} ${VERSION} is already published."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check package mint-cli
+        if: steps.mint_cli_status.outputs.published != 'true'
+        run: cargo publish -p mint-cli --locked --dry-run
+
+      - name: Publish mint-cli to crates.io
+        if: steps.mint_cli_status.outputs.published != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish -p mint-cli --locked

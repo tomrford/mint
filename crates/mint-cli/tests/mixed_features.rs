@@ -1,0 +1,163 @@
+use mint_cli::commands;
+use mint_cli::layout::args::BlockNames;
+use mint_cli::output::args::{OutputArgs, OutputFormat};
+
+#[path = "common/mod.rs"]
+mod common;
+
+// This integration test exercises:
+// - Big endian vs little endian
+// - Inline checksums in different field layouts
+// - record width variations (16 and 64)
+// - Output formats HEX and MOT (SREC address length auto-selection)
+// - 1D array strings and numeric arrays
+// - 2D array retrieval and padding
+// - mix of value sources (Value and Name)
+#[test]
+fn mixed_feature_matrix() {
+    // Build two layouts to cover multiple settings
+    let layout_be_pad_addr = r#"
+[mint]
+endianness = "big"
+
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+
+[block.header]
+start_address = 0x10000
+length = 0x80
+padding = 0xAA
+
+[block.data]
+nums.u16_be = { value = [1, 2, 3, 4], type = "u16", size = 4 }
+txt.ascii = { value = "HELLO", type = "u8", size = 8 }
+single.i32 = { value = 42, type = "i32" }
+checksum = { checksum = "crc32", type = "u32" }
+"#;
+
+    let layout_le_end = r#"
+[mint]
+endianness = "little"
+
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+
+[block.header]
+start_address = 0x90000
+length = 0x40
+padding = 0x00
+
+[block.data]
+arr.f32 = { value = [1.0, 2.5], type = "f32", size = 2 }
+arr2.i16 = { value = [10, -20, 30, -40], type = "i16", size = 4 }
+checksum = { checksum = "crc32", type = "u32" }
+"#;
+
+    // write layouts
+    let be_path = common::write_layout_file("mixed_be", layout_be_pad_addr);
+    let le_path = common::write_layout_file("mixed_le", layout_le_end);
+
+    // Prepare a datasheet (may be no-op for these, but keep realistic flow)
+    let data_args = mint_cli::data::args::DataArgs {
+        xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
+        versions: Some("Default".to_owned()),
+        ..Default::default()
+    };
+    let ds = mint_cli::data::create_data_source(&data_args).expect("datasource loads");
+
+    // Case 1: Big endian, inline checksum, HEX with width 64
+    let args_be_hex = mint_cli::args::Args {
+        layout: mint_cli::layout::args::LayoutArgs {
+            blocks: vec![BlockNames {
+                name: "block".to_owned(),
+                file: be_path.clone(),
+            }],
+            strict: false,
+        },
+        data: data_args.clone(),
+        output: OutputArgs {
+            out: common::unique_out_path("mix_a", "hex"),
+            record_width: 64,
+            format: OutputFormat::Hex,
+            export_json: None,
+            stats: false,
+            quiet: false,
+        },
+    };
+    commands::build(&args_be_hex, ds.as_deref()).expect("be-hex");
+    assert!(args_be_hex.output.out.exists());
+
+    // Case 2: Big endian, inline checksum, MOT with width 16
+    let args_be_mot = mint_cli::args::Args {
+        layout: mint_cli::layout::args::LayoutArgs {
+            blocks: vec![BlockNames {
+                name: "block".to_owned(),
+                file: be_path.clone(),
+            }],
+            strict: false,
+        },
+        data: data_args.clone(),
+        output: OutputArgs {
+            out: common::unique_out_path("mix_b", "mot"),
+            record_width: 16,
+            format: OutputFormat::Mot,
+            export_json: None,
+            stats: false,
+            quiet: false,
+        },
+    };
+    commands::build(&args_be_mot, ds.as_deref()).expect("be-mot");
+    assert!(args_be_mot.output.out.exists());
+
+    // Case 3: Little endian, inline checksum, HEX width 16
+    let args_le_hex = mint_cli::args::Args {
+        layout: mint_cli::layout::args::LayoutArgs {
+            blocks: vec![BlockNames {
+                name: "block".to_owned(),
+                file: le_path.clone(),
+            }],
+            strict: true, // exercise strict path on numeric arrays
+        },
+        data: data_args.clone(),
+        output: OutputArgs {
+            out: common::unique_out_path("mix_c", "hex"),
+            record_width: 16,
+            format: OutputFormat::Hex,
+            export_json: None,
+            stats: false,
+            quiet: false,
+        },
+    };
+    commands::build(&args_le_hex, ds.as_deref()).expect("le-hex");
+    assert!(args_le_hex.output.out.exists());
+
+    // Case 4: Little endian, inline checksum, MOT width 64
+    let args_le_mot = mint_cli::args::Args {
+        layout: mint_cli::layout::args::LayoutArgs {
+            blocks: vec![BlockNames {
+                name: "block".to_owned(),
+                file: le_path.clone(),
+            }],
+            strict: true,
+        },
+        data: data_args,
+        output: OutputArgs {
+            out: common::unique_out_path("mix_d", "mot"),
+            record_width: 64,
+            format: OutputFormat::Mot,
+            export_json: None,
+            stats: false,
+            quiet: false,
+        },
+    };
+    commands::build(&args_le_mot, ds.as_deref()).expect("le-mot");
+    assert!(args_le_mot.output.out.exists());
+}

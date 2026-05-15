@@ -4,7 +4,15 @@ Build flash blocks from a layout file (TOML) and a data source (Excel or JSON), 
 
 ![img](doc/img.png)
 
-Install with `cargo install mint-cli` or via nix flakes.
+Install from crates.io with `cargo install mint-cli` or via nix flakes.
+From a checkout, install the CLI with `cargo install --path crates/mint-cli`.
+
+### Repository Layout
+
+mint is a Cargo workspace:
+
+- `crates/mint-core` provides the library API for layouts, data sources, build artifacts, and output rendering.
+- `crates/mint-cli` provides the `mint` binary, CLI argument parsing, file writing, and terminal summaries.
 
 ### Documentation
 
