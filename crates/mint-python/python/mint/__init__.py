@@ -1,4 +1,12 @@
-from ._native import BlockStat, BuildBlock, BuildResult, BuildStats, DataRange, Layout, build
+from ._native import (
+    BlockStat,
+    BuildBlock,
+    BuildResult,
+    BuildStats,
+    DataRange,
+    Layout,
+    build,
+)
 
 # Planned hexy interop after hexy-python is cleaned up and released.
 #
