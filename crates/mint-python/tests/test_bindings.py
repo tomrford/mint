@@ -133,6 +133,9 @@ def test_json_data_requires_and_uses_explicit_variants():
     with pytest.raises(ValueError, match="variants are required"):
         mint.build(layout.blocks("config"), data={"Debug": {"Value": 7}})
 
+    with pytest.raises(ValueError, match="variants require data"):
+        mint.build(layout.blocks("config"), variants=["Debug"])
+
     result = mint.build(
         layout.blocks("config"),
         data={"Debug": {"Value": 7}},

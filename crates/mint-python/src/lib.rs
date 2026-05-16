@@ -152,6 +152,11 @@ fn create_data_source(
     }
 
     let variants = variants.unwrap_or_default();
+    if source_count == 0 && !variants.is_empty() {
+        return Err(value_error(
+            "variants require data, json_path, or xlsx_path",
+        ));
+    }
     if source_count > 0 && variants.is_empty() {
         return Err(value_error(
             "variants are required when data, json_path, or xlsx_path is provided",
