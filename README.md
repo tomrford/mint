@@ -1,22 +1,44 @@
-## mint
+# mint
 
-Build flash blocks from a layout file (TOML) and a data source (Excel or JSON), then emit hex files.
+mint builds static binary flash blocks from TOML layout files and Excel or JSON data sources.
+
+mint is available as:
+
+- `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output rendering, and in-memory build APIs.
+- `mint-cli` - Implements the `mint` command-line tool for reading layout/data files, writing outputs, and printing terminal summaries.
+- `mint-python` - Python bindings for `mint-core`.
 
 ![img](doc/img.png)
 
-Install from crates.io with `cargo install mint-cli` or via nix flakes.
-From a checkout, install the CLI with `cargo install --path crates/mint-cli`.
+### Install
 
-### Repository Layout
+```bash
+cargo add mint-core
+cargo install mint-cli
+pip install mint-python
+```
 
-mint is a Cargo workspace:
+From a checkout, install the CLI with:
 
-- `crates/mint-core` provides the library API for layouts, data sources, build artifacts, and output rendering.
-- `crates/mint-cli` provides the `mint` binary, CLI argument parsing, file writing, and terminal summaries.
+```bash
+cargo install --path crates/mint-cli
+```
+
+### Workspace Commands
+
+```bash
+nix develop -c cargo build
+nix develop -c cargo test
+nix develop -c cargo clippy --workspace
+nix develop -c cargo run -p mint-cli -- block.toml --xlsx data.xlsx -v Default
+nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml
+nix develop -c uv run --directory crates/mint-python --group dev pytest tests
+```
 
 ### Documentation
 
 - [CLI reference](doc/cli.md)
+- [Python bindings](doc/python.md)
 - [Layout files](doc/layout.md)
 - [Data sources](doc/sources.md)
 - [Example layouts & data](doc/examples/)

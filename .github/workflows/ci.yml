@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check workspace
+        run: cargo check --workspace --all-features --locked
+
+      - name: Check clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked
+
+      - name: Test workspace
+        run: cargo test --workspace --locked
+
+  python:
+    name: Python ${{ matrix.job.name }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - { name: linux-x86_64, os: ubuntu-latest, manylinux: "2014", sdist: true }
+          - { name: macos-x86_64, os: macos-15-intel, manylinux: "off", sdist: false }
+          - { name: macos-aarch64, os: macos-latest, manylinux: "off", sdist: false }
+          - { name: windows-x86_64, os: windows-latest, manylinux: "off", sdist: false }
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Build Linux wheel
+        if: runner.os == 'Linux'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          manylinux: ${{ matrix.job.manylinux }}
+          working-directory: crates/mint-python
+          args: --release --out ../../dist
+
+      - name: Fix Linux dist permissions
+        if: runner.os == 'Linux'
+        run: sudo chown -R "$USER":"$USER" dist
+
+      - name: Build native wheel
+        if: runner.os != 'Linux'
+        shell: bash
+        run: uv run --directory crates/mint-python --group dev maturin build --release --compatibility pypi --out ../../dist
+
+      - name: Build source distribution
+        if: matrix.job.sdist
+        shell: bash
+        run: uv run --directory crates/mint-python --group dev maturin sdist --out ../../dist
+
+      - name: Test built wheel
+        shell: bash
+        run: |
+          WHEEL="$(find dist -maxdepth 1 -name '*.whl' | head -n 1)"
+          uv venv .venv-wheel
+          PYTHON=.venv-wheel/bin/python
+          if [[ ! -x "$PYTHON" ]]; then
+            PYTHON=.venv-wheel/Scripts/python.exe
+          fi
+          uv pip install --python "$PYTHON" "$WHEEL" pytest
+          "$PYTHON" -m pytest crates/mint-python/tests
+
+      - name: Test source distribution
+        if: matrix.job.sdist
+        shell: bash
+        run: |
+          SDIST="$(find dist -maxdepth 1 -name '*.tar.gz' | head -n 1)"
+          uv venv .venv-sdist
+          PYTHON=.venv-sdist/bin/python
+          if [[ ! -x "$PYTHON" ]]; then
+            PYTHON=.venv-sdist/Scripts/python.exe
+          fi
+          uv pip install --python "$PYTHON" "$SDIST" pytest
+          "$PYTHON" -m pytest crates/mint-python/tests
