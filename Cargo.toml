@@ -2,6 +2,9 @@
 members = ["crates/mint-core", "crates/mint-cli", "crates/mint-python"]
 resolver = "3"
 
+[workspace.package]
+version = "1.3.1"
+
 [workspace.lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"
