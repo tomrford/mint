@@ -6,40 +6,34 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use mint_cli::args::Args;
 use mint_cli::data::{self, DataSource};
-use mint_cli::layout::args::{BlockNames, LayoutArgs};
+use mint_cli::layout::args::{BlockSelector, LayoutArgs};
 use mint_cli::layout::used_values::{NoopValueSink, ValueCollector};
 use mint_cli::output::args::{OutputArgs, OutputFormat};
 
 static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
+fn test_out_dir() -> PathBuf {
+    std::env::temp_dir()
+        .join("mint-cli-tests")
+        .join(std::process::id().to_string())
+}
+
 pub fn ensure_out_dir() {
-    fs::create_dir_all("out").unwrap();
+    fs::create_dir_all(test_out_dir()).unwrap();
 }
 
 pub fn write_layout_file(file_stem: &str, contents: &str) -> String {
     ensure_out_dir();
     let unique_id = UNIQUE_FILE_ID.fetch_add(1, Ordering::Relaxed);
-    let path = format!(
-        "out/{}-{}-{}.toml",
-        file_stem,
-        std::process::id(),
-        unique_id
-    );
+    let path = test_out_dir().join(format!("{file_stem}-{unique_id}.toml"));
     std::fs::write(&path, contents).expect("write layout file");
-    path
+    path.to_string_lossy().into_owned()
 }
 
-/// Generate a unique output path under `out/`.
 pub fn unique_out_path(stem: &str, ext: &str) -> PathBuf {
     ensure_out_dir();
     let unique_id = UNIQUE_FILE_ID.fetch_add(1, Ordering::Relaxed);
-    PathBuf::from(format!(
-        "out/{}-{}-{}.{}",
-        stem,
-        std::process::id(),
-        unique_id,
-        ext
-    ))
+    test_out_dir().join(format!("{stem}-{unique_id}.{ext}"))
 }
 
 /// Build test args with a unique output path.
@@ -50,10 +44,7 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
     };
     Args {
         layout: LayoutArgs {
-            blocks: vec![BlockNames {
-                name: block_name.to_owned(),
-                file: layout_path.to_owned(),
-            }],
+            blocks: vec![BlockSelector::named(layout_path, block_name)],
             strict: false,
         },
         data: data::args::DataArgs {
@@ -123,7 +114,11 @@ pub fn build_block_with_values(
 }
 
 /// Build test args for multiple layouts with a unique output path.
-pub fn build_args_for_layouts(layouts: Vec<BlockNames>, format: OutputFormat, stem: &str) -> Args {
+pub fn build_args_for_layouts(
+    layouts: Vec<BlockSelector>,
+    format: OutputFormat,
+    stem: &str,
+) -> Args {
     let ext = match format {
         OutputFormat::Hex => "hex",
         OutputFormat::Mot => "mot",

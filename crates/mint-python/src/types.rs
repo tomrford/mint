@@ -1,7 +1,7 @@
 use mint_core::build::{BlockStat, BuildArtifact, BuildStats};
 use mint_core::output::{DataRange, OutputFormat};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyTuple};
+use pyo3::types::{PyAny, PyBytes, PyTuple};
 
 use crate::{LayoutFormat, LayoutSource, mint_error, py_json_loads, value_error};
 
@@ -40,23 +40,27 @@ impl PyLayout {
         &self.name
     }
 
-    #[pyo3(signature = (*names))]
-    fn blocks(&self, names: &Bound<'_, PyTuple>) -> PyResult<Vec<PyBuildBlock>> {
-        if names.is_empty() {
+    #[pyo3(signature = (names=None, *more_names))]
+    fn blocks(
+        &self,
+        names: Option<&Bound<'_, PyAny>>,
+        more_names: &Bound<'_, PyTuple>,
+    ) -> PyResult<Vec<PyBuildBlock>> {
+        let Some(names) = parse_block_names(names, more_names)? else {
             return Ok(vec![PyBuildBlock {
                 layout_name: self.name.clone(),
                 source: self.source.clone(),
                 name: None,
             }]);
-        }
+        };
 
         names
-            .iter()
+            .into_iter()
             .map(|name| {
                 Ok(PyBuildBlock {
                     layout_name: self.name.clone(),
                     source: self.source.clone(),
-                    name: Some(name.extract::<String>()?),
+                    name: Some(name),
                 })
             })
             .collect()
@@ -65,6 +69,37 @@ impl PyLayout {
     fn __repr__(&self) -> String {
         format!("Layout(name={:?})", self.name)
     }
+}
+
+fn parse_block_names(
+    name: Option<&Bound<'_, PyAny>>,
+    more_names: &Bound<'_, PyTuple>,
+) -> PyResult<Option<Vec<String>>> {
+    let Some(first) = name else {
+        return Ok(None);
+    };
+
+    if first.is_none() {
+        if more_names.is_empty() {
+            return Ok(None);
+        }
+        return Err(value_error("Block names cannot follow None."));
+    }
+
+    let mut names = if let Ok(name) = first.extract::<String>() {
+        vec![name]
+    } else if more_names.is_empty() {
+        return first.extract::<Vec<String>>().map(Some);
+    } else {
+        return Err(value_error(
+            "The first block name must be a string when passing multiple names.",
+        ));
+    };
+
+    for name in more_names {
+        names.push(name.extract::<String>()?);
+    }
+    Ok(Some(names))
 }
 
 #[pyclass(name = "BuildBlock", frozen, skip_from_py_object)]
@@ -147,8 +182,13 @@ pub(crate) struct PyBlockStat {
 #[pymethods]
 impl PyBlockStat {
     #[getter]
-    fn name(&self) -> &str {
-        &self.inner.name
+    fn layout(&self) -> String {
+        self.inner.layout.display().to_string()
+    }
+
+    #[getter]
+    fn block(&self) -> &str {
+        &self.inner.block
     }
 
     #[getter]

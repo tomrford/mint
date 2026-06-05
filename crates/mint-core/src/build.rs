@@ -9,15 +9,23 @@ use crate::output::error::OutputError;
 use crate::output::{DataRange, OutputFile, OutputFormat};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct BlockStat {
-    pub name: String,
+    pub layout: PathBuf,
+    pub block: String,
     pub start_address: u32,
     pub allocated_size: u32,
     pub used_size: u32,
     pub checksum_values: Vec<u32>,
+}
+
+impl BlockStat {
+    pub fn display_name(&self) -> String {
+        format!("{}#{}", self.layout.display(), self.block)
+    }
 }
 
 #[derive(Debug)]
@@ -64,7 +72,7 @@ impl BuildStats {
 
 #[derive(Clone)]
 pub struct BuildRequest<'a> {
-    pub blocks: Vec<BlockNames>,
+    pub blocks: Vec<BlockSelector>,
     pub data_source: Option<&'a dyn DataSource>,
     pub strict: bool,
     pub capture_values: bool,
@@ -72,13 +80,13 @@ pub struct BuildRequest<'a> {
 
 #[derive(Debug)]
 pub struct NamedLayout {
-    pub name: String,
+    pub name: PathBuf,
     pub config: Config,
 }
 
 pub struct BuildFromLayoutsRequest<'a> {
     pub layouts: Vec<NamedLayout>,
-    pub blocks: Vec<BlockNames>,
+    pub blocks: Vec<BlockSelector>,
     pub data_source: Option<&'a dyn DataSource>,
     pub strict: bool,
     pub capture_values: bool,
@@ -105,20 +113,43 @@ impl BuildArtifact {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BlockNames {
-    pub name: String,
-    pub file: String,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BlockSelector {
+    pub layout: PathBuf,
+    pub block: Option<String>,
+}
+
+impl BlockSelector {
+    pub fn all(layout: impl Into<PathBuf>) -> Self {
+        Self {
+            layout: layout.into(),
+            block: None,
+        }
+    }
+
+    pub fn named(layout: impl Into<PathBuf>, block: impl AsRef<str>) -> Self {
+        Self {
+            layout: layout.into(),
+            block: Some(block.as_ref().to_owned()),
+        }
+    }
+
+    pub fn display_name(&self) -> String {
+        match &self.block {
+            Some(block) => format!("{}#{}", self.layout.display(), block),
+            None => self.layout.display().to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ResolvedBlock {
     name: String,
-    file: String,
+    layout: PathBuf,
 }
 
 struct BlockBuildResult {
-    block_names: BlockNames,
+    selector: BlockSelector,
     data_range: DataRange,
     stat: BlockStat,
     used_values: Option<serde_json::Value>,
@@ -159,7 +190,7 @@ pub fn build_from_layouts(
 
 fn build_resolved(
     resolved_blocks: Vec<ResolvedBlock>,
-    layouts: &HashMap<String, Config>,
+    layouts: &HashMap<PathBuf, Config>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
@@ -191,13 +222,13 @@ fn build_resolved(
 
 fn collect_named_layouts(
     layouts: Vec<NamedLayout>,
-) -> Result<HashMap<String, Config>, LayoutError> {
+) -> Result<HashMap<PathBuf, Config>, LayoutError> {
     let mut out = HashMap::with_capacity(layouts.len());
     for layout in layouts {
         if out.insert(layout.name.clone(), layout.config).is_some() {
             return Err(LayoutError::FileError(format!(
                 "duplicate layout name '{}'",
-                layout.name
+                layout.name.display()
             )));
         }
     }
@@ -205,53 +236,62 @@ fn collect_named_layouts(
 }
 
 fn resolve_blocks_from_layouts(
-    block_args: &[BlockNames],
-    layouts: &HashMap<String, Config>,
+    block_args: &[BlockSelector],
+    layouts: &HashMap<PathBuf, Config>,
 ) -> Result<Vec<ResolvedBlock>, LayoutError> {
     let mut resolved = Vec::new();
     for arg in block_args {
-        let layout = layouts.get(&arg.file).ok_or_else(|| {
-            let available = layouts.keys().cloned().collect::<Vec<_>>().join(", ");
+        let layout = layouts.get(&arg.layout).ok_or_else(|| {
+            let available = layouts
+                .keys()
+                .map(|layout| layout.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
             LayoutError::BlockNotFound(format!(
                 "layout '{}'. Available layouts: {}",
-                arg.file, available
+                arg.layout.display(),
+                available
             ))
         })?;
 
-        if arg.name.is_empty() {
+        if let Some(block_name) = &arg.block {
+            if layout.blocks.contains_key(block_name) {
+                resolved.push(ResolvedBlock {
+                    name: block_name.clone(),
+                    layout: arg.layout.clone(),
+                });
+            } else {
+                let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
+                return Err(LayoutError::BlockNotFound(format!(
+                    "'{}' in '{}'. Available blocks: {}",
+                    block_name,
+                    arg.layout.display(),
+                    available_blocks
+                )));
+            }
+        } else {
             for block_name in layout.blocks.keys() {
                 resolved.push(ResolvedBlock {
                     name: block_name.clone(),
-                    file: arg.file.clone(),
+                    layout: arg.layout.clone(),
                 });
             }
-        } else if layout.blocks.contains_key(&arg.name) {
-            resolved.push(ResolvedBlock {
-                name: arg.name.clone(),
-                file: arg.file.clone(),
-            });
-        } else {
-            let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
-            return Err(LayoutError::BlockNotFound(format!(
-                "'{}' in '{}'. Available blocks: {}",
-                arg.name, arg.file, available_blocks
-            )));
         }
     }
 
     let mut seen = HashSet::new();
     Ok(resolved
         .into_iter()
-        .filter(|b| seen.insert((b.file.clone(), b.name.clone())))
+        .filter(|b| seen.insert((b.layout.clone(), b.name.clone())))
         .collect())
 }
 
 fn resolve_blocks(
-    block_args: &[BlockNames],
-) -> Result<(Vec<ResolvedBlock>, HashMap<String, Config>), LayoutError> {
-    let unique_files: HashSet<String> = block_args.iter().map(|b| b.file.clone()).collect();
+    block_args: &[BlockSelector],
+) -> Result<(Vec<ResolvedBlock>, HashMap<PathBuf, Config>), LayoutError> {
+    let unique_files: HashSet<PathBuf> = block_args.iter().map(|b| b.layout.clone()).collect();
 
-    let layouts: Result<HashMap<String, Config>, LayoutError> = unique_files
+    let layouts: Result<HashMap<PathBuf, Config>, LayoutError> = unique_files
         .par_iter()
         .map(|file| layout::load_layout(file).map(|cfg| (file.clone(), cfg)))
         .collect();
@@ -260,34 +300,35 @@ fn resolve_blocks(
 
     let mut resolved = Vec::new();
     for arg in block_args {
-        if arg.name.is_empty() {
-            let layout = &layouts[&arg.file];
-            for block_name in layout.blocks.keys() {
-                resolved.push(ResolvedBlock {
-                    name: block_name.clone(),
-                    file: arg.file.clone(),
-                });
-            }
-        } else {
-            let layout = &layouts[&arg.file];
-            if !layout.blocks.contains_key(&arg.name) {
+        let layout = &layouts[&arg.layout];
+        if let Some(block_name) = &arg.block {
+            if !layout.blocks.contains_key(block_name) {
                 let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
                 return Err(LayoutError::BlockNotFound(format!(
                     "'{}' in '{}'. Available blocks: {}",
-                    arg.name, arg.file, available_blocks
+                    block_name,
+                    arg.layout.display(),
+                    available_blocks
                 )));
             }
             resolved.push(ResolvedBlock {
-                name: arg.name.clone(),
-                file: arg.file.clone(),
+                name: block_name.clone(),
+                layout: arg.layout.clone(),
             });
+        } else {
+            for block_name in layout.blocks.keys() {
+                resolved.push(ResolvedBlock {
+                    name: block_name.clone(),
+                    layout: arg.layout.clone(),
+                });
+            }
         }
     }
 
     let mut seen = HashSet::new();
     let deduplicated: Vec<ResolvedBlock> = resolved
         .into_iter()
-        .filter(|b| seen.insert((b.file.clone(), b.name.clone())))
+        .filter(|b| seen.insert((b.layout.clone(), b.name.clone())))
         .collect();
 
     Ok((deduplicated, layouts))
@@ -295,7 +336,7 @@ fn resolve_blocks(
 
 fn build_bytestreams(
     blocks: &[ResolvedBlock],
-    layouts: &HashMap<String, Config>,
+    layouts: &HashMap<PathBuf, Config>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
@@ -310,23 +351,25 @@ fn build_bytestreams(
 
 fn build_single_bytestream(
     resolved: &ResolvedBlock,
-    layouts: &HashMap<String, Config>,
+    layouts: &HashMap<PathBuf, Config>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
 ) -> Result<BlockBuildResult, MintError> {
     let result = (|| {
-        let layout = layouts.get(&resolved.file).ok_or_else(|| {
+        let layout = layouts.get(&resolved.layout).ok_or_else(|| {
             LayoutError::FileError(format!(
                 "resolved layout missing from build map: {}",
-                resolved.file
+                resolved.layout.display()
             ))
         })?;
         let block = layout.blocks.get(&resolved.name).ok_or_else(|| {
             let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
             LayoutError::BlockNotFound(format!(
                 "'{}' in '{}'. Available blocks: {}",
-                resolved.name, resolved.file, available_blocks
+                resolved.name,
+                resolved.layout.display(),
+                available_blocks
             ))
         })?;
         let mut collector = ValueCollector::new();
@@ -346,7 +389,8 @@ fn build_single_bytestream(
         )?;
 
         let stat = BlockStat {
-            name: resolved.name.clone(),
+            layout: resolved.layout.clone(),
+            block: resolved.name.clone(),
             start_address: data_range.start_address,
             allocated_size: data_range.allocated_size,
             used_size: data_range.used_size,
@@ -354,9 +398,9 @@ fn build_single_bytestream(
         };
 
         Ok(BlockBuildResult {
-            block_names: BlockNames {
-                name: resolved.name.clone(),
-                file: resolved.file.clone(),
+            selector: BlockSelector {
+                layout: resolved.layout.clone(),
+                block: Some(resolved.name.clone()),
             },
             data_range,
             stat,
@@ -366,7 +410,7 @@ fn build_single_bytestream(
 
     result.map_err(|e| MintError::InBlock {
         block_name: resolved.name.clone(),
-        layout_file: resolved.file.clone(),
+        layout_file: resolved.layout.display().to_string(),
         source: Box::new(e),
     })
 }
@@ -379,7 +423,7 @@ fn collect_results(
         .into_iter()
         .map(|r| {
             stats.add_block(r.stat);
-            (r.block_names.name, r.data_range)
+            (r.selector.display_name(), r.data_range)
         })
         .collect();
 
@@ -388,15 +432,19 @@ fn collect_results(
     Ok((ranges, stats))
 }
 
+const ADDRESS_SPACE_SIZE: u64 = u32::MAX as u64 + 1;
+
 fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError> {
-    for i in 0..named_ranges.len() {
-        for j in (i + 1)..named_ranges.len() {
-            let (ref name_a, ref range_a) = named_ranges[i];
-            let (ref name_b, ref range_b) = named_ranges[j];
-            let a_start = range_a.start_address;
-            let a_end = a_start + range_a.allocated_size;
-            let b_start = range_b.start_address;
-            let b_end = b_start + range_b.allocated_size;
+    let mut ranges = Vec::with_capacity(named_ranges.len());
+    for (name, range) in named_ranges {
+        let (start, end) = checked_range_bounds(name, range)?;
+        ranges.push((name.as_str(), start, end));
+    }
+
+    for i in 0..ranges.len() {
+        for j in (i + 1)..ranges.len() {
+            let (name_a, a_start, a_end) = ranges[i];
+            let (name_b, b_start, b_end) = ranges[j];
 
             let overlap_start = a_start.max(b_start);
             let overlap_end = a_end.min(b_end);
@@ -422,6 +470,21 @@ fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError>
     Ok(())
 }
 
+fn checked_range_bounds(name: &str, range: &DataRange) -> Result<(u64, u64), MintError> {
+    let start = u64::from(range.start_address);
+    let end = start + u64::from(range.allocated_size);
+    if end > ADDRESS_SPACE_SIZE {
+        return Err(OutputError::AddressRangeError(format!(
+            "Block '{}' range 0x{:08X}-0x{:08X} exceeds the 32-bit address space",
+            name,
+            start,
+            end.saturating_sub(1)
+        ))
+        .into());
+    }
+    Ok((start, end))
+}
+
 fn take_used_values_report(
     results: &mut [BlockBuildResult],
 ) -> Result<serde_json::Value, MintError> {
@@ -431,7 +494,7 @@ fn take_used_values_report(
             OutputError::FileError("JSON export requested but values were not captured.".to_owned())
         })?;
         let file_entry = report
-            .entry(result.block_names.file.clone())
+            .entry(result.selector.layout.display().to_string())
             .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
         let serde_json::Value::Object(blocks) = file_entry else {
             return Err(OutputError::FileError(
@@ -439,14 +502,18 @@ fn take_used_values_report(
             )
             .into());
         };
-        if blocks.contains_key(&result.block_names.name) {
+        let block_name = result.selector.block.as_deref().ok_or_else(|| {
+            OutputError::FileError("resolved build result is missing a block name.".to_owned())
+        })?;
+        if blocks.contains_key(block_name) {
             return Err(OutputError::FileError(format!(
                 "Duplicate block '{}' in JSON export for file '{}'.",
-                result.block_names.name, result.block_names.file
+                block_name,
+                result.selector.layout.display()
             ))
             .into());
         }
-        blocks.insert(result.block_names.name.clone(), value);
+        blocks.insert(block_name.to_owned(), value);
     }
     Ok(serde_json::Value::Object(report))
 }

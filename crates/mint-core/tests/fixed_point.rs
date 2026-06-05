@@ -1,4 +1,4 @@
-use mint_core::build::{self, BlockNames, BuildRequest};
+use mint_core::build::{self, BlockSelector, BuildRequest};
 use mint_core::data::JsonDataSource;
 use mint_core::output::OutputFormat;
 
@@ -237,10 +237,7 @@ phase = { name = "Phase", type = "uq0.16" }
 
     let json_out = common::unique_out_path("fixed-point-export", "json");
     let artifact = build::build(BuildRequest {
-        blocks: vec![BlockNames {
-            name: "".to_owned(),
-            file: layout_path,
-        }],
+        blocks: vec![BlockSelector::all(layout_path)],
         data_source: Some(&ds),
         strict: true,
         capture_values: true,

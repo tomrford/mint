@@ -41,10 +41,7 @@ fn smoke_build_examples_all_formats_and_options() {
         let block_inputs = cfg
             .blocks
             .keys()
-            .map(|name| mint_cli::layout::args::BlockNames {
-                name: name.clone(),
-                file: layout_path.to_owned(),
-            })
+            .map(|name| mint_cli::layout::args::BlockSelector::named(layout_path, name))
             .collect::<Vec<_>>();
 
         if !block_inputs.is_empty() {

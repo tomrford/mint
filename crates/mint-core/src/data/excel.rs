@@ -4,7 +4,6 @@ use std::path::Path;
 
 use super::DataSource;
 use super::error::DataError;
-use super::helpers;
 use crate::layout::value::{DataValue, ValueSource};
 
 #[derive(Debug, Clone)]
@@ -65,8 +64,6 @@ impl ExcelDataSource {
                 .map(|c| c.to_string().trim().to_owned())
                 .unwrap_or_default()
         }));
-        helpers::warn_duplicate_names(&names);
-
         let version_columns =
             Self::collect_version_columns(headers, &rows, data_rows, &options.versions)?;
 

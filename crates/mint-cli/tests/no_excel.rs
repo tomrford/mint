@@ -13,10 +13,10 @@ fn test_build_without_excel() {
     // Build simple_block which has all inline values (no Excel dependency)
     let args = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![mint_cli::layout::args::BlockNames {
-                name: "simple_block".to_owned(),
-                file: layout_path.to_owned(),
-            }],
+            blocks: vec![mint_cli::layout::args::BlockSelector::named(
+                layout_path,
+                "simple_block",
+            )],
             strict: false,
         },
         data: Default::default(),
@@ -48,14 +48,11 @@ fn test_error_when_name_without_excel() {
     // Use a block that references names from Excel
     let layout_path = "../mint-core/tests/data/blocks.toml";
 
-    let input = mint_cli::layout::args::BlockNames {
-        name: "block".to_owned(),
-        file: layout_path.to_owned(),
-    };
+    let input = mint_cli::layout::args::BlockSelector::named(layout_path, "block");
 
     let args = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![input.clone()],
+            blocks: vec![input],
             strict: false,
         },
         data: Default::default(),

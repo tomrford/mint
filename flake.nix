@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
@@ -25,10 +25,12 @@
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
 
         mintPkg = pkgs.rustPlatform.buildRustPackage {
-          pname = cargoToml.package.name;
-          version = cargoToml.package.version;
+          pname = "mint";
+          version = cargoToml.workspace.package.version;
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = ["-p" "mint-cli"];
+          cargoTestFlags = ["-p" "mint-cli"];
           buildType = "release";
         };
       in {

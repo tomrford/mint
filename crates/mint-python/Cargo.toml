@@ -20,7 +20,7 @@ default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-mint-core = { path = "../mint-core", version = "1.3.1" }
+mint-core = { path = "../mint-core", version = "2.0.0" }
 pyo3 = { version = "0.28.3", features = ["abi3-py310"] }
 serde_json = { version = "1.0.142", features = ["preserve_order"] }
 

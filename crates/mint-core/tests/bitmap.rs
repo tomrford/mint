@@ -35,7 +35,7 @@ fn bitmap_u8_literal_values() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_u8.toml");
+    let path = common::unique_out_path("test_bitmap_u8", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -62,7 +62,7 @@ fn bitmap_u16_little_endian() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_u16_le.toml");
+    let path = common::unique_out_path("test_bitmap_u16_le", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -93,7 +93,7 @@ fn bitmap_i16_signed_negative_values() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_i16_signed.toml");
+    let path = common::unique_out_path("test_bitmap_i16_signed", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -155,7 +155,7 @@ fn bitmap_u32_mixed_fields() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_u32.toml");
+    let path = common::unique_out_path("test_bitmap_u32", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -186,7 +186,7 @@ fn bitmap_saturation_non_strict() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_saturate.toml");
+    let path = common::unique_out_path("test_bitmap_saturate", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -213,7 +213,7 @@ fn bitmap_strict_rejects_out_of_range() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_strict_range.toml");
+    let path = common::unique_out_path("test_bitmap_strict_range", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -238,7 +238,7 @@ fn bitmap_rejects_wrong_bit_sum() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_bad_sum.toml");
+    let path = common::unique_out_path("test_bitmap_bad_sum", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -262,7 +262,7 @@ fn bitmap_rejects_zero_bits() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_zero_bits.toml");
+    let path = common::unique_out_path("test_bitmap_zero_bits", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -286,7 +286,7 @@ fn bitmap_rejects_float_storage() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_float.toml");
+    let path = common::unique_out_path("test_bitmap_float", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())
@@ -309,7 +309,7 @@ fn bitmap_rejects_size_key() {
 ] }"#,
     );
 
-    let path = std::path::Path::new("out").join("test_bitmap_size_key.toml");
+    let path = common::unique_out_path("test_bitmap_size_key", "toml");
     std::fs::File::create(&path)
         .unwrap()
         .write_all(layout.as_bytes())

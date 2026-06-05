@@ -14,19 +14,23 @@ use std::collections::hash_map::Entry;
 use std::path::Path;
 use toml::Value as TomlValue;
 
-pub fn load_layout(filename: &str) -> Result<Config, LayoutError> {
-    let text = std::fs::read_to_string(filename)
-        .map_err(|_| LayoutError::FileError(format!("failed to open file: {}", filename)))?;
+pub fn load_layout(filename: impl AsRef<Path>) -> Result<Config, LayoutError> {
+    let filename = filename.as_ref();
+    let text = std::fs::read_to_string(filename).map_err(|_| {
+        LayoutError::FileError(format!("failed to open file: {}", filename.display()))
+    })?;
 
-    let ext = Path::new(filename)
+    let ext = filename
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
 
     match ext.as_str() {
-        "toml" => parse_toml_layout_with_context(&text, &format!("file {}", filename)),
-        "yaml" | "yml" => parse_yaml_layout_with_context(&text, &format!("file {}", filename)),
+        "toml" => parse_toml_layout_with_context(&text, &format!("file {}", filename.display())),
+        "yaml" | "yml" => {
+            parse_yaml_layout_with_context(&text, &format!("file {}", filename.display()))
+        }
         _ => Err(LayoutError::FileError(
             "Unsupported layout file format; use .toml or .yaml".to_owned(),
         )),

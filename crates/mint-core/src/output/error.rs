@@ -8,6 +8,9 @@ pub enum OutputError {
     #[error("Hex output error: {0}.")]
     HexOutputError(String),
 
+    #[error("Address range error: {0}")]
+    AddressRangeError(String),
+
     #[error("Block memory overlap detected: {0}")]
     BlockOverlapError(String),
 }

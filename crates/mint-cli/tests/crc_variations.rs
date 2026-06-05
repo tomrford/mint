@@ -209,18 +209,9 @@ value = { value = 0x33333333, type = "u32" }
     let layout_path = common::write_layout_file("crc_combined", layout);
 
     let blocks = vec![
-        mint_cli::layout::args::BlockNames {
-            name: "block_a".to_owned(),
-            file: layout_path.clone(),
-        },
-        mint_cli::layout::args::BlockNames {
-            name: "block_b".to_owned(),
-            file: layout_path.clone(),
-        },
-        mint_cli::layout::args::BlockNames {
-            name: "block_c".to_owned(),
-            file: layout_path,
-        },
+        mint_cli::layout::args::BlockSelector::named(layout_path.clone(), "block_a"),
+        mint_cli::layout::args::BlockSelector::named(layout_path.clone(), "block_b"),
+        mint_cli::layout::args::BlockSelector::named(layout_path, "block_c"),
     ];
 
     let args = common::build_args_for_layouts(

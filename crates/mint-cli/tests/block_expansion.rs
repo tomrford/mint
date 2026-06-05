@@ -1,5 +1,5 @@
 use mint_cli::commands;
-use mint_cli::layout::args::BlockNames;
+use mint_cli::layout::args::BlockSelector;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -17,15 +17,9 @@ fn test_deduplication_file_and_specific() {
     let args = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
             blocks: vec![
-                BlockNames {
-                    name: String::new(),
-                    file: layout_path.to_owned(),
-                },
+                BlockSelector::all(layout_path),
                 // Request specific block that exists in the combined file
-                BlockNames {
-                    name: "block".to_owned(),
-                    file: layout_path.to_owned(),
-                },
+                BlockSelector::named(layout_path, "block"),
             ],
             strict: false,
         },
@@ -62,10 +56,7 @@ fn test_file_expansion_builds_all_blocks() {
 
     let args = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![BlockNames {
-                name: String::new(),
-                file: layout_path.to_owned(),
-            }],
+            blocks: vec![BlockSelector::all(layout_path)],
             strict: false,
         },
         data: Default::default(),
