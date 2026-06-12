@@ -1,5 +1,5 @@
 use clap::{Parser, error::ErrorKind};
-use mint_cli::args::Args;
+use mint_cli::args::{Args, Cli, Command, normalize_args};
 
 use std::path::Path;
 
@@ -68,6 +68,82 @@ fn parses_versions_selector_flag() {
 
 #[test]
 fn retains_builtin_version_flag() {
-    let err = Args::try_parse_from(["mint", "--version"]).expect_err("should emit version output");
+    let err = Cli::try_parse_from_normalized(["mint", "--version"])
+        .expect_err("should emit version output");
     assert_eq!(err.kind(), ErrorKind::DisplayVersion);
+}
+
+#[test]
+fn normalizes_legacy_build_invocation() {
+    let args = normalize_args([
+        "mint",
+        "layout.toml",
+        "--json",
+        "{}",
+        "--versions",
+        "Default",
+    ]);
+
+    assert_eq!(
+        args.iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect::<Vec<_>>(),
+        [
+            "mint",
+            "build",
+            "layout.toml",
+            "--json",
+            "{}",
+            "--versions",
+            "Default"
+        ]
+    );
+}
+
+#[test]
+fn preserves_explicit_build_invocation() {
+    let cli = Cli::try_parse_from_normalized([
+        "mint",
+        "build",
+        "layout.toml",
+        "--json",
+        "{}",
+        "--versions",
+        "Default",
+    ])
+    .expect("explicit build should parse");
+
+    let Command::Build(args) = cli.command else {
+        panic!("expected build command");
+    };
+
+    assert_eq!(args.layout.blocks.len(), 1);
+    assert_eq!(args.data.json.as_deref(), Some("{}"));
+}
+
+#[test]
+fn parses_legacy_invocation_as_build_command() {
+    let cli = Cli::try_parse_from_normalized([
+        "mint",
+        "layout.toml",
+        "--json",
+        "{}",
+        "--versions",
+        "Default",
+    ])
+    .expect("legacy invocation should parse as build");
+
+    let Command::Build(args) = cli.command else {
+        panic!("expected build command");
+    };
+
+    assert_eq!(args.layout.blocks.len(), 1);
+    assert_eq!(args.data.json.as_deref(), Some("{}"));
+}
+
+#[test]
+fn parses_skill_command() {
+    let cli = Cli::try_parse_from_normalized(["mint", "skill"]).expect("skill should parse");
+
+    assert!(matches!(cli.command, Command::Skill));
 }

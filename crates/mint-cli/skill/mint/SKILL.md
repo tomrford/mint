@@ -234,14 +234,14 @@ Top-level keys are variant names. Each contains an object of name:value pairs. A
 
 ```bash
 # Basic build
-mint layout.toml --xlsx data.xlsx -v Default -o firmware.hex
+mint build layout.toml --xlsx data.xlsx -v Default -o firmware.hex
 
 # Specific blocks
-mint layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o out.hex
+mint build layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o out.hex
 
 # JSON data source (file or inline)
-mint layout.toml --json data.json -v Debug/Default -o out.hex
-mint layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}' -v Default -o out.hex
+mint build layout.toml --json data.json -v Debug/Default -o out.hex
+mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}' -v Default -o out.hex
 
 # Output format options
 --format hex              # Intel HEX (default)
@@ -259,13 +259,13 @@ Run `mint --help` for the full argument list.
 
 ## Common patterns
 
-**Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint layout.toml` or select with `layout.toml#blockname`.
+**Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
 
 **Constants + data source in one block**: Mix `value` and `name` fields freely. Fields with `value` don't need a data source.
 
-**CI integration**: mint's interface is a single command that reads files and writes a hex file. Wire it into any build system as a custom command that depends on the layout and data files and produces the hex output.
+**CI integration**: `mint build` reads files and writes a hex file. Wire it into any build system as a custom command that depends on the layout and data files and produces the hex output.
 
 ## Gotchas
 

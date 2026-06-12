@@ -9,14 +9,21 @@
     )
 )]
 
-use clap::Parser;
-use mint_cli::args::Args;
+use mint_cli::args::{Args, Cli, Command, SKILL_TEXT};
 use mint_cli::{commands, data, visuals};
 use mint_core::error::MintError;
 
 fn main() -> Result<(), MintError> {
-    let args = Args::parse();
+    match Cli::parse_normalized().command {
+        Command::Build(args) => run_build(&args),
+        Command::Skill => {
+            print!("{SKILL_TEXT}");
+            Ok(())
+        }
+    }
+}
 
+fn run_build(args: &Args) -> Result<(), MintError> {
     let data_source = data::create_data_source(&args.data)?;
 
     // Check if blocks are provided
@@ -25,7 +32,7 @@ fn main() -> Result<(), MintError> {
         .first()
         .ok_or(mint_core::layout::error::LayoutError::NoBlocksProvided)?;
 
-    let stats = commands::build(&args, data_source.as_deref())?;
+    let stats = commands::build(args, data_source.as_deref())?;
 
     if !args.output.quiet {
         if args.output.stats {

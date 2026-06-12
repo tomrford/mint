@@ -291,7 +291,7 @@ checksum = { checksum = "crc32c", type = "u32" }
 Build specific blocks with `file.toml#blockname` syntax:
 
 ```bash
-mint layout.toml#config --xlsx data.xlsx -v Default
+mint build layout.toml#config --xlsx data.xlsx -v Default
 ```
 
 ---
