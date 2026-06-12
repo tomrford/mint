@@ -3,13 +3,12 @@ use crate::layout_args::LayoutArgs;
 use crate::output_args::OutputArgs;
 use std::ffi::OsString;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 pub const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
 
 const DEFAULT_COMMAND: &str = "build";
-const KNOWN_COMMANDS: &[&str] = &["build", "skill", "help"];
-const TOP_LEVEL_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
+const PRIORITY_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
 
 #[derive(Parser, Debug)]
 #[command(
@@ -56,17 +55,28 @@ where
         args.push(OsString::from("mint"));
     }
 
-    let Some(first_arg) = args.get(1).and_then(|arg| arg.to_str()) else {
-        args.insert(1, OsString::from(DEFAULT_COMMAND));
-        return args;
-    };
-
-    if KNOWN_COMMANDS.contains(&first_arg) || TOP_LEVEL_FLAGS.contains(&first_arg) {
+    if has_priority_flag(&args) || has_subcommand(&args) {
         return args;
     }
 
     args.insert(1, OsString::from(DEFAULT_COMMAND));
     args
+}
+
+fn has_priority_flag(args: &[OsString]) -> bool {
+    args.iter()
+        .skip(1)
+        .filter_map(|arg| arg.to_str())
+        .any(|arg| PRIORITY_FLAGS.contains(&arg))
+}
+
+fn has_subcommand(args: &[OsString]) -> bool {
+    Cli::command()
+        .ignore_errors(true)
+        .try_get_matches_from(args)
+        .ok()
+        .and_then(|matches| matches.subcommand_name().map(str::to_owned))
+        .is_some()
 }
 
 // Top-level CLI parser. Sub-sections are flattened from sub-Args structs.
