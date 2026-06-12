@@ -9,12 +9,13 @@
     )
 )]
 
+use clap::Parser;
 use mint_cli::args::{Args, Cli, Command, SKILL_TEXT};
 use mint_cli::{commands, data, visuals};
 use mint_core::error::MintError;
 
 fn main() -> Result<(), MintError> {
-    match Cli::parse_normalized().command {
+    match Cli::parse().command {
         Command::Build(args) => run_build(&args),
         Command::Skill => {
             print!("{SKILL_TEXT}");

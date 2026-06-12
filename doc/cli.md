@@ -4,11 +4,10 @@ mint builds flash blocks from layout files and data sources, emitting Intel HEX 
 
 ```
 mint build [OPTIONS] [FILE[#BLOCK] | FILE]...
-mint [OPTIONS] [FILE[#BLOCK] | FILE]...
 mint skill
 ```
 
-`mint build` is the explicit build command. Build arguments are also accepted directly after `mint`.
+`mint build` is the build command.
 
 ## Positional Arguments
 
