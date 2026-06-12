@@ -24,7 +24,7 @@ pub mod layout {
 
     pub mod args {
         pub use crate::layout_args::*;
-        pub use mint_core::build::BlockNames;
+        pub use mint_core::build::BlockSelector;
     }
 }
 

@@ -133,8 +133,8 @@ mod tests {
         let header = sample_header(16);
 
         let bytestream = vec![1u8, 2, 3, 4];
-        let dr = bytestream_to_datarange(bytestream.clone(), &header, 0)
-            .expect("data range generation failed");
+        let dr =
+            bytestream_to_datarange(bytestream, &header, 0).expect("data range generation failed");
 
         assert_eq!(dr.bytestream.len(), 4);
         assert_eq!(dr.start_address, 0);

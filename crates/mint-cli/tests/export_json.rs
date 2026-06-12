@@ -1,6 +1,6 @@
 use mint_cli::commands;
 use mint_cli::data;
-use mint_cli::layout::args::{BlockNames, LayoutArgs};
+use mint_cli::layout::args::{BlockSelector, LayoutArgs};
 use mint_cli::output::args::{OutputArgs, OutputFormat};
 
 #[path = "common/mod.rs"]
@@ -55,10 +55,7 @@ message = { value = "Hi", type = "u8", size = 4 }
     let json_out = common::unique_out_path("export", "json");
     let args = mint_cli::args::Args {
         layout: LayoutArgs {
-            blocks: vec![BlockNames {
-                name: "".to_owned(),
-                file: layout_path,
-            }],
+            blocks: vec![BlockSelector::all(layout_path)],
             strict: false,
         },
         data: data_args,

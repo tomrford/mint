@@ -15,7 +15,8 @@ def test_file_layout_builds_selected_blocks_and_exports_used_values():
     result = mint.build(layout.blocks("simple_block"))
 
     assert result.stats.blocks_processed == 1
-    assert result.stats.block_stats[0].name == "simple_block"
+    assert result.stats.block_stats[0].layout == str(LAYOUT)
+    assert result.stats.block_stats[0].block == "simple_block"
     assert result.ranges[0].start_address == 0x8000
     assert result.used_values[str(LAYOUT)]["simple_block"]["device"]["id"] == 0x1234
     assert result.to_intel_hex().startswith(":")
@@ -48,7 +49,14 @@ def test_from_string_builds_all_blocks_when_no_names_are_given():
 
     assert result.stats.blocks_processed == 2
     assert [r.start_address for r in result.ranges] == [0x1000, 0x1010]
+    assert {(stat.layout, stat.block) for stat in result.stats.block_stats} == {
+        ("generated.toml", "one"),
+        ("generated.toml", "two"),
+    }
     assert set(result.used_values["generated.toml"]) == {"one", "two"}
+
+    none_result = mint.build(layout.blocks(None))
+    assert none_result.stats.blocks_processed == 2
 
 
 def test_from_string_accepts_varargs_block_names():
@@ -77,7 +85,16 @@ def test_from_string_accepts_varargs_block_names():
     result = mint.build(layout.blocks("two", "one"))
 
     assert result.stats.blocks_processed == 2
-    assert [stat.name for stat in result.stats.block_stats] == ["two", "one"]
+    assert [(stat.layout, stat.block) for stat in result.stats.block_stats] == [
+        ("generated.toml", "two"),
+        ("generated.toml", "one"),
+    ]
+
+    list_result = mint.build(layout.blocks(["two", "one"]))
+    assert [(stat.layout, stat.block) for stat in list_result.stats.block_stats] == [
+        ("generated.toml", "two"),
+        ("generated.toml", "one"),
+    ]
 
 
 def test_duplicate_layout_name_with_different_source_fails():
@@ -112,6 +129,26 @@ def test_duplicate_layout_name_with_different_source_fails():
 
     with pytest.raises(ValueError, match="multiple sources"):
         mint.build(first.blocks("one") + second.blocks("two"))
+
+
+def test_core_build_errors_raise_mint_error():
+    layout = mint.Layout.from_string(
+        "generated.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [one.header]
+        start_address = 0x1000
+        length = 0x10
+
+        [one.data]
+        value = { value = 1, type = "u8" }
+        """,
+    )
+
+    with pytest.raises(mint.MintError, match="Block not found"):
+        mint.build(layout.blocks("missing"))
 
 
 def test_json_data_requires_and_uses_explicit_variants():
@@ -151,5 +188,5 @@ def test_render_srec_and_record_width_validation():
     result = mint.build(layout.blocks("simple_block"))
 
     assert result.to_srec().startswith("S")
-    with pytest.raises(ValueError, match="Record width must be between 1 and 128"):
+    with pytest.raises(mint.MintError, match="Record width must be between 1 and 128"):
         result.to_intel_hex(record_width=0)

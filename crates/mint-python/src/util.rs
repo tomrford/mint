@@ -1,13 +1,14 @@
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
+use crate::MintError;
+
 pub(crate) fn value_error(err: impl std::fmt::Display) -> PyErr {
-    PyValueError::new_err(err.to_string())
+    pyo3::exceptions::PyValueError::new_err(err.to_string())
 }
 
 pub(crate) fn mint_error(err: impl std::fmt::Display) -> PyErr {
-    value_error(err)
+    MintError::new_err(err.to_string())
 }
 
 pub(crate) fn parse_python_json(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {

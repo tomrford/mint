@@ -54,7 +54,7 @@ pub fn print_detailed(stats: &BuildStats) {
 
     for block in &stats.block_stats {
         detail_table.add_row(vec![
-            Cell::new(&block.name),
+            Cell::new(block.display_name()),
             Cell::new(format_address_range(
                 block.start_address,
                 block.allocated_size,

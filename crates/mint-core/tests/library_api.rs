@@ -1,14 +1,12 @@
-use mint_core::build::{self, BlockNames, BuildFromLayoutsRequest, BuildRequest, NamedLayout};
+use mint_core::build::{self, BlockSelector, BuildFromLayoutsRequest, BuildRequest, NamedLayout};
 use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
 use mint_core::layout;
 use mint_core::layout::value::DataValue;
 use mint_core::output::OutputFormat;
+use std::path::PathBuf;
 
-fn simple_block_selector(file: &str) -> BlockNames {
-    BlockNames {
-        name: "simple_block".to_owned(),
-        file: file.to_owned(),
-    }
+fn simple_block_selector(file: &str) -> BlockSelector {
+    BlockSelector::named(file, "simple_block")
 }
 
 #[test]
@@ -38,7 +36,7 @@ fn build_from_layouts_accepts_parsed_toml_layouts() {
         .expect("layout string should parse");
     let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
         layouts: vec![NamedLayout {
-            name: "memory-layout".to_owned(),
+            name: PathBuf::from("memory-layout"),
             config,
         }],
         blocks: vec![simple_block_selector("memory-layout")],
@@ -50,6 +48,43 @@ fn build_from_layouts_accepts_parsed_toml_layouts() {
 
     assert_eq!(artifact.stats.blocks_processed, 1);
     assert!(artifact.used_values.is_some());
+}
+
+#[test]
+fn build_rejects_range_that_exceeds_address_space() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+
+[oversized.header]
+start_address = 0xFFFFFFF0
+length = 0x20
+
+[oversized.data]
+value = { value = 1, type = "u8" }
+"#,
+    )
+    .expect("layout string should parse");
+
+    let error = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("overflow.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("overflow.toml", "oversized")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect_err("oversized range should be rejected");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("overflow.toml#oversized")
+            && message.contains("exceeds the 32-bit address space"),
+        "unexpected error: {message}"
+    );
 }
 
 #[test]

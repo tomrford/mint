@@ -35,7 +35,7 @@ overflow.u8_float_trunc = { value = 1.5, type = "u8" }
 overflow.u8_float_high = { value = 300.0, type = "u8" }
 "#;
 
-    let path = std::path::Path::new("out").join("test_non_strict_saturation.toml");
+    let path = common::unique_out_path("test_non_strict_saturation", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -69,7 +69,7 @@ ok.float_exact_to_i16 = { value = 42.0, type = "i16" }
 ok.int_exact_to_f32   = { value = 16777216, type = "f32" }
 "#;
 
-    let path = std::path::Path::new("out").join("test_strict_ok.toml");
+    let path = common::unique_out_path("test_strict_ok", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -100,7 +100,7 @@ padding = 0x00
 bad.frac_to_u8 = { value = 1.5, type = "u8" }
 "#;
 
-    let path = std::path::Path::new("out").join("test_strict_bad_frac.toml");
+    let path = common::unique_out_path("test_strict_bad_frac", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -133,7 +133,7 @@ padding = 0x00
 bad.large_int_to_f64 = { value = 9007199254740993, type = "f64" }
 "#;
 
-    let path = std::path::Path::new("out").join("test_strict_bad_large.toml");
+    let path = common::unique_out_path("test_strict_bad_large", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -168,7 +168,7 @@ bools.false_flag = { value = false, type = "u8" }
 bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
 "#;
 
-    let path = std::path::Path::new("out").join("test_bool_literals.toml");
+    let path = common::unique_out_path("test_bool_literals", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 

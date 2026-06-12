@@ -2,6 +2,7 @@ use mint_cli::commands::{
     self,
     stats::{BlockStat, BuildStats},
 };
+use std::path::PathBuf;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -26,7 +27,8 @@ fn test_block_stat_collection() {
 
     assert_eq!(stats.blocks_processed, 1);
     let block_stat = &stats.block_stats[0];
-    assert_eq!(block_stat.name, "block");
+    assert_eq!(block_stat.layout, PathBuf::from(layout_path));
+    assert_eq!(block_stat.block, "block");
     assert!(block_stat.allocated_size > 0);
     assert!(block_stat.used_size > 0);
     assert!(block_stat.used_size <= block_stat.allocated_size);
@@ -48,10 +50,7 @@ fn test_build_stats_aggregation() {
         .blocks
         .keys()
         .take(2)
-        .map(|name| mint_cli::layout::args::BlockNames {
-            name: name.clone(),
-            file: layout_path.to_owned(),
-        })
+        .map(|name| mint_cli::layout::args::BlockSelector::named(layout_path, name))
         .collect::<Vec<_>>();
 
     if block_inputs.is_empty() {
@@ -88,7 +87,8 @@ fn test_space_used_pct_calculation() {
     let mut stats = BuildStats::new();
 
     stats.add_block(BlockStat {
-        name: "test1".to_owned(),
+        layout: PathBuf::from("layout.toml"),
+        block: "test1".to_owned(),
         start_address: 0x1000,
         allocated_size: 100,
         used_size: 80,
@@ -96,7 +96,8 @@ fn test_space_used_pct_calculation() {
     });
 
     stats.add_block(BlockStat {
-        name: "test2".to_owned(),
+        layout: PathBuf::from("layout.toml"),
+        block: "test2".to_owned(),
         start_address: 0x2000,
         allocated_size: 200,
         used_size: 120,
@@ -126,10 +127,7 @@ fn test_multi_block_stats() {
     let block_inputs = cfg
         .blocks
         .keys()
-        .map(|name| mint_cli::layout::args::BlockNames {
-            name: name.clone(),
-            file: layout_path.to_owned(),
-        })
+        .map(|name| mint_cli::layout::args::BlockSelector::named(layout_path, name))
         .collect::<Vec<_>>();
 
     if block_inputs.is_empty() {
@@ -159,7 +157,8 @@ fn test_space_used_pct_edge_cases() {
     assert_eq!(stats.space_used_pct(), 0.0);
 
     stats.add_block(BlockStat {
-        name: "full".to_owned(),
+        layout: PathBuf::from("layout.toml"),
+        block: "full".to_owned(),
         start_address: 0x1000,
         allocated_size: 100,
         used_size: 100,
@@ -200,7 +199,8 @@ device.name = { value = "TestDevice", type = "u8", size = 16 }
 
     assert_eq!(stats.blocks_processed, 1);
     let block_stat = &stats.block_stats[0];
-    assert_eq!(block_stat.name, "block_no_crc");
+    assert_eq!(block_stat.layout, PathBuf::from(&layout_path));
+    assert_eq!(block_stat.block, "block_no_crc");
     assert!(block_stat.checksum_values.is_empty());
 }
 

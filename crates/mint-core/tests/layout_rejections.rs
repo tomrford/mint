@@ -4,10 +4,9 @@ mod common;
 use std::fs;
 
 fn write_layout(file_stem: &str, ext: &str, contents: &str) -> String {
-    common::ensure_out_dir();
-    let path = format!("out/{}.{}", file_stem, ext);
+    let path = common::unique_out_path(file_stem, ext);
     fs::write(&path, contents).expect("write layout file");
-    path
+    path.to_string_lossy().into_owned()
 }
 
 #[test]

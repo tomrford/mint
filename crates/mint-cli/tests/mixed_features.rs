@@ -1,5 +1,5 @@
 use mint_cli::commands;
-use mint_cli::layout::args::BlockNames;
+use mint_cli::layout::args::BlockSelector;
 use mint_cli::output::args::{OutputArgs, OutputFormat};
 
 #[path = "common/mod.rs"]
@@ -76,10 +76,7 @@ checksum = { checksum = "crc32", type = "u32" }
     // Case 1: Big endian, inline checksum, HEX with width 64
     let args_be_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![BlockNames {
-                name: "block".to_owned(),
-                file: be_path.clone(),
-            }],
+            blocks: vec![BlockSelector::named(be_path.clone(), "block")],
             strict: false,
         },
         data: data_args.clone(),
@@ -98,10 +95,7 @@ checksum = { checksum = "crc32", type = "u32" }
     // Case 2: Big endian, inline checksum, MOT with width 16
     let args_be_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![BlockNames {
-                name: "block".to_owned(),
-                file: be_path.clone(),
-            }],
+            blocks: vec![BlockSelector::named(be_path, "block")],
             strict: false,
         },
         data: data_args.clone(),
@@ -120,10 +114,7 @@ checksum = { checksum = "crc32", type = "u32" }
     // Case 3: Little endian, inline checksum, HEX width 16
     let args_le_hex = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![BlockNames {
-                name: "block".to_owned(),
-                file: le_path.clone(),
-            }],
+            blocks: vec![BlockSelector::named(le_path.clone(), "block")],
             strict: true, // exercise strict path on numeric arrays
         },
         data: data_args.clone(),
@@ -142,10 +133,7 @@ checksum = { checksum = "crc32", type = "u32" }
     // Case 4: Little endian, inline checksum, MOT width 64
     let args_le_mot = mint_cli::args::Args {
         layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![BlockNames {
-                name: "block".to_owned(),
-                file: le_path.clone(),
-            }],
+            blocks: vec![BlockSelector::named(le_path, "block")],
             strict: true,
         },
         data: data_args,

@@ -1,14 +1,16 @@
 use clap::{Parser, error::ErrorKind};
 use mint_cli::args::Args;
 
+use std::path::Path;
+
 #[test]
 fn parses_file_hash_block_selector() {
     let args = Args::try_parse_from(["mint", "layout.toml#config"])
         .expect("args should parse with file#block syntax");
 
     assert_eq!(args.layout.blocks.len(), 1);
-    assert_eq!(args.layout.blocks[0].file, "layout.toml");
-    assert_eq!(args.layout.blocks[0].name, "config");
+    assert_eq!(args.layout.blocks[0].layout, Path::new("layout.toml"));
+    assert_eq!(args.layout.blocks[0].block.as_deref(), Some("config"));
 }
 
 #[test]

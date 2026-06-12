@@ -30,7 +30,7 @@ padding = 0xFF
 short_array = { value = [1, 2, 3], type = "u16", size = 10 }
 "#;
 
-    let path = std::path::Path::new("out").join("test_lowercase_size.toml");
+    let path = common::unique_out_path("test_lowercase_size", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -60,7 +60,7 @@ padding = 0xFF
 short_array = { value = [1, 2, 3], type = "u16", SIZE = 10 }
 "#;
 
-    let path = std::path::Path::new("out").join("test_uppercase_size_1d.toml");
+    let path = common::unique_out_path("test_uppercase_size_1d", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -90,7 +90,7 @@ padding = 0xFF
 matrix = { name = "CalibrationMatrix", type = "i16", SIZE = [5, 3] }
 "#;
 
-    let path = std::path::Path::new("out").join("test_uppercase_size_2d.toml");
+    let path = common::unique_out_path("test_uppercase_size_2d", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -122,7 +122,7 @@ padding = 0xFF
 both = { value = [1, 2, 3], type = "u16", size = 5, SIZE = 10 }
 "#;
 
-    let path = std::path::Path::new("out").join("test_both_sizes.toml");
+    let path = common::unique_out_path("test_both_sizes", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
@@ -152,7 +152,7 @@ padding = 0xFF
 exact_array = { value = [1, 2, 3, 4, 5], type = "u16", SIZE = 5 }
 "#;
 
-    let path = std::path::Path::new("out").join("test_uppercase_size_exact.toml");
+    let path = common::unique_out_path("test_uppercase_size_exact", "toml");
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 

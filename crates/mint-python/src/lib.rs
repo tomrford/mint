@@ -1,9 +1,21 @@
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::unwrap_used
+    )
+)]
+
 mod types;
 mod util;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
-use mint_core::build::{self as core_build, BlockNames, BuildFromLayoutsRequest, NamedLayout};
+use mint_core::build::{self as core_build, BlockSelector, BuildFromLayoutsRequest, NamedLayout};
 use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
 use mint_core::layout;
 use pyo3::prelude::*;
@@ -11,6 +23,8 @@ use pyo3::types::{PyAny, PyDict, PyList, PyModule};
 
 use crate::types::{PyBlockStat, PyBuildBlock, PyBuildResult, PyBuildStats, PyDataRange, PyLayout};
 use crate::util::{mint_error, parse_python_json, py_to_json_value, value_error};
+
+pyo3::create_exception!(mint, MintError, pyo3::exceptions::PyException);
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum LayoutSource {
@@ -66,10 +80,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBuildStats>()?;
     module.add_class::<PyBuildResult>()?;
     module.add_function(wrap_pyfunction!(build, module)?)?;
-    module.add(
-        "MintError",
-        module.py().get_type::<pyo3::exceptions::PyValueError>(),
-    )?;
+    module.add("MintError", module.py().get_type::<MintError>())?;
     Ok(())
 }
 
@@ -95,7 +106,7 @@ fn build(
 
     let mut named_layouts = Vec::new();
     let mut seen_layouts: HashMap<String, LayoutSource> = HashMap::new();
-    let mut block_names = Vec::with_capacity(blocks.len());
+    let mut block_selectors = Vec::with_capacity(blocks.len());
 
     for block in blocks {
         match seen_layouts.get(&block.layout_name) {
@@ -110,21 +121,21 @@ fn build(
                 let config = block.source.parse_config()?;
                 seen_layouts.insert(block.layout_name.clone(), block.source.clone());
                 named_layouts.push(NamedLayout {
-                    name: block.layout_name.clone(),
+                    name: PathBuf::from(&block.layout_name),
                     config,
                 });
             }
         }
 
-        block_names.push(BlockNames {
-            name: block.name.clone().unwrap_or_default(),
-            file: block.layout_name.clone(),
+        block_selectors.push(BlockSelector {
+            layout: PathBuf::from(&block.layout_name),
+            block: block.name.clone(),
         });
     }
 
     let artifact = core_build::build_from_layouts(BuildFromLayoutsRequest {
         layouts: named_layouts,
-        blocks: block_names,
+        blocks: block_selectors,
         data_source: data_source_ref,
         strict,
         capture_values: true,
