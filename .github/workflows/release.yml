@@ -1,9 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -12,22 +11,19 @@ env:
   CICD_INTERMEDIATES_DIR: "_cicd-intermediates"
 
 jobs:
-  create-release:
-    name: Create release
+  validate-release:
+    name: Validate release
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      GH_REPO: ${{ github.repository }}
     outputs:
-      tag_name: ${{ steps.tag.outputs.tag_name }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.metadata.outputs.version }}
     steps:
       - name: Checkout source code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           fetch-depth: 0
-          ref: ${{ github.ref }}
+          ref: refs/tags/${{ github.event.release.tag_name }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
@@ -37,37 +33,53 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verify tag is on main
+      - name: Validate release tag
+        id: release
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-
-      - name: Resolve tag
-        id: tag
-        shell: bash
-        run: |
-          TAG="${{ github.ref_name }}"
+          TAG="$RELEASE_TAG"
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tags must match vX.Y.Z, got $TAG." >&2
             exit 1
           fi
+
+          git fetch --force origin \
+            "+refs/heads/main:refs/remotes/origin/main" \
+            "+refs/tags/${TAG}:refs/tags/${TAG}"
+
+          TAG_COMMIT="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          CHECKOUT_COMMIT="$(git rev-parse HEAD)"
+          if [[ "$CHECKOUT_COMMIT" != "$TAG_COMMIT" ]]; then
+            echo "Checked out $CHECKOUT_COMMIT, but release tag $TAG resolves to $TAG_COMMIT." >&2
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+            echo "Release tag $TAG ($TAG_COMMIT) must be reachable from origin/main." >&2
+            exit 1
+          fi
+
           echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Validate version metadata
         id: metadata
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
-          TAG="${{ steps.tag.outputs.tag_name }}"
+          TAG="$RELEASE_TAG"
           VERSION="${TAG#v}"
           CORE_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-core") | .version')"
           CLI_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')"
+          PY_CRATE_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-python") | .version')"
           CLI_CORE_REQ="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .dependencies[] | select(.name == "mint-core") | .req')"
           PY_CORE_REQ="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-python") | .dependencies[] | select(.name == "mint-core") | .req')"
           PY_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("crates/mint-python/pyproject.toml", "rb"))["project"]["version"])')"
 
-          if [[ "$CORE_VERSION" != "$VERSION" || "$CLI_VERSION" != "$VERSION" ]]; then
-            echo "Tag $TAG must match mint-core $CORE_VERSION and mint-cli $CLI_VERSION." >&2
+          if [[ "$CORE_VERSION" != "$VERSION" || "$CLI_VERSION" != "$VERSION" || "$PY_CRATE_VERSION" != "$VERSION" ]]; then
+            echo "Tag $TAG must match mint-core $CORE_VERSION, mint-cli $CLI_VERSION, and mint-python $PY_CRATE_VERSION." >&2
             exit 1
           fi
           if [[ "$CLI_CORE_REQ" != "^$VERSION" || "$PY_CORE_REQ" != "^$VERSION" ]]; then
@@ -82,22 +94,10 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure release exists
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.tag.outputs.tag_name }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists."
-          else
-            gh release create "$TAG" --generate-notes
-          fi
-
   build-release:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
     runs-on: ${{ matrix.job.os }}
-    needs: create-release
+    needs: validate-release
     permissions:
       contents: write
     strategy:
@@ -125,13 +125,13 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          ref: refs/tags/${{ needs.create-release.outputs.tag_name }}
+          ref: refs/tags/${{ needs.validate-release.outputs.tag_name }}
 
       - name: Extract crate metadata
         shell: bash
         run: |
-          echo "PROJECT_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .targets[] | select(.kind[] == "bin") | .name')" >> $GITHUB_ENV
-          echo "PROJECT_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')" >> $GITHUB_ENV
+          echo "PROJECT_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .targets[] | select(.kind[] == "bin") | .name')" >> "$GITHUB_ENV"
+          echo "PROJECT_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
@@ -147,7 +147,7 @@ jobs:
       - name: Overwrite build command
         if: matrix.job.use-cross
         shell: bash
-        run: echo "BUILD_CMD=cross" >> $GITHUB_ENV
+        run: echo "BUILD_CMD=cross" >> "$GITHUB_ENV"
 
       - name: Build
         shell: bash
@@ -156,20 +156,21 @@ jobs:
       - name: Build archive
         shell: bash
         run: |
+          TARGET="${{ matrix.job.target }}"
           EXE_SUFFIX=""
-          case ${{ matrix.job.target }} in
+          case "$TARGET" in
             *-pc-windows-*) EXE_SUFFIX=".exe" ;;
           esac
 
           BIN_NAME="${PROJECT_NAME}${EXE_SUFFIX}"
-          BIN_PATH="target/${{ matrix.job.target }}/release/${BIN_NAME}"
+          BIN_PATH="target/${TARGET}/release/${BIN_NAME}"
 
           PKG_SUFFIX=".tar.gz"
-          case ${{ matrix.job.target }} in
+          case "$TARGET" in
             *-pc-windows-*) PKG_SUFFIX=".zip" ;;
           esac
 
-          PKG_BASENAME="${PROJECT_NAME}-v${PROJECT_VERSION}-${{ matrix.job.target }}"
+          PKG_BASENAME="${PROJECT_NAME}-v${PROJECT_VERSION}-${TARGET}"
           PKG_NAME="${PKG_BASENAME}${PKG_SUFFIX}"
 
           PKG_STAGING="${CICD_INTERMEDIATES_DIR}/package"
@@ -180,7 +181,7 @@ jobs:
           cp README.md LICENSE* "${ARCHIVE_DIR}" 2>/dev/null || true
 
           pushd "${PKG_STAGING}/" >/dev/null
-          case ${{ matrix.job.target }} in
+          case "$TARGET" in
             *-pc-windows-*)
               7z a "${PKG_NAME}" "${PKG_BASENAME}"/* | tail -2
               certutil -hashfile "${PKG_NAME}" SHA256 > "${PKG_NAME}.sha256"
@@ -192,21 +193,22 @@ jobs:
           esac
           popd >/dev/null
 
-          echo "PKG_PATH=${PKG_STAGING}/${PKG_NAME}" >> $GITHUB_ENV
-          echo "PKG_CHECKSUM=${PKG_STAGING}/${PKG_NAME}.sha256" >> $GITHUB_ENV
+          echo "PKG_PATH=${PKG_STAGING}/${PKG_NAME}" >> "$GITHUB_ENV"
+          echo "PKG_CHECKSUM=${PKG_STAGING}/${PKG_NAME}.sha256" >> "$GITHUB_ENV"
 
       - name: Publish release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.tag_name }}
         run: |
-          TAG="${{ needs.create-release.outputs.tag_name }}"
+          TAG="$RELEASE_TAG"
           gh release upload "$TAG" "${{ env.PKG_PATH }}" "${{ env.PKG_CHECKSUM }}" --clobber
 
   build-python:
     name: Python ${{ matrix.job.name }}
     runs-on: ${{ matrix.job.os }}
-    needs: create-release
+    needs: validate-release
     strategy:
       fail-fast: false
       matrix:
@@ -220,7 +222,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          ref: refs/tags/${{ needs.create-release.outputs.tag_name }}
+          ref: refs/tags/${{ needs.validate-release.outputs.tag_name }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
@@ -292,7 +294,7 @@ jobs:
   publish-crates:
     name: Publish crates
     runs-on: ubuntu-latest
-    needs: [create-release, build-release, build-python]
+    needs: [validate-release, build-release, build-python]
     environment: crates
     permissions:
       contents: read
@@ -302,7 +304,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          ref: refs/tags/${{ needs.create-release.outputs.tag_name }}
+          ref: refs/tags/${{ needs.validate-release.outputs.tag_name }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
@@ -310,8 +312,10 @@ jobs:
       - name: Extract workspace version
         id: metadata
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
-          echo "version=${{ needs.create-release.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check mint-core publish status
         id: core_status
