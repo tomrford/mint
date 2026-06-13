@@ -13,6 +13,7 @@ env:
 jobs:
   validate-release:
     name: Validate release
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release.outputs.tag_name }}
