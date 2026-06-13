@@ -18,7 +18,7 @@ pub fn parse_block_arg(block: &str) -> Result<BlockSelector, LayoutError> {
 
 #[derive(Args, Debug)]
 pub struct LayoutArgs {
-    #[arg(value_name = "FILE[#BLOCK] | FILE", num_args = 1.., value_parser = parse_block_arg, help = "One or more layout selectors as file[#block] or a layout file (typically .toml) to build all blocks")]
+    #[arg(value_name = "FILE[#BLOCK] | FILE", required = true, num_args = 1.., value_parser = parse_block_arg, help = "One or more layout selectors as file[#block] or a layout file (typically .toml) to build all blocks")]
     pub blocks: Vec<BlockSelector>,
 
     #[arg(

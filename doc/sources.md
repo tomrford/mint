@@ -5,7 +5,7 @@ mint supports two data source types: Excel workbooks and raw JSON. A source is n
 ## Excel (`-x, --xlsx`)
 
 ```bash
-mint layout.toml --xlsx data.xlsx -v Default
+mint build layout.toml --xlsx data.xlsx -v Default
 ```
 
 ### Main Sheet Structure
@@ -46,9 +46,9 @@ For 1D/2D arrays, reference a sheet by name with `#` prefix:
 ## JSON (`-j, --json`)
 
 ```bash
-mint layout.toml --json data.json -v Debug/Default
+mint build layout.toml --json data.json -v Debug/Default
 # or inline:
-mint layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' -v Debug/Default
+mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' -v Debug/Default
 ```
 
 ### Format

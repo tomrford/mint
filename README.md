@@ -47,13 +47,13 @@ nix develop -c uv run --directory crates/mint-python --group dev pytest tests
 
 ```bash
 # Excel data source
-mint block.toml --xlsx data.xlsx -v Default --stats
+mint build block.toml --xlsx data.xlsx -v Default --stats
 
 # JSON data source
-mint layout.toml -j data.json -v Debug/Default
+mint build layout.toml -j data.json -v Debug/Default
 
 # Multiple blocks with options
-mint layout.toml#config layout.toml#data --xlsx data.xlsx -v Default --stats
+mint build layout.toml#config layout.toml#data --xlsx data.xlsx -v Default --stats
 ```
 
 ### Layout Example

@@ -1,5 +1,5 @@
 use clap::{Parser, error::ErrorKind};
-use mint_cli::args::Args;
+use mint_cli::args::{Args, Cli, Command};
 
 use std::path::Path;
 
@@ -68,6 +68,49 @@ fn parses_versions_selector_flag() {
 
 #[test]
 fn retains_builtin_version_flag() {
-    let err = Args::try_parse_from(["mint", "--version"]).expect_err("should emit version output");
+    let err = Cli::try_parse_from(["mint", "--version"]).expect_err("should emit version output");
     assert_eq!(err.kind(), ErrorKind::DisplayVersion);
+}
+
+#[test]
+fn preserves_explicit_build_invocation() {
+    let cli = Cli::try_parse_from([
+        "mint",
+        "build",
+        "layout.toml",
+        "--json",
+        "{}",
+        "--versions",
+        "Default",
+    ])
+    .expect("explicit build should parse");
+
+    let Command::Build(args) = cli.command else {
+        panic!("expected build command");
+    };
+
+    assert_eq!(args.layout.blocks.len(), 1);
+    assert_eq!(args.data.json.as_deref(), Some("{}"));
+}
+
+#[test]
+fn rejects_build_invocation_without_subcommand() {
+    let err = Cli::try_parse_from([
+        "mint",
+        "layout.toml",
+        "--json",
+        "{}",
+        "--versions",
+        "Default",
+    ])
+    .expect_err("build requires the build subcommand");
+
+    assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+}
+
+#[test]
+fn parses_skill_command() {
+    let cli = Cli::try_parse_from(["mint", "skill"]).expect("skill should parse");
+
+    assert!(matches!(cli.command, Command::Skill));
 }
