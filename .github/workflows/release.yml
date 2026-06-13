@@ -36,8 +36,10 @@ jobs:
       - name: Validate release tag
         id: release
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="$RELEASE_TAG"
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tags must match vX.Y.Z, got $TAG." >&2
             exit 1
@@ -64,8 +66,10 @@ jobs:
       - name: Validate version metadata
         id: metadata
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
-          TAG="${{ steps.release.outputs.tag_name }}"
+          TAG="$RELEASE_TAG"
           VERSION="${TAG#v}"
           CORE_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-core") | .version')"
           CLI_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')"
@@ -196,8 +200,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.tag_name }}
         run: |
-          TAG="${{ needs.validate-release.outputs.tag_name }}"
+          TAG="$RELEASE_TAG"
           gh release upload "$TAG" "${{ env.PKG_PATH }}" "${{ env.PKG_CHECKSUM }}" --clobber
 
   build-python:
@@ -307,8 +312,10 @@ jobs:
       - name: Extract workspace version
         id: metadata
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
-          echo "version=${{ needs.validate-release.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check mint-core publish status
         id: core_status
