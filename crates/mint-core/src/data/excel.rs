@@ -269,18 +269,26 @@ impl DataSource for ExcelDataSource {
 
             let mut out = Vec::new();
 
-            'outer: for row in rows {
-                if row.first().is_none_or(Self::cell_is_empty) {
+            for (row_index, row) in rows.enumerate() {
+                if (0..width).all(|col| row.get(col).is_none_or(Self::cell_is_empty)) {
                     break;
                 }
 
                 let mut vals = Vec::with_capacity(width);
                 for col in 0..width {
                     let Some(cell) = row.get(col) else {
-                        break 'outer;
+                        return Err(DataError::RetrievalError(format!(
+                            "Missing cell in 2D array at row {}, column {}",
+                            row_index + 2,
+                            col + 1
+                        )));
                     };
                     if Self::cell_is_empty(cell) {
-                        break 'outer;
+                        return Err(DataError::RetrievalError(format!(
+                            "Empty cell in 2D array at row {}, column {}",
+                            row_index + 2,
+                            col + 1
+                        )));
                     };
                     vals.push(convert(cell)?);
                 }
@@ -300,7 +308,7 @@ impl DataSource for ExcelDataSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calamine::Data;
+    use calamine::{Cell, Data, Range};
     use std::collections::HashMap;
 
     fn datasource_with_version(value: Data) -> ExcelDataSource {
@@ -319,5 +327,36 @@ mod tests {
             DataValue::Bool(v) => assert!(v),
             _ => panic!("expected bool value"),
         }
+    }
+
+    #[test]
+    fn retrieve_2d_array_rejects_empty_mid_row_cell() {
+        let mut sheets = HashMap::new();
+        sheets.insert(
+            "Array".to_owned(),
+            Range::from_sparse(vec![
+                Cell::new((0, 0), Data::String("left".to_owned())),
+                Cell::new((0, 1), Data::String("right".to_owned())),
+                Cell::new((1, 0), Data::Int(1)),
+                Cell::new((1, 1), Data::Int(2)),
+                Cell::new((2, 0), Data::Int(3)),
+                Cell::new((3, 0), Data::Int(5)),
+                Cell::new((3, 1), Data::Int(6)),
+            ]),
+        );
+
+        let ds = ExcelDataSource {
+            names: vec!["Array".to_owned()],
+            version_columns: vec![vec![Data::String("#Array".to_owned())]],
+            sheets,
+        };
+
+        let err = ds
+            .retrieve_2d_array("Array")
+            .expect_err("blank cell should be rejected");
+        assert!(
+            err.to_string().contains("Empty cell in 2D array"),
+            "unexpected error: {err}"
+        );
     }
 }

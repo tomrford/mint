@@ -96,6 +96,48 @@ macro_rules! err {
     };
 }
 
+fn finite_integral_f64(value: f64) -> Result<f64, LayoutError> {
+    if !value.is_finite() {
+        return Err(err!(
+            "non-finite float cannot convert to integer in strict mode"
+        ));
+    }
+    if value.fract() != 0.0 {
+        return Err(err!(
+            "float to integer conversion not allowed unless value is an exact integer"
+        ));
+    }
+    Ok(value)
+}
+
+fn strict_f64_to_i128(value: f64) -> Result<i128, LayoutError> {
+    let value = finite_integral_f64(value)?;
+    if value < (i128::MIN as f64) || value >= -(i128::MIN as f64) {
+        return Err(err!(format!("float value {} out of range for i128", value)));
+    }
+
+    Ok(value as i128)
+}
+
+fn strict_integer_to_float<T>(
+    value: T,
+    to_f64: impl FnOnce(T) -> f64,
+    expected: i128,
+) -> Result<f64, LayoutError> {
+    let out = to_f64(value);
+    if !out.is_finite() {
+        return Err(err!("integer to float produced non-finite value"));
+    }
+
+    if strict_f64_to_i128(out)? == expected {
+        Ok(out)
+    } else {
+        Err(err!(
+            "lossy integer to float conversion not allowed in strict mode"
+        ))
+    }
+}
+
 macro_rules! impl_try_from_strict_unsigned {
     ($($t:ty),* $(,)?) => {$(
         impl TryFromStrict<&DataValue> for $t {
@@ -109,10 +151,11 @@ macro_rules! impl_try_from_strict_unsigned {
                             .map_err(|_| err!(format!("i64 value {} out of range for {}", v, stringify!($t))))
                     }
                     DataValue::F64(v) => {
-                        if !v.is_finite() { return Err(err!("non-finite float cannot convert to integer in strict mode")); }
-                        if v.fract() != 0.0 { return Err(err!("float to integer conversion not allowed unless value is an exact integer")); }
-                        if *v < 0.0 || *v > (<$t>::MAX as f64) { return Err(err!(format!("float value {} out of range for {}", v, stringify!($t)))); }
-                        Ok(*v as $t)
+                        let raw = strict_f64_to_i128(*v)?;
+                        if raw < 0 || raw > i128::try_from(<$t>::MAX).expect("unsigned max fits i128") {
+                            return Err(err!(format!("float value {} out of range for {}", v, stringify!($t))));
+                        }
+                        Ok(raw as $t)
                     }
                     DataValue::Bool(b) => {
                         let n: u8 = if *b { 1 } else { 0 };
@@ -137,10 +180,11 @@ macro_rules! impl_try_from_strict_signed {
                     DataValue::I64(v) => <Self as TryFrom<i64>>::try_from(*v)
                         .map_err(|_| err!(format!("i64 value {} out of range for {}", v, stringify!($t)))),
                     DataValue::F64(v) => {
-                        if !v.is_finite() { return Err(err!("non-finite float cannot convert to integer in strict mode")); }
-                        if v.fract() != 0.0 { return Err(err!("float to integer conversion not allowed unless value is an exact integer")); }
-                        if *v < (<$t>::MIN as f64) || *v > (<$t>::MAX as f64) { return Err(err!(format!("float value {} out of range for {}", v, stringify!($t)))); }
-                        Ok(*v as $t)
+                        let raw = strict_f64_to_i128(*v)?;
+                        if raw < i128::from(<$t>::MIN) || raw > i128::from(<$t>::MAX) {
+                            return Err(err!(format!("float value {} out of range for {}", v, stringify!($t))));
+                        }
+                        Ok(raw as $t)
                     }
                     DataValue::Bool(b) => {
                         let n: u8 = if *b { 1 } else { 0 };
@@ -174,31 +218,12 @@ macro_rules! impl_try_from_strict_float_targets {
                         }
                     }
                     DataValue::U64(v) => {
-                        let out = (*v as $t);
-                        if !out.is_finite() {
-                            return Err(err!("integer to float produced non-finite value"));
-                        }
-                        // exactness check via round-trip
-                        if (out as u64) == *v {
-                            Ok(out)
-                        } else {
-                            Err(err!(
-                                "lossy integer to float conversion not allowed in strict mode"
-                            ))
-                        }
+                        strict_integer_to_float(*v, |v| v as $t as f64, i128::from(*v))
+                            .map(|v| v as $t)
                     }
                     DataValue::I64(v) => {
-                        let out = (*v as $t);
-                        if !out.is_finite() {
-                            return Err(err!("integer to float produced non-finite value"));
-                        }
-                        if (out as i64) == *v {
-                            Ok(out)
-                        } else {
-                            Err(err!(
-                                "lossy integer to float conversion not allowed in strict mode"
-                            ))
-                        }
+                        strict_integer_to_float(*v, |v| v as $t as f64, i128::from(*v))
+                            .map(|v| v as $t)
                     }
                     DataValue::Bool(b) => {
                         let out: $t = if *b { 1.0 } else { 0.0 };
@@ -218,26 +243,8 @@ impl TryFromStrict<&DataValue> for f64 {
     fn try_from_strict(value: &DataValue) -> Result<Self, LayoutError> {
         match value {
             DataValue::F64(v) => Ok(*v),
-            DataValue::U64(v) => {
-                let out = *v as f64;
-                if (out as u64) == *v {
-                    Ok(out)
-                } else {
-                    Err(err!(
-                        "lossy integer to float conversion not allowed in strict mode"
-                    ))
-                }
-            }
-            DataValue::I64(v) => {
-                let out = *v as f64;
-                if (out as i64) == *v {
-                    Ok(out)
-                } else {
-                    Err(err!(
-                        "lossy integer to float conversion not allowed in strict mode"
-                    ))
-                }
-            }
+            DataValue::U64(v) => strict_integer_to_float(*v, |v| v as f64, i128::from(*v)),
+            DataValue::I64(v) => strict_integer_to_float(*v, |v| v as f64, i128::from(*v)),
             DataValue::Bool(b) => {
                 let out = if *b { 1.0 } else { 0.0 };
                 Ok(out)
