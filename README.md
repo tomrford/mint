@@ -8,7 +8,7 @@ mint is available as:
 - `mint-cli` - Implements the `mint` command-line tool for reading layout/data files, writing outputs, and printing terminal summaries.
 - `mint-python` - Python bindings for `mint-core`.
 
-![img](doc/img.png)
+![img](https://raw.githubusercontent.com/tomrford/mint/main/doc/img.png)
 
 ### Install
 
@@ -30,18 +30,18 @@ cargo install --path crates/mint-cli
 nix develop -c cargo build
 nix develop -c cargo test
 nix develop -c cargo clippy --workspace
-nix develop -c cargo run -p mint-cli -- block.toml --xlsx data.xlsx -v Default
+nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx -v Default
 nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml
 nix develop -c uv run --directory crates/mint-python --group dev pytest tests
 ```
 
 ### Documentation
 
-- [CLI reference](doc/cli.md)
-- [Python bindings](doc/python.md)
-- [Layout files](doc/layout.md)
-- [Data sources](doc/sources.md)
-- [Example layouts & data](doc/examples/)
+- [CLI reference](https://github.com/tomrford/mint/blob/main/doc/cli.md)
+- [Python bindings](https://github.com/tomrford/mint/blob/main/doc/python.md)
+- [Layout files](https://github.com/tomrford/mint/blob/main/doc/layout.md)
+- [Data sources](https://github.com/tomrford/mint/blob/main/doc/sources.md)
+- [Example layouts & data](https://github.com/tomrford/mint/tree/main/doc/examples)
 
 ### Quick Start
 
@@ -83,4 +83,4 @@ counter = { name = "Counter", type = "u64" }
 message = { value = "Hello", type = "u8", size = 16 }
 ```
 
-See [`doc/examples/block.toml`](doc/examples/block.toml) for full examples.
+See [`doc/examples/block.toml`](https://github.com/tomrford/mint/blob/main/doc/examples/block.toml) for full examples.

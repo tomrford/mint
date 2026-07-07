@@ -1,6 +1,6 @@
 # Layout Files
 
-Layout files define memory blocks and their data fields. TOML is the documented layout format and all examples in these docs use it. YAML layouts use the same schema and are accepted by the parser. The data in the layout file helps mint understand the structure of the data and how you want to represent it in the output. Each block represents a contiguous region of memory (typically a single struct stored in a known location in flash). For an example of a block, see [`doc/examples/blocks.h`](doc/examples/blocks.h) and compare it to the layout file [`doc/examples/block.toml`](doc/examples/block.toml).
+Layout files define memory blocks and their data fields. TOML is the documented layout format and all examples in these docs use it. YAML layouts use the same schema and are accepted by the parser. The data in the layout file helps mint understand the structure of the data and how you want to represent it in the output. Each block represents a contiguous region of memory (typically a single struct stored in a known location in flash). For an example of a block, see [`doc/examples/blocks.h`](examples/blocks.h) and compare it to the layout file [`doc/examples/block.toml`](examples/block.toml).
 
 ## Structure
 

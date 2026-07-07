@@ -278,6 +278,6 @@ Run `mint --help` for the full argument list.
 
 ## Further reference
 
-For full annotated examples (layout + C struct + data source), read `references/examples.md` in this skill.
+For full annotated examples (layout + C struct + data source), read `references/examples.md` if this skill is installed as a directory; if you only have `mint skill` output, fetch it from github.com/tomrford/mint at `crates/mint-cli/skill/mint/references/examples.md`.
 
 Online documentation: the mint repository's `doc/` directory contains `layout.md`, `sources.md`, and `cli.md` with exhaustive detail on every option (github.com/tomrford/mint).
