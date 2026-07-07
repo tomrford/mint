@@ -3,7 +3,7 @@ use mint_core::output::{DataRange, OutputFormat};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyTuple};
 
-use crate::{LayoutFormat, LayoutSource, mint_error, py_json_loads, value_error};
+use crate::{LayoutSource, mint_error, py_json_loads, value_error};
 
 #[pyclass(name = "Layout", skip_from_py_object)]
 #[derive(Clone)]
@@ -23,16 +23,11 @@ impl PyLayout {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (name, text, *, format=None))]
-    fn from_string(name: String, text: String, format: Option<&str>) -> PyResult<Self> {
-        let format = match format {
-            Some(value) => LayoutFormat::parse(value)?,
-            None => LayoutFormat::infer(&name)?,
-        };
-        Ok(Self {
+    fn from_string(name: String, text: String) -> Self {
+        Self {
             name,
-            source: LayoutSource::String { text, format },
-        })
+            source: LayoutSource::String { text },
+        }
     }
 
     #[getter]

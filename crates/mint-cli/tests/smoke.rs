@@ -7,10 +7,7 @@ mod common;
 fn smoke_build_examples_all_formats_and_options() {
     common::ensure_out_dir();
 
-    let layouts = [
-        "../mint-core/tests/data/blocks.toml",
-        "../mint-core/tests/data/blocks.yaml",
-    ];
+    let layouts = ["../mint-core/tests/data/blocks.toml"];
     let blocks = ["block", "block2", "block3"];
 
     for layout_path in layouts {

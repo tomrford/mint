@@ -1,6 +1,6 @@
 # Layout Files
 
-Layout files define memory blocks and their data fields. TOML is the documented layout format and all examples in these docs use it. YAML layouts use the same schema and are accepted by the parser. The data in the layout file helps mint understand the structure of the data and how you want to represent it in the output. Each block represents a contiguous region of memory (typically a single struct stored in a known location in flash). For an example of a block, see [`doc/examples/blocks.h`](examples/blocks.h) and compare it to the layout file [`doc/examples/block.toml`](examples/block.toml).
+Layout files define memory blocks and their data fields. Layouts are written in TOML. The data in the layout file helps mint understand the structure of the data and how you want to represent it in the output. Each block represents a contiguous region of memory (typically a single struct stored in a known location in flash). For an example of a block, see [`doc/examples/blocks.h`](examples/blocks.h) and compare it to the layout file [`doc/examples/block.toml`](examples/block.toml).
 
 ## Structure
 
@@ -309,4 +309,4 @@ device.name = { name = "DeviceName", type = "u8", size = 16 }
 version = { name = "Version", type = "u16" }
 ```
 
-YAML layouts remain accepted, but TOML is the only format documented and recommended for authored layouts. JSON is reserved for data input.
+Layouts are TOML only. JSON is reserved for data input.
