@@ -9,8 +9,6 @@ repository = "https://github.com/tomrford/mint"
 categories = ["embedded", "encoding"]
 keywords = ["flash", "hex", "layout", "excel", "data"]
 
-exclude = ["flake.*", ".envrc", ".cursor/**", ".github/**"]
-
 [dependencies]
 bin_file = "0.1.4"
 calamine = "0.34.0"

@@ -1,7 +1,5 @@
-use mint_cli::commands::{
-    self,
-    stats::{BlockStat, BuildStats},
-};
+use mint_cli::commands;
+use mint_core::build::{BlockStat, BuildStats};
 use std::path::PathBuf;
 
 #[path = "common/mod.rs"]
@@ -17,11 +15,7 @@ fn test_block_stat_collection() {
         return;
     };
 
-    let args = common::build_args(
-        layout_path,
-        "block",
-        mint_cli::output::args::OutputFormat::Hex,
-    );
+    let args = common::build_args(layout_path, "block", mint_core::output::OutputFormat::Hex);
 
     let stats = commands::build(&args, Some(ds.as_ref())).expect("build should succeed");
 
@@ -45,12 +39,12 @@ fn test_build_stats_aggregation() {
         return;
     };
 
-    let cfg = mint_cli::layout::load_layout(layout_path).expect("layout loads");
+    let cfg = mint_core::layout::load_layout(layout_path).expect("layout loads");
     let block_inputs = cfg
         .blocks
         .keys()
         .take(2)
-        .map(|name| mint_cli::layout::args::BlockSelector::named(layout_path, name))
+        .map(|name| mint_core::build::BlockSelector::named(layout_path, name))
         .collect::<Vec<_>>();
 
     if block_inputs.is_empty() {
@@ -59,7 +53,7 @@ fn test_build_stats_aggregation() {
 
     let args = common::build_args_for_layouts(
         block_inputs.clone(),
-        mint_cli::output::args::OutputFormat::Hex,
+        mint_core::output::OutputFormat::Hex,
         "stats_aggregation",
     );
 
@@ -123,11 +117,11 @@ fn test_multi_block_stats() {
         return;
     };
 
-    let cfg = mint_cli::layout::load_layout(layout_path).expect("layout loads");
+    let cfg = mint_core::layout::load_layout(layout_path).expect("layout loads");
     let block_inputs = cfg
         .blocks
         .keys()
-        .map(|name| mint_cli::layout::args::BlockSelector::named(layout_path, name))
+        .map(|name| mint_core::build::BlockSelector::named(layout_path, name))
         .collect::<Vec<_>>();
 
     if block_inputs.is_empty() {
@@ -136,7 +130,7 @@ fn test_multi_block_stats() {
 
     let args = common::build_args_for_layouts(
         block_inputs.clone(),
-        mint_cli::output::args::OutputFormat::Hex,
+        mint_core::output::OutputFormat::Hex,
         "multi_block_stats",
     );
 
@@ -192,7 +186,7 @@ device.name = { value = "TestDevice", type = "u8", size = 16 }
     let args = common::build_args(
         &layout_path,
         "block_no_crc",
-        mint_cli::output::args::OutputFormat::Hex,
+        mint_core::output::OutputFormat::Hex,
     );
 
     let stats = commands::build(&args, None).expect("build should succeed");
@@ -211,7 +205,7 @@ fn test_missing_block_returns_error_instead_of_panicking() {
     let args = common::build_args(
         "../../doc/examples/block.toml",
         "block",
-        mint_cli::output::args::OutputFormat::Hex,
+        mint_core::output::OutputFormat::Hex,
     );
 
     let error = commands::build(&args, None).expect_err("missing block should return an error");

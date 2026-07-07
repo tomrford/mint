@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "mint-python"
-version = "2.0.0"
+dynamic = ["version"]
 description = "Python bindings for mint-core."
 requires-python = ">=3.10"
 license = "MIT"

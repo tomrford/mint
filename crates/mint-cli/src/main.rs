@@ -27,12 +27,6 @@ fn main() -> Result<(), MintError> {
 fn run_build(args: &Args) -> Result<(), MintError> {
     let data_source = data::create_data_source(&args.data)?;
 
-    // Check if blocks are provided
-    args.layout
-        .blocks
-        .first()
-        .ok_or(mint_core::layout::error::LayoutError::NoBlocksProvided)?;
-
     let stats = commands::build(args, data_source.as_deref())?;
 
     if !args.output.quiet {

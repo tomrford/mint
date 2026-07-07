@@ -1,4 +1,3 @@
-pub mod stats;
 mod writer;
 
 use crate::args::Args;

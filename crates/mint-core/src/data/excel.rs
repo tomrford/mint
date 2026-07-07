@@ -1,5 +1,5 @@
 use calamine::{Data, Range, Reader, Xlsx, open_workbook};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use super::DataSource;
@@ -133,18 +133,15 @@ impl ExcelDataSource {
         data_rows: usize,
         versions: &[String],
     ) -> Result<Vec<Vec<Data>>, DataError> {
-        let mut seen = HashSet::new();
         let mut columns = Vec::new();
 
         for v in versions {
-            if seen.insert(v.clone()) {
-                let index = headers
-                    .iter()
-                    .position(|cell| Self::cell_eq(cell, v))
-                    .ok_or_else(|| DataError::ColumnNotFound(v.clone()))?;
+            let index = headers
+                .iter()
+                .position(|cell| Self::cell_eq(cell, v))
+                .ok_or_else(|| DataError::ColumnNotFound(v.clone()))?;
 
-                columns.push(Self::collect_column(rows, index, data_rows));
-            }
+            columns.push(Self::collect_column(rows, index, data_rows));
         }
 
         Ok(columns)

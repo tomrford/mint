@@ -109,7 +109,7 @@ impl BuildArtifact {
     }
 
     pub fn render(&self, format: OutputFormat, record_width: usize) -> Result<String, OutputError> {
-        self.output_file(format, record_width).render()
+        output::emit_hex(&self.ranges, record_width, format)
     }
 }
 
@@ -291,47 +291,13 @@ fn resolve_blocks(
 ) -> Result<(Vec<ResolvedBlock>, HashMap<PathBuf, Config>), LayoutError> {
     let unique_files: HashSet<PathBuf> = block_args.iter().map(|b| b.layout.clone()).collect();
 
-    let layouts: Result<HashMap<PathBuf, Config>, LayoutError> = unique_files
+    let layouts: HashMap<PathBuf, Config> = unique_files
         .par_iter()
         .map(|file| layout::load_layout(file).map(|cfg| (file.clone(), cfg)))
-        .collect();
+        .collect::<Result<_, LayoutError>>()?;
 
-    let layouts = layouts?;
-
-    let mut resolved = Vec::new();
-    for arg in block_args {
-        let layout = &layouts[&arg.layout];
-        if let Some(block_name) = &arg.block {
-            if !layout.blocks.contains_key(block_name) {
-                let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
-                return Err(LayoutError::BlockNotFound(format!(
-                    "'{}' in '{}'. Available blocks: {}",
-                    block_name,
-                    arg.layout.display(),
-                    available_blocks
-                )));
-            }
-            resolved.push(ResolvedBlock {
-                name: block_name.clone(),
-                layout: arg.layout.clone(),
-            });
-        } else {
-            for block_name in layout.blocks.keys() {
-                resolved.push(ResolvedBlock {
-                    name: block_name.clone(),
-                    layout: arg.layout.clone(),
-                });
-            }
-        }
-    }
-
-    let mut seen = HashSet::new();
-    let deduplicated: Vec<ResolvedBlock> = resolved
-        .into_iter()
-        .filter(|b| seen.insert((b.layout.clone(), b.name.clone())))
-        .collect();
-
-    Ok((deduplicated, layouts))
+    let resolved = resolve_blocks_from_layouts(block_args, &layouts)?;
+    Ok((resolved, layouts))
 }
 
 fn build_bytestreams(

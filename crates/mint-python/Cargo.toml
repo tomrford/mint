@@ -11,7 +11,7 @@ publish = false
 
 [lib]
 name = "_native"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 test = false
 doctest = false
 

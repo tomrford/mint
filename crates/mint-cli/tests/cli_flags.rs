@@ -62,8 +62,7 @@ fn parses_versions_selector_flag() {
     ])
     .expect("args should parse with --versions");
 
-    assert_eq!(args.data.versions.as_deref(), Some("Debug/Default"));
-    assert_eq!(args.data.get_version_list(), vec!["Debug", "Default"]);
+    assert_eq!(args.data.versions, vec!["Debug", "Default"]);
 }
 
 #[test]

@@ -12,18 +12,18 @@ fn test_build_without_excel() {
 
     // Build simple_block which has all inline values (no Excel dependency)
     let args = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
-            blocks: vec![mint_cli::layout::args::BlockSelector::named(
+        layout: mint_cli::layout_args::LayoutArgs {
+            blocks: vec![mint_core::build::BlockSelector::named(
                 layout_path,
                 "simple_block",
             )],
             strict: false,
         },
         data: Default::default(),
-        output: mint_cli::output::args::OutputArgs {
+        output: mint_cli::output_args::OutputArgs {
             out: common::unique_out_path("simple_block", "hex"),
             record_width: 32,
-            format: mint_cli::output::args::OutputFormat::Hex,
+            format: mint_core::output::OutputFormat::Hex,
             export_json: None,
             stats: false,
             quiet: true,
@@ -48,18 +48,18 @@ fn test_error_when_name_without_excel() {
     // Use a block that references names from Excel
     let layout_path = "../mint-core/tests/data/blocks.toml";
 
-    let input = mint_cli::layout::args::BlockSelector::named(layout_path, "block");
+    let input = mint_core::build::BlockSelector::named(layout_path, "block");
 
     let args = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
+        layout: mint_cli::layout_args::LayoutArgs {
             blocks: vec![input],
             strict: false,
         },
         data: Default::default(),
-        output: mint_cli::output::args::OutputArgs {
+        output: mint_cli::output_args::OutputArgs {
             out: common::unique_out_path("error_test", "hex"),
             record_width: 32,
-            format: mint_cli::output::args::OutputFormat::Hex,
+            format: mint_core::output::OutputFormat::Hex,
             export_json: None,
             stats: false,
             quiet: true,
@@ -86,7 +86,7 @@ fn test_error_when_name_without_excel() {
 #[test]
 fn test_factory_returns_none_without_datasource() {
     // Test that create_data_source returns None when no datasource is provided
-    let args_no_datasource = mint_cli::data::args::DataArgs::default();
+    let args_no_datasource = mint_cli::data_args::DataArgs::default();
 
     let result = create_data_source(&args_no_datasource).expect("should return Ok(None)");
     assert!(
@@ -95,8 +95,8 @@ fn test_factory_returns_none_without_datasource() {
     );
 
     // Test with versions flag but no datasource
-    let args_version_no_datasource = mint_cli::data::args::DataArgs {
-        versions: Some("Default".to_owned()),
+    let args_version_no_datasource = mint_cli::data_args::DataArgs {
+        versions: vec!["Default".to_owned()],
         ..Default::default()
     };
 
