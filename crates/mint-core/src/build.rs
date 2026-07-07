@@ -156,36 +156,44 @@ struct BlockBuildResult {
 }
 
 pub fn build(request: BuildRequest<'_>) -> Result<BuildArtifact, MintError> {
+    let start_time = Instant::now();
+
     if request.blocks.is_empty() {
         return Err(LayoutError::NoBlocksProvided.into());
     }
 
     let (resolved_blocks, layouts) = resolve_blocks(&request.blocks)?;
-    build_resolved(
+    let mut artifact = build_resolved(
         resolved_blocks,
         &layouts,
         request.data_source,
         request.strict,
         request.capture_values,
-    )
+    )?;
+    artifact.stats.total_duration = start_time.elapsed();
+    Ok(artifact)
 }
 
 pub fn build_from_layouts(
     request: BuildFromLayoutsRequest<'_>,
 ) -> Result<BuildArtifact, MintError> {
+    let start_time = Instant::now();
+
     if request.blocks.is_empty() {
         return Err(LayoutError::NoBlocksProvided.into());
     }
 
     let layouts = collect_named_layouts(request.layouts)?;
     let resolved_blocks = resolve_blocks_from_layouts(&request.blocks, &layouts)?;
-    build_resolved(
+    let mut artifact = build_resolved(
         resolved_blocks,
         &layouts,
         request.data_source,
         request.strict,
         request.capture_values,
-    )
+    )?;
+    artifact.stats.total_duration = start_time.elapsed();
+    Ok(artifact)
 }
 
 fn build_resolved(
@@ -195,7 +203,6 @@ fn build_resolved(
     strict: bool,
     capture_values: bool,
 ) -> Result<BuildArtifact, MintError> {
-    let start_time = Instant::now();
     let mut results = build_bytestreams(
         &resolved_blocks,
         layouts,
@@ -210,8 +217,7 @@ fn build_resolved(
         None
     };
 
-    let (ranges, mut stats) = collect_results(results)?;
-    stats.total_duration = start_time.elapsed();
+    let (ranges, stats) = collect_results(results)?;
 
     Ok(BuildArtifact {
         ranges,
@@ -348,8 +354,7 @@ fn build_single_bytestream(
 
         let build_output = block.build_bytestream(data_source, &layout.mint, strict, value_sink)?;
 
-        let data_range =
-            output::bytestream_to_datarange(build_output.bytestream, &block.header)?;
+        let data_range = output::bytestream_to_datarange(build_output.bytestream, &block.header)?;
 
         let stat = BlockStat {
             layout: resolved.layout.clone(),

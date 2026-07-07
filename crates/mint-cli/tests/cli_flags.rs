@@ -1,7 +1,12 @@
 use clap::{Parser, error::ErrorKind};
 use mint_cli::args::{Args, Cli, Command};
+use mint_cli::data::create_data_source;
+use mint_core::layout::value::DataValue;
 
+use std::fs;
 use std::path::Path;
+
+mod common;
 
 #[test]
 fn parses_file_hash_block_selector() {
@@ -48,6 +53,70 @@ fn parses_short_json_flag() {
     .expect("args should parse with -j");
 
     assert_eq!(args.data.json.as_deref(), Some("tests/data.json"));
+}
+
+#[test]
+fn rejects_main_sheet_without_xlsx() {
+    let err = Args::try_parse_from([
+        "mint",
+        "layout.toml",
+        "--json",
+        "{}",
+        "--main-sheet",
+        "Config",
+        "--variants",
+        "Default",
+    ])
+    .expect_err("--main-sheet should require --xlsx");
+
+    assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
+}
+
+#[test]
+fn rejects_main_sheet_without_data_source() {
+    let err = Args::try_parse_from(["mint", "layout.toml", "--main-sheet", "Config"])
+        .expect_err("--main-sheet should require a data source");
+
+    assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+}
+
+#[test]
+fn json_path_without_json_suffix_is_read_from_file() {
+    let json_path = common::unique_out_path("data-without-suffix", "txt");
+    fs::write(&json_path, r#"{"Default":{"Counter":7}}"#).expect("write json file");
+
+    let args = mint_cli::data_args::DataArgs {
+        json: Some(json_path.to_string_lossy().into_owned()),
+        variants: vec!["Default".to_owned()],
+        ..Default::default()
+    };
+    let ds = create_data_source(&args)
+        .expect("data source should load")
+        .expect("json data source");
+
+    assert!(matches!(
+        ds.retrieve_single_value("Counter")
+            .expect("counter should be read"),
+        DataValue::U64(7)
+    ));
+}
+
+#[test]
+fn inline_json_starting_with_brace_still_works() {
+    let args = mint_cli::data_args::DataArgs {
+        json: Some(r#"{"Default":{"Counter":9}}"#.to_owned()),
+        variants: vec!["Default".to_owned()],
+        ..Default::default()
+    };
+    let ds = create_data_source(&args)
+        .expect("data source should load")
+        .expect("json data source");
+
+    assert!(matches!(
+        ds.retrieve_single_value("Counter")
+            .expect("counter should be read"),
+        DataValue::U64(9)
+    ));
 }
 
 #[test]

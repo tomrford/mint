@@ -5,6 +5,7 @@ pub struct DataArgs {
     #[arg(
         short = 'x',
         long,
+        id = "xlsx",
         value_name = "FILE",
         group = "datasource",
         requires = "variant_selectors",
@@ -12,7 +13,16 @@ pub struct DataArgs {
     )]
     pub xlsx: Option<String>,
 
-    #[arg(long, value_name = "NAME", help = "Main sheet name in Excel")]
+    // `requires = "xlsx"` alone does not fire here (clap resolves the bare
+    // field id oddly once the arg belongs to a group), hence the explicit id
+    // plus datasource-and-not-json pairing.
+    #[arg(
+        long,
+        value_name = "NAME",
+        requires = "datasource",
+        conflicts_with = "json",
+        help = "Main sheet name in Excel"
+    )]
     pub main_sheet: Option<String>,
 
     #[arg(
@@ -21,7 +31,7 @@ pub struct DataArgs {
         value_name = "PATH or json string",
         group = "datasource",
         requires = "variant_selectors",
-        help = "Path to JSON file or JSON string. Format: object with variant names as keys, each containing an object with name:value pairs (e.g., {\"VariantName\": {\"key1\": value1, \"key2\": value2}})"
+        help = "Path to JSON file, or inline JSON when the trimmed value starts with '{'. Format: object with variant names as keys, each containing an object with name:value pairs (e.g., {\"VariantName\": {\"key1\": value1, \"key2\": value2}})"
     )]
     pub json: Option<String>,
 

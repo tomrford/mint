@@ -5,9 +5,15 @@ use formatters::{format_address_range, format_bytes, format_duration, format_spa
 use mint_core::build::BuildStats;
 
 pub fn print_summary(stats: &BuildStats) {
+    let block_label = if stats.blocks_processed == 1 {
+        "block"
+    } else {
+        "blocks"
+    };
     println!(
-        "✓ Built {} blocks in {} ({:.1}% space reserved)",
+        "✓ Built {} {} in {} ({:.1}% space reserved)",
         stats.blocks_processed,
+        block_label,
         format_duration(stats.total_duration),
         stats.space_reserved_pct()
     );
@@ -64,7 +70,10 @@ pub fn print_detailed(stats: &BuildStats) {
                 format_bytes(block.reserved_size as usize),
                 format_bytes(block.allocated_size as usize)
             )),
-            Cell::new(format_space_reserved(block.reserved_size, block.allocated_size)),
+            Cell::new(format_space_reserved(
+                block.reserved_size,
+                block.allocated_size,
+            )),
             Cell::new(format_checksum_values(&block.checksum_values)),
         ]);
     }

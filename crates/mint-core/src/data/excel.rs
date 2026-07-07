@@ -64,6 +64,7 @@ impl ExcelDataSource {
                 .map(|c| c.to_string())
                 .unwrap_or_default()
         }));
+        Self::validate_unique_names(&names)?;
         let variant_columns =
             Self::collect_variant_columns(headers, &rows, data_rows, &options.variants)?;
 
@@ -123,6 +124,21 @@ impl ExcelDataSource {
         column
     }
 
+    fn validate_unique_names(names: &[String]) -> Result<(), DataError> {
+        for (index, name) in names.iter().enumerate() {
+            if name.trim().is_empty() {
+                continue;
+            }
+            if names[index + 1..].iter().any(|other| other == name) {
+                return Err(DataError::RetrievalError(format!(
+                    "duplicate name '{name}' in data sheet"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     fn collect_variant_columns(
         headers: &[Data],
         rows: &[&[Data]],
@@ -132,10 +148,19 @@ impl ExcelDataSource {
         let mut columns = Vec::new();
 
         for v in variants {
-            let index = headers
+            let mut matches = headers
                 .iter()
-                .position(|cell| Self::cell_eq(cell, v))
+                .enumerate()
+                .filter(|(_, cell)| Self::cell_eq(cell, v))
+                .map(|(index, _)| index);
+            let index = matches
+                .next()
                 .ok_or_else(|| DataError::ColumnNotFound(v.clone()))?;
+            if matches.next().is_some() {
+                return Err(DataError::RetrievalError(format!(
+                    "duplicate variant '{v}' in data sheet"
+                )));
+            }
 
             columns.push(Self::collect_column(rows, index, data_rows));
         }
@@ -353,6 +378,46 @@ mod tests {
         assert!(
             cause.contains("Empty cell in 2D array"),
             "unexpected error: {cause}"
+        );
+    }
+
+    #[test]
+    fn validate_unique_names_rejects_duplicate_non_empty_name() {
+        let err = ExcelDataSource::validate_unique_names(&[
+            "CrcSeed".to_owned(),
+            String::new(),
+            "Other".to_owned(),
+            "CrcSeed".to_owned(),
+        ])
+        .expect_err("duplicate name should be rejected");
+
+        assert_eq!(
+            err.to_string(),
+            "retrieval error: duplicate name 'CrcSeed' in data sheet"
+        );
+    }
+
+    #[test]
+    fn collect_variant_columns_rejects_duplicate_requested_variant() {
+        let headers = vec![
+            Data::String("Name".to_owned()),
+            Data::String("Debug".to_owned()),
+            Data::String("Debug".to_owned()),
+        ];
+        let data_row = vec![
+            Data::String("Flag".to_owned()),
+            Data::Bool(true),
+            Data::Bool(false),
+        ];
+        let rows = vec![headers.as_slice(), data_row.as_slice()];
+        let variants = vec!["Debug".to_owned()];
+
+        let err = ExcelDataSource::collect_variant_columns(&headers, &rows, 1, &variants)
+            .expect_err("duplicate variant should be rejected");
+
+        assert_eq!(
+            err.to_string(),
+            "retrieval error: duplicate variant 'Debug' in data sheet"
         );
     }
 }

@@ -149,7 +149,7 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o output.mot --forma
 
 ### `--record-width <N>`
 
-Bytes per data record in output file. Range: 1-64.
+Bytes per data record in output file. Range: 1-128.
 
 **Default:** `32`
 

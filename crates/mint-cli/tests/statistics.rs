@@ -70,7 +70,11 @@ fn test_build_stats_aggregation() {
         .iter()
         .map(|b| b.allocated_size as usize)
         .sum();
-    let manual_total_reserved: usize = stats.block_stats.iter().map(|b| b.reserved_size as usize).sum();
+    let manual_total_reserved: usize = stats
+        .block_stats
+        .iter()
+        .map(|b| b.reserved_size as usize)
+        .sum();
 
     assert_eq!(stats.total_allocated, manual_total_allocated);
     assert_eq!(stats.total_reserved, manual_total_reserved);
