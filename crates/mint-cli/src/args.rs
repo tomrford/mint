@@ -8,6 +8,10 @@ pub const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
 
 #[derive(Parser, Debug)]
 #[command(
+    name = "mint",
+    // Pin the usage-line name so help output is identical on Windows,
+    // where argv[0] is mint.exe.
+    bin_name = "mint",
     author,
     version,
     about = "Build flash blocks from layout files and data sources (Excel or JSON)",
