@@ -56,7 +56,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (blocks, *, data=None, json_path=None, xlsx_path=None, variants=None, main_sheet="Main", strict=false))]
+#[pyo3(signature = (blocks, *, data=None, json_path=None, xlsx_path=None, variants=None, main_sheet=None, strict=false))]
 fn build(
     py: Python<'_>,
     blocks: Vec<PyRef<'_, PyBuildBlock>>,
@@ -64,63 +64,79 @@ fn build(
     json_path: Option<String>,
     xlsx_path: Option<String>,
     variants: Option<Vec<String>>,
-    main_sheet: &str,
+    main_sheet: Option<String>,
     strict: bool,
 ) -> PyResult<PyBuildResult> {
     if blocks.is_empty() {
         return Err(value_error("at least one build block is required"));
     }
 
-    let data_source = create_data_source(data, json_path, xlsx_path, variants, main_sheet)?;
-    let data_source_ref = data_source.as_deref();
-
-    let mut named_layouts = Vec::new();
-    let mut seen_layouts: HashMap<String, LayoutSource> = HashMap::new();
-    let mut block_selectors = Vec::with_capacity(blocks.len());
-
-    for block in blocks {
-        match seen_layouts.get(&block.layout_name) {
-            Some(source) if source != &block.source => {
-                return Err(value_error(format!(
-                    "layout name '{}' was provided with multiple sources; use distinct layout names",
-                    block.layout_name
-                )));
-            }
-            Some(_) => {}
-            None => {
-                let config = block.source.parse_config()?;
-                seen_layouts.insert(block.layout_name.clone(), block.source.clone());
-                named_layouts.push(NamedLayout {
-                    name: PathBuf::from(&block.layout_name),
-                    config,
-                });
-            }
-        }
-
-        block_selectors.push(BlockSelector {
-            layout: PathBuf::from(&block.layout_name),
-            block: block.name.clone(),
-        });
+    if main_sheet.is_some() && xlsx_path.is_none() {
+        return Err(value_error("main_sheet requires xlsx_path"));
     }
 
-    let artifact = core_build::build_from_layouts(BuildFromLayoutsRequest {
-        layouts: named_layouts,
-        blocks: block_selectors,
-        data_source: data_source_ref,
-        strict,
-        capture_values: true,
-    })
-    .map_err(mint_error)?;
+    let data = data.map(py_to_json_value).transpose()?;
+    let blocks = blocks
+        .into_iter()
+        .map(|block| PyBuildBlock {
+            layout_name: block.layout_name.clone(),
+            name: block.name.clone(),
+            source: block.source.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let artifact = py.detach(move || {
+        let data_source = create_data_source(data, json_path, xlsx_path, variants, main_sheet)?;
+        let data_source_ref = data_source.as_deref();
+
+        let mut named_layouts = Vec::new();
+        let mut seen_layouts: HashMap<String, LayoutSource> = HashMap::new();
+        let mut block_selectors = Vec::with_capacity(blocks.len());
+
+        for block in blocks {
+            match seen_layouts.get(&block.layout_name) {
+                Some(source) if source != &block.source => {
+                    return Err(value_error(format!(
+                        "layout name '{}' was provided with multiple sources; use distinct layout names",
+                        block.layout_name
+                    )));
+                }
+                Some(_) => {}
+                None => {
+                    let config = block.source.parse_config()?;
+                    seen_layouts.insert(block.layout_name.clone(), block.source.clone());
+                    named_layouts.push(NamedLayout {
+                        name: PathBuf::from(&block.layout_name),
+                        config,
+                    });
+                }
+            }
+
+            block_selectors.push(BlockSelector {
+                layout: PathBuf::from(&block.layout_name),
+                block: block.name.clone(),
+            });
+        }
+
+        core_build::build_from_layouts(BuildFromLayoutsRequest {
+            layouts: named_layouts,
+            blocks: block_selectors,
+            data_source: data_source_ref,
+            strict,
+            capture_values: true,
+        })
+        .map_err(mint_error)
+    })?;
 
     PyBuildResult::from_artifact(py, artifact)
 }
 
 fn create_data_source(
-    data: Option<&Bound<'_, PyAny>>,
+    data: Option<serde_json::Value>,
     json_path: Option<String>,
     xlsx_path: Option<String>,
     variants: Option<Vec<String>>,
-    main_sheet: &str,
+    main_sheet: Option<String>,
 ) -> PyResult<Option<Box<dyn DataSource>>> {
     let source_count = usize::from(data.is_some())
         + usize::from(json_path.is_some())
@@ -143,8 +159,7 @@ fn create_data_source(
         ));
     }
 
-    if let Some(data) = data {
-        let value = py_to_json_value(data)?;
+    if let Some(value) = data {
         return Ok(Some(Box::new(
             JsonDataSource::from_value(value, &variants).map_err(mint_error)?,
         )));
@@ -158,7 +173,9 @@ fn create_data_source(
 
     if let Some(path) = xlsx_path {
         let mut options = ExcelDataSourceOptions::new(variants);
-        main_sheet.clone_into(&mut options.main_sheet);
+        if let Some(main_sheet) = main_sheet {
+            options.main_sheet = main_sheet;
+        }
         return Ok(Some(Box::new(
             ExcelDataSource::from_path(path, options).map_err(mint_error)?,
         )));

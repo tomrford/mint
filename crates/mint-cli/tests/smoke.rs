@@ -11,9 +11,7 @@ fn smoke_build_examples_all_formats_and_options() {
     let blocks = ["block", "block2", "block3"];
 
     for layout_path in layouts {
-        let Some(ds) = common::find_working_datasource() else {
-            continue;
-        };
+        let ds = common::find_working_datasource();
 
         let cfg = mint_core::layout::load_layout(layout_path).expect("layout loads");
 

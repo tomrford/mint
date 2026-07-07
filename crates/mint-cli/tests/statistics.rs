@@ -11,9 +11,7 @@ fn test_block_stat_collection() {
 
     let layout_path = "../mint-core/tests/data/blocks.toml";
 
-    let Some(ds) = common::find_working_datasource() else {
-        return;
-    };
+    let ds = common::find_working_datasource();
 
     let args = common::build_args(layout_path, "block", mint_core::output::OutputFormat::Hex);
 
@@ -35,9 +33,7 @@ fn test_build_stats_aggregation() {
 
     let layout_path = "../mint-core/tests/data/blocks.toml";
 
-    let Some(ds) = common::find_working_datasource() else {
-        return;
-    };
+    let ds = common::find_working_datasource();
 
     let cfg = mint_core::layout::load_layout(layout_path).expect("layout loads");
     let block_inputs = cfg
@@ -117,9 +113,7 @@ fn test_multi_block_stats() {
 
     let layout_path = "../mint-core/tests/data/blocks.toml";
 
-    let Some(ds) = common::find_working_datasource() else {
-        return;
-    };
+    let ds = common::find_working_datasource();
 
     let cfg = mint_core::layout::load_layout(layout_path).expect("layout loads");
     let block_inputs = cfg

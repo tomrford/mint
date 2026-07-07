@@ -8,9 +8,17 @@ use std::path::Path;
 
 mod common;
 
+fn parse_build_args<const N: usize>(argv: [&str; N]) -> Result<Args, clap::Error> {
+    let cli = Cli::try_parse_from(argv)?;
+    let Command::Build(args) = cli.command else {
+        panic!("expected build command");
+    };
+    Ok(args)
+}
+
 #[test]
 fn parses_file_hash_block_selector() {
-    let args = Args::try_parse_from(["mint", "layout.toml#config"])
+    let args = parse_build_args(["mint", "build", "layout.toml#config"])
         .expect("args should parse with file#block syntax");
 
     assert_eq!(args.layout.blocks.len(), 1);
@@ -20,15 +28,16 @@ fn parses_file_hash_block_selector() {
 
 #[test]
 fn rejects_empty_hash_selector() {
-    let err = Args::try_parse_from(["mint", "layout.toml#"])
+    let err = parse_build_args(["mint", "build", "layout.toml#"])
         .expect_err("empty block selector should fail");
     assert_eq!(err.kind(), ErrorKind::ValueValidation);
 }
 
 #[test]
 fn parses_short_xlsx_flag() {
-    let args = Args::try_parse_from([
+    let args = parse_build_args([
         "mint",
+        "build",
         "layout.toml",
         "-x",
         "tests/data/data.xlsx",
@@ -42,8 +51,9 @@ fn parses_short_xlsx_flag() {
 
 #[test]
 fn parses_short_json_flag() {
-    let args = Args::try_parse_from([
+    let args = parse_build_args([
         "mint",
+        "build",
         "layout.toml",
         "-j",
         "tests/data.json",
@@ -57,8 +67,9 @@ fn parses_short_json_flag() {
 
 #[test]
 fn rejects_main_sheet_without_xlsx() {
-    let err = Args::try_parse_from([
+    let err = parse_build_args([
         "mint",
+        "build",
         "layout.toml",
         "--json",
         "{}",
@@ -74,7 +85,7 @@ fn rejects_main_sheet_without_xlsx() {
 
 #[test]
 fn rejects_main_sheet_without_data_source() {
-    let err = Args::try_parse_from(["mint", "layout.toml", "--main-sheet", "Config"])
+    let err = parse_build_args(["mint", "build", "layout.toml", "--main-sheet", "Config"])
         .expect_err("--main-sheet should require a data source");
 
     assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
@@ -121,8 +132,9 @@ fn inline_json_starting_with_brace_still_works() {
 
 #[test]
 fn parses_versions_selector_flag() {
-    let args = Args::try_parse_from([
+    let args = parse_build_args([
         "mint",
+        "build",
         "layout.toml",
         "--xlsx",
         "tests/data/data.xlsx",

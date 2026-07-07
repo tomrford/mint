@@ -80,7 +80,7 @@ result = mint.build(
 )
 ```
 
-For Excel input, `main_sheet="Main"` is the default and can be overridden:
+For Excel input, the default main sheet is `Main` and can be overridden:
 
 ```python
 result = mint.build(

@@ -82,6 +82,6 @@ def build(
     json_path: str | None = None,
     xlsx_path: str | None = None,
     variants: Sequence[str] | None = None,
-    main_sheet: str = "Main",
+    main_sheet: str | None = None,
     strict: bool = False,
 ) -> BuildResult: ...
