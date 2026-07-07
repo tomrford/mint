@@ -18,7 +18,7 @@ pub struct BlockStat {
     pub block: String,
     pub start_address: u32,
     pub allocated_size: u32,
-    pub used_size: u32,
+    pub reserved_size: u32,
     pub checksum_values: Vec<u32>,
 }
 
@@ -32,7 +32,7 @@ impl BlockStat {
 pub struct BuildStats {
     pub blocks_processed: usize,
     pub total_allocated: usize,
-    pub total_used: usize,
+    pub total_reserved: usize,
     pub total_duration: Duration,
     pub block_stats: Vec<BlockStat>,
 }
@@ -48,7 +48,7 @@ impl BuildStats {
         Self {
             blocks_processed: 0,
             total_allocated: 0,
-            total_used: 0,
+            total_reserved: 0,
             total_duration: Duration::from_secs(0),
             block_stats: Vec::new(),
         }
@@ -57,15 +57,15 @@ impl BuildStats {
     pub fn add_block(&mut self, stat: BlockStat) {
         self.blocks_processed += 1;
         self.total_allocated += stat.allocated_size as usize;
-        self.total_used += stat.used_size as usize;
+        self.total_reserved += stat.reserved_size as usize;
         self.block_stats.push(stat);
     }
 
-    pub fn space_used_pct(&self) -> f64 {
+    pub fn space_reserved_pct(&self) -> f64 {
         if self.total_allocated == 0 {
             0.0
         } else {
-            (self.total_used as f64 / self.total_allocated as f64) * 100.0
+            (self.total_reserved as f64 / self.total_allocated as f64) * 100.0
         }
     }
 }
@@ -348,18 +348,15 @@ fn build_single_bytestream(
 
         let build_output = block.build_bytestream(data_source, &layout.mint, strict, value_sink)?;
 
-        let data_range = output::bytestream_to_datarange(
-            build_output.bytestream,
-            &block.header,
-            build_output.padding_count,
-        )?;
+        let data_range =
+            output::bytestream_to_datarange(build_output.bytestream, &block.header)?;
 
         let stat = BlockStat {
             layout: resolved.layout.clone(),
             block: resolved.name.clone(),
             start_address: data_range.start_address,
             allocated_size: data_range.allocated_size,
-            used_size: data_range.used_size,
+            reserved_size: data_range.reserved_size,
             checksum_values: build_output.checksum_values,
         };
 

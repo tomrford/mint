@@ -17,14 +17,13 @@ pub enum OutputFormat {
 pub struct DataRange {
     pub start_address: u32,
     pub bytestream: Vec<u8>,
-    pub used_size: u32,
+    pub reserved_size: u32,
     pub allocated_size: u32,
 }
 
 pub fn bytestream_to_datarange(
     bytestream: Vec<u8>,
     header: &Header,
-    padding_bytes: u32,
 ) -> Result<DataRange, OutputError> {
     if bytestream.len() > header.length as usize {
         return Err(OutputError::HexOutputError(
@@ -32,12 +31,10 @@ pub fn bytestream_to_datarange(
         ));
     }
 
-    let used_size = (bytestream.len() as u32).saturating_sub(padding_bytes);
-
     Ok(DataRange {
         start_address: header.start_address,
+        reserved_size: bytestream.len() as u32,
         bytestream,
-        used_size,
         allocated_size: header.length,
     })
 }
@@ -134,11 +131,11 @@ mod tests {
 
         let bytestream = vec![1u8, 2, 3, 4];
         let dr =
-            bytestream_to_datarange(bytestream, &header, 0).expect("data range generation failed");
+            bytestream_to_datarange(bytestream, &header).expect("data range generation failed");
 
         assert_eq!(dr.bytestream.len(), 4);
         assert_eq!(dr.start_address, 0);
-        assert_eq!(dr.used_size, 4);
+        assert_eq!(dr.reserved_size, 4);
         assert_eq!(dr.allocated_size, 16);
     }
 
@@ -147,7 +144,7 @@ mod tests {
         let header = sample_header(4);
 
         let bytestream = vec![1u8; 8]; // 8 bytes > 4 byte block
-        let result = bytestream_to_datarange(bytestream, &header, 0);
+        let result = bytestream_to_datarange(bytestream, &header);
         assert!(result.is_err());
     }
 
@@ -157,7 +154,7 @@ mod tests {
 
         let bytestream = vec![1u8, 2, 3, 4];
         let dr =
-            bytestream_to_datarange(bytestream, &header, 0).expect("data range generation failed");
+            bytestream_to_datarange(bytestream, &header).expect("data range generation failed");
         let hex = emit_hex(&[dr], 16, OutputFormat::Hex).expect("hex generation failed");
 
         assert!(!hex.is_empty());

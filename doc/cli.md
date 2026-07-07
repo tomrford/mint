@@ -219,13 +219,13 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --stats
 |------------------+-----------|
 | Total Allocated  | 512 bytes |
 |------------------+-----------|
-| Total Used       | 84 bytes  |
+| Total Reserved   | 84 bytes  |
 |------------------+-----------|
-| Space Used       | 16.4%     |
+| Space Reserved   | 16.4%     |
 +------------------+-----------+
 
 +--------+---------------+--------------------+------------+----------------+
-| Block  | Address Range | Used/Alloc         | Space Used | Checksum Value |
+| Block  | Address Range | Reserved/Alloc     | Space Reserved | Checksum Value |
 +===========================================================================+
 | config | 0x8000-0x80FF | 52 bytes/256 bytes | 20.3%      | 0x89ECCA27     |
 |--------+---------------+--------------------+------------+----------------|
