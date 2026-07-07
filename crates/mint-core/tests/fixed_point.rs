@@ -78,10 +78,10 @@ grid = { name = "Grid", type = "uq8.8", size = [2, 2] }
     let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
     let block = cfg.blocks.get("block").expect("block present");
 
-    let versions = vec!["Default".to_owned()];
+    let variants = vec!["Default".to_owned()];
     let ds = JsonDataSource::from_str(
         r#"{"Default":{"Ratio":0.25,"Grid":[[0.5,1.0],[1.5,2.0]]}}"#,
-        &versions,
+        &variants,
     )
     .expect("datasource loads");
 
@@ -231,8 +231,8 @@ phase = { name = "Phase", type = "uq0.16" }
 
     let layout_path = common::write_layout_file("fixed-point-export", layout);
     let layout_key = layout_path.clone();
-    let versions = vec!["Default".to_owned()];
-    let ds = JsonDataSource::from_str(r#"{"Default":{"Phase":0.25}}"#, &versions)
+    let variants = vec!["Default".to_owned()];
+    let ds = JsonDataSource::from_str(r#"{"Default":{"Phase":0.25}}"#, &variants)
         .expect("datasource loads");
 
     let json_out = common::unique_out_path("fixed-point-export", "json");

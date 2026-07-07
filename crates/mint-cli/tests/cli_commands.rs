@@ -63,7 +63,7 @@ fn explicit_build_invocation_writes_output() {
         .arg("../mint-core/tests/data/blocks.toml#block")
         .arg("--xlsx")
         .arg("../mint-core/tests/data/data.xlsx")
-        .arg("--versions")
+        .arg("--variants")
         .arg("Default")
         .arg("--out")
         .arg(&out)

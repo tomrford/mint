@@ -45,7 +45,7 @@ message = { value = "Hi", type = "u8", size = 4 }
             r#"{"Default":{"DeviceName":"UnitA","EnableDebug":1,"RegionCode":7,"Coeffs":[10,20,30],"Counter":99}}"#
                 .to_owned(),
         ),
-        versions: vec!["Default".to_owned()],
+        variants: vec!["Default".to_owned()],
         ..Default::default()
     };
     let ds = data::create_data_source(&data_args)

@@ -24,32 +24,32 @@ Specifies which blocks to build. Two formats are supported:
 
 ```bash
 # Build single block
-mint build layout.toml#config --xlsx data.xlsx -v Default -o config.hex
+mint build layout.toml#config --xlsx data.xlsx --variants Default -o config.hex
 
 # Build multiple specific blocks
-mint build layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o firmware.hex
+mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Default -o firmware.hex
 
 # Build all blocks from a file
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex
 
 # Mix both styles
-mint build layout.toml#config layout.toml --xlsx data.xlsx -v Default -o combined.hex
+mint build layout.toml#config layout.toml --xlsx data.xlsx --variants Default -o combined.hex
 ```
 
 ---
 
 ## Data Source Options
 
-You can specify exactly one supported data source (`-x`/`--xlsx` or `-j`/`--json`) along with versions (`-v`).
+You can specify exactly one supported data source (`-x`/`--xlsx` or `-j`/`--json`) along with variants (`--variants`).
 
 If your data currently comes from another system, fetch or transform it first and then pass the resulting JSON via `--json`.
 
 ### `-x, --xlsx <FILE>`
 
-Path to Excel workbook containing versioned data.
+Path to Excel workbook containing variant data.
 
 ```bash
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex
 ```
 
 ### `--main-sheet <NAME>`
@@ -57,21 +57,21 @@ mint build layout.toml --xlsx data.xlsx -v Default -o output.hex
 Override the default main sheet name (`Main`) for the excel data source.
 
 ```bash
-mint build layout.toml --xlsx data.xlsx --main-sheet Config -v Default -o output.hex
+mint build layout.toml --xlsx data.xlsx --main-sheet Config --variants Default -o output.hex
 ```
 
 ### `-j, --json <PATH or JSON>`
 
 Use raw JSON as the data source. Accepts a JSON file path or inline JSON string.
 
-The JSON format is an object with version names as top-level keys. Each version contains an object with name:value pairs.
+The JSON format is an object with variant names as top-level keys. Each variant contains an object with name:value pairs.
 
 ```bash
 # Using a JSON file
-mint build layout.toml --json data.json -v Debug/Default -o output.hex
+mint build layout.toml --json data.json --variants Debug/Default -o output.hex
 
 # Using inline JSON
-mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' -v Debug/Default -o output.hex
+mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' --variants Debug/Default -o output.hex
 ```
 
 **Example JSON format:**
@@ -97,19 +97,19 @@ mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"
 
 See [Data Sources](sources.md#json---json) for format details.
 
-### `-v, --versions <NAME[/NAME...]>`
+### `--variants <NAME[/NAME...]>`
 
-Version columns to query, in priority order. The first non-empty value found wins.
+Variant columns to query, in priority order. The first non-empty value found wins.
 
 ```bash
-# Single version
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex
+# Single variant
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex
 
 # Fallback chain: try Debug first, then Default
-mint build layout.toml --xlsx data.xlsx -v Debug/Default -o output.hex
+mint build layout.toml --xlsx data.xlsx --variants Debug/Default -o output.hex
 
 # Three-level fallback
-mint build layout.toml --xlsx data.xlsx -v Production/Debug/Default -o output.hex
+mint build layout.toml --xlsx data.xlsx --variants Production/Debug/Default -o output.hex
 ```
 
 ---
@@ -124,10 +124,10 @@ Output file path. Parent directories are created if they don't exist.
 
 ```bash
 # Output to specific file
-mint build layout.toml --xlsx data.xlsx -v Default -o build/firmware.hex
+mint build layout.toml --xlsx data.xlsx --variants Default -o build/firmware.hex
 
 # Output with .mot extension for Motorola S-Record
-mint build layout.toml --xlsx data.xlsx -v Default -o build/firmware.mot --format mot
+mint build layout.toml --xlsx data.xlsx --variants Default -o build/firmware.mot --format mot
 ```
 
 ### `--format <FORMAT>`
@@ -141,10 +141,10 @@ Output file format.
 
 ```bash
 # Intel HEX (default)
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --format hex
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --format hex
 
 # Motorola S-Record
-mint build layout.toml --xlsx data.xlsx -v Default -o output.mot --format mot
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.mot --format mot
 ```
 
 ### `--record-width <N>`
@@ -155,10 +155,10 @@ Bytes per data record in output file. Range: 1-64.
 
 ```bash
 # 16 bytes per record (shorter lines)
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --record-width 16
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --record-width 16
 
 # 64 bytes per record (longer lines)
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --record-width 64
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --record-width 64
 ```
 
 ### `--export-json <FILE>`
@@ -166,7 +166,7 @@ mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --record-width 
 Export used `block.data` values as JSON. Report is nested by layout file, then block name.
 
 ```bash
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --export-json build/report.json
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --export-json build/report.json
 ```
 
 ---
@@ -178,7 +178,7 @@ mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --export-json b
 Enable strict type conversions. Errors on lossy casts instead of saturating/truncating/clamping.
 
 ```bash
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --strict
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --strict
 ```
 
 **Without `--strict`:**
@@ -204,7 +204,7 @@ For fixed-point `qI.F` / `uqI.F` types, mint always scales by `2^F` and rounds t
 Show detailed build statistics after completion.
 
 ```bash
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --stats
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --stats
 ```
 
 **Example output:**
@@ -238,7 +238,7 @@ mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --stats
 Suppress all output except errors.
 
 ```bash
-mint build layout.toml --xlsx data.xlsx -v Default -o output.hex --quiet
+mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --quiet
 ```
 
 ---
@@ -276,7 +276,7 @@ mint skill
 ### Basic build with Excel data
 
 ```bash
-mint build layout.toml --xlsx data.xlsx -v Default -o firmware.hex
+mint build layout.toml --xlsx data.xlsx --variants Default -o firmware.hex
 ```
 
 ### Production build with all options
@@ -286,7 +286,7 @@ mint build \
   layout.toml#config \
   layout.toml#data \
   --xlsx data.xlsx \
-  -v Default \
+  --variants Default \
   -o release/FW_v1.2.3.mot \
   --format mot \
   --record-width 32 \
@@ -299,7 +299,7 @@ mint build \
 ```bash
 mint build layout.toml \
   --json data.json \
-  -v Debug/Default \
+  --variants Debug/Default \
   -o firmware.hex
 ```
 

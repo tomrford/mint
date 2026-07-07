@@ -6,68 +6,68 @@ use super::DataSource;
 use super::error::DataError;
 use crate::layout::value::{DataValue, ValueSource};
 
-/// Shared JSON-based data source that reads version data from JSON objects.
-/// Result: `Vec<HashMap<String, Value>>` in version priority order.
+/// Shared JSON-based data source that reads variant data from JSON objects.
+/// Result: `Vec<HashMap<String, Value>>` in variant priority order.
 pub struct JsonDataSource {
-    version_columns: Vec<HashMap<String, Value>>,
+    variant_columns: Vec<HashMap<String, Value>>,
 }
 
 impl JsonDataSource {
-    fn new(version_columns: Vec<HashMap<String, Value>>) -> Self {
-        JsonDataSource { version_columns }
+    fn new(variant_columns: Vec<HashMap<String, Value>>) -> Self {
+        JsonDataSource { variant_columns }
     }
 
     /// Creates a JSON data source from a JSON object.
-    /// Expected format: `{ "VersionName": { "key1": value1, "key2": value2, ... }, ... }`
-    pub fn from_value(data: Value, versions: &[String]) -> Result<Self, DataError> {
+    /// Expected format: `{ "VariantName": { "key1": value1, "key2": value2, ... }, ... }`
+    pub fn from_value(data: Value, variants: &[String]) -> Result<Self, DataError> {
         let data: HashMap<String, HashMap<String, Value>> = serde_json::from_value(data)
             .map_err(|e| DataError::FileError(format!("failed to parse JSON: {}", e)))?;
 
-        Self::from_version_map(data, versions)
+        Self::from_variant_map(data, variants)
     }
 
     /// Creates a JSON data source from JSON text.
-    pub fn from_str(json_content: &str, versions: &[String]) -> Result<Self, DataError> {
+    pub fn from_str(json_content: &str, variants: &[String]) -> Result<Self, DataError> {
         let data: HashMap<String, HashMap<String, Value>> = serde_json::from_str(json_content)
             .map_err(|e| DataError::FileError(format!("failed to parse JSON: {}", e)))?;
 
-        Self::from_version_map(data, versions)
+        Self::from_variant_map(data, variants)
     }
 
     /// Creates a JSON data source from a JSON file path.
-    pub fn from_path(path: impl AsRef<Path>, versions: &[String]) -> Result<Self, DataError> {
+    pub fn from_path(path: impl AsRef<Path>, variants: &[String]) -> Result<Self, DataError> {
         let path = path.as_ref();
         let json_content = std::fs::read_to_string(path).map_err(|_| {
             DataError::FileError(format!("failed to open file: {}", path.display()))
         })?;
 
-        Self::from_str(&json_content, versions)
+        Self::from_str(&json_content, variants)
     }
 
-    fn from_version_map(
+    fn from_variant_map(
         data: HashMap<String, HashMap<String, Value>>,
-        versions: &[String],
+        variants: &[String],
     ) -> Result<Self, DataError> {
-        let mut version_columns = Vec::with_capacity(versions.len());
+        let mut variant_columns = Vec::with_capacity(variants.len());
 
-        for version in versions {
+        for variant in variants {
             let map = data
-                .get(version)
+                .get(variant)
                 .ok_or_else(|| {
                     DataError::RetrievalError(format!(
-                        "version '{}' not found in JSON data",
-                        version
+                        "variant '{}' not found in JSON data",
+                        variant
                     ))
                 })?
                 .clone();
-            version_columns.push(map);
+            variant_columns.push(map);
         }
 
-        Ok(Self::new(version_columns))
+        Ok(Self::new(variant_columns))
     }
 
     fn lookup(&self, name: &str) -> Option<&Value> {
-        self.version_columns
+        self.variant_columns
             .iter()
             .find_map(|map| map.get(name).filter(|v| !v.is_null()))
     }
@@ -101,7 +101,7 @@ impl DataSource for JsonDataSource {
         let result = (|| {
             let value = self
                 .lookup(name)
-                .ok_or_else(|| DataError::RetrievalError("key not found in any version".into()))?;
+                .ok_or_else(|| DataError::RetrievalError("key not found in any variant".into()))?;
 
             let dv = Self::value_to_data_value(value)?;
             match dv {
@@ -122,7 +122,7 @@ impl DataSource for JsonDataSource {
         let result = (|| {
             let value = self
                 .lookup(name)
-                .ok_or_else(|| DataError::RetrievalError("key not found in any version".into()))?;
+                .ok_or_else(|| DataError::RetrievalError("key not found in any variant".into()))?;
 
             match value {
                 Value::Array(arr) => {
@@ -147,7 +147,7 @@ impl DataSource for JsonDataSource {
         let result = (|| {
             let value = self
                 .lookup(name)
-                .ok_or_else(|| DataError::RetrievalError("key not found in any version".into()))?;
+                .ok_or_else(|| DataError::RetrievalError("key not found in any variant".into()))?;
 
             let Value::Array(outer) = value else {
                 return Err(DataError::RetrievalError(

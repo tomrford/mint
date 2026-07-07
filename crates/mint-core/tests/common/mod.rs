@@ -34,11 +34,11 @@ pub fn unique_out_path(stem: &str, ext: &str) -> PathBuf {
 }
 
 pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
-    let version_candidates: [&str; 2] = ["Default", "VarA/Default"];
+    let variant_candidates: [&str; 2] = ["Default", "VarA/Default"];
 
-    for ver in &version_candidates {
-        let versions = ver.split('/').map(str::to_owned).collect();
-        let options = ExcelDataSourceOptions::new(versions);
+    for ver in &variant_candidates {
+        let variants = ver.split('/').map(str::to_owned).collect();
+        let options = ExcelDataSourceOptions::new(variants);
         if let Ok(ds) = ExcelDataSource::from_path("tests/data/data.xlsx", options) {
             return Some(Box::new(ds));
         }

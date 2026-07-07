@@ -9,22 +9,22 @@ use crate::layout::value::{DataValue, ValueSource};
 #[derive(Debug, Clone)]
 pub struct ExcelDataSourceOptions {
     pub main_sheet: String,
-    pub versions: Vec<String>,
+    pub variants: Vec<String>,
 }
 
 impl ExcelDataSourceOptions {
-    pub fn new(versions: Vec<String>) -> Self {
+    pub fn new(variants: Vec<String>) -> Self {
         Self {
             main_sheet: "Main".to_owned(),
-            versions,
+            variants,
         }
     }
 }
 
-/// Excel-backed data source for versions.
+/// Excel-backed data source for variants.
 pub struct ExcelDataSource {
     names: Vec<String>,
-    version_columns: Vec<Vec<Data>>,
+    variant_columns: Vec<Vec<Data>>,
     sheets: HashMap<String, Range<Data>>,
 }
 
@@ -64,8 +64,8 @@ impl ExcelDataSource {
                 .map(|c| c.to_string())
                 .unwrap_or_default()
         }));
-        let version_columns =
-            Self::collect_version_columns(headers, &rows, data_rows, &options.versions)?;
+        let variant_columns =
+            Self::collect_variant_columns(headers, &rows, data_rows, &options.variants)?;
 
         let mut sheets: HashMap<String, Range<Data>> =
             HashMap::with_capacity(workbook.worksheets().len().saturating_sub(1));
@@ -77,7 +77,7 @@ impl ExcelDataSource {
 
         Ok(Self {
             names,
-            version_columns,
+            variant_columns,
             sheets,
         })
     }
@@ -87,14 +87,14 @@ impl ExcelDataSource {
             DataError::RetrievalError(format!("name '{name}' not found in data sheet"))
         })?;
 
-        for column in &self.version_columns {
+        for column in &self.variant_columns {
             if let Some(value) = column.get(index).filter(|v| !Self::cell_is_empty(v)) {
                 return Ok(value);
             }
         }
 
         Err(DataError::RetrievalError(
-            "data not found in any version column".to_owned(),
+            "data not found in any variant column".to_owned(),
         ))
     }
 
@@ -123,15 +123,15 @@ impl ExcelDataSource {
         column
     }
 
-    fn collect_version_columns(
+    fn collect_variant_columns(
         headers: &[Data],
         rows: &[&[Data]],
         data_rows: usize,
-        versions: &[String],
+        variants: &[String],
     ) -> Result<Vec<Vec<Data>>, DataError> {
         let mut columns = Vec::new();
 
-        for v in versions {
+        for v in variants {
             let index = headers
                 .iter()
                 .position(|cell| Self::cell_eq(cell, v))
@@ -304,17 +304,17 @@ mod tests {
     use calamine::{Cell, Data, Range};
     use std::collections::HashMap;
 
-    fn datasource_with_version(value: Data) -> ExcelDataSource {
+    fn datasource_with_variant(value: Data) -> ExcelDataSource {
         ExcelDataSource {
             names: vec!["Flag".to_owned()],
-            version_columns: vec![vec![value]],
+            variant_columns: vec![vec![value]],
             sheets: HashMap::new(),
         }
     }
 
     #[test]
     fn retrieve_single_value_accepts_bool_cell() {
-        let ds = datasource_with_version(Data::Bool(true));
+        let ds = datasource_with_variant(Data::Bool(true));
         let value = ds.retrieve_single_value("Flag").expect("bool cell");
         match value {
             DataValue::Bool(v) => assert!(v),
@@ -340,7 +340,7 @@ mod tests {
 
         let ds = ExcelDataSource {
             names: vec!["Array".to_owned()],
-            version_columns: vec![vec![Data::String("#Array".to_owned())]],
+            variant_columns: vec![vec![Data::String("#Array".to_owned())]],
             sheets,
         };
 

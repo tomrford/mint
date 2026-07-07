@@ -5,7 +5,7 @@ mint supports two data source types: Excel workbooks and raw JSON. A source is n
 ## Excel (`-x, --xlsx`)
 
 ```bash
-mint build layout.toml --xlsx data.xlsx -v Default
+mint build layout.toml --xlsx data.xlsx --variants Default
 ```
 
 ### Main Sheet Structure
@@ -24,7 +24,7 @@ The `Main` sheet (or one specified via `--main-sheet`) contains variant data:
 
 - **Name column**: lookup key used by layout files
 - **Variant columns**: values for each variant (e.g., `Default`, `Debug`)
-- **Precedence**: follows the explicit `-v` order; first non-empty value wins
+- **Precedence**: follows the explicit `--variants` order; first non-empty value wins
 - **Sheet references**: cells starting with `#` reference array sheets (e.g., `#DefaultCoefficients`)
 
 ### Array Sheets
@@ -46,9 +46,9 @@ For 1D/2D arrays, reference a sheet by name with `#` prefix:
 ## JSON (`-j, --json`)
 
 ```bash
-mint build layout.toml --json data.json -v Debug/Default
+mint build layout.toml --json data.json --variants Debug/Default
 # or inline:
-mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' -v Debug/Default
+mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' --variants Debug/Default
 ```
 
 ### Format
@@ -81,7 +81,7 @@ The JSON data source expects an object where:
 }
 ```
 
-Use this when your build pipeline already fetches or transforms data before invoking mint. Generate the version-object JSON in your script, then pass it to mint as a file or inline string.
+Use this when your build pipeline already fetches or transforms data before invoking mint. Generate the variant-object JSON in your script, then pass it to mint as a file or inline string.
 
 ### Value Types
 
@@ -91,4 +91,4 @@ Use this when your build pipeline already fetches or transforms data before invo
 
 ### Variant Priority
 
-Values are resolved using the variant priority order specified by `-v`. The first non-empty value found wins.
+Values are resolved using the variant priority order specified by `--variants`. The first non-empty value found wins.
