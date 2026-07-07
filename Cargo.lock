@@ -462,6 +462,7 @@ version = "2.0.0"
 dependencies = [
  "mint-core",
  "pyo3",
+ "pyo3-build-config",
  "serde_json",
 ]
 
