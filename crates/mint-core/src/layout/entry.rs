@@ -280,6 +280,7 @@ impl LeafEntry {
             ));
         }
 
+        let expected_bits = self.scalar_type.size_bytes() * 8;
         let mut total_bits = 0usize;
         for field in fields {
             if field.bits == 0 {
@@ -287,10 +288,15 @@ impl LeafEntry {
                     "Bitmap field bits must be > 0.".into(),
                 ));
             }
+            if field.bits > expected_bits {
+                return Err(LayoutError::DataValueExportFailed(format!(
+                    "Bitmap field bits ({}) exceed storage width ({}).",
+                    field.bits, expected_bits
+                )));
+            }
             total_bits += field.bits;
         }
 
-        let expected_bits = self.scalar_type.size_bytes() * 8;
         if total_bits != expected_bits {
             return Err(LayoutError::DataValueExportFailed(format!(
                 "Bitmap total bits ({}) must equal storage width ({}).",

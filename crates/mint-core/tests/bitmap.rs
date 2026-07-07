@@ -321,3 +321,34 @@ fn bitmap_rejects_size_key() {
     let res = common::build_block(block, &cfg.mint, false, None);
     assert!(res.is_err(), "bitmap with size key should error");
 }
+
+#[test]
+fn bitmap_rejects_field_wider_than_storage() {
+    common::ensure_out_dir();
+
+    // Oversized bit counts previously overflowed the usize sum (panic in
+    // debug, wrap-to-valid in release); they must fail validation instead.
+    let layout = bitmap_layout(
+        r#"bad = { type = "u64", bitmap = [
+    { bits = 9223372036854775807, value = 0 },
+    { bits = 9223372036854775807, value = 0 },
+    { bits = 66, value = 0 },
+] }"#,
+    );
+
+    let path = common::unique_out_path("test_bitmap_oversized_bits", "toml");
+    std::fs::File::create(&path)
+        .unwrap()
+        .write_all(layout.as_bytes())
+        .unwrap();
+
+    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse");
+    let block = cfg.blocks.get("block").expect("block");
+
+    let res = common::build_block(block, &cfg.mint, false, None);
+    let err = res.expect_err("oversized bitmap field should error");
+    assert!(
+        err.to_string().contains("exceed storage width"),
+        "unexpected error: {err}"
+    );
+}
