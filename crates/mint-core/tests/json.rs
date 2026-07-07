@@ -1,5 +1,8 @@
 //! Integration tests for JsonDataSource.
 
+#[path = "common/mod.rs"]
+mod common;
+
 use mint_core::data::{DataSource, JsonDataSource};
 use mint_core::layout::value::{DataValue, ValueSource};
 
@@ -166,7 +169,6 @@ fn json_retrieve_2d_native_json_array() {
 #[test]
 fn json_from_file() {
     use std::fs;
-    use std::path::Path;
 
     let json_data = r#"{
         "Default": {
@@ -174,11 +176,11 @@ fn json_from_file() {
         }
     }"#;
 
-    let test_file = Path::new("/tmp/mint_test_json.json");
-    fs::write(test_file, json_data).expect("write test file");
+    let test_file = common::unique_out_path("mint_test_json", "json");
+    fs::write(&test_file, json_data).expect("write test file");
 
     let variants = vec!["Default".to_owned()];
-    let ds = JsonDataSource::from_path(test_file, &variants).expect("datasource load");
+    let ds = JsonDataSource::from_path(&test_file, &variants).expect("datasource load");
 
     let value = ds.retrieve_single_value("TemperatureMax").unwrap();
     assert!(matches!(value, DataValue::U64(50)));
