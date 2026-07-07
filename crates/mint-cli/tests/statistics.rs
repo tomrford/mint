@@ -212,6 +212,6 @@ fn test_missing_block_returns_error_instead_of_panicking() {
 
     assert_eq!(
         error.to_string(),
-        "Block not found: 'block' in '../../doc/examples/block.toml'. Available blocks: config, data"
+        "block not found: 'block' in '../../doc/examples/block.toml'. Available blocks: config, data"
     );
 }

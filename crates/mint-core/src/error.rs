@@ -15,7 +15,7 @@ pub enum MintError {
     #[error(transparent)]
     Output(#[from] OutputError),
 
-    #[error("While building block '{block_name}' from '{layout_file}': {source}")]
+    #[error("while building block '{block_name}' from '{layout_file}'")]
     InBlock {
         block_name: String,
         layout_file: String,

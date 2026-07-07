@@ -5,6 +5,9 @@ use mint_core::layout::value::DataValue;
 use mint_core::output::OutputFormat;
 use std::path::PathBuf;
 
+#[path = "common/mod.rs"]
+mod common;
+
 fn simple_block_selector(file: &str) -> BlockSelector {
     BlockSelector::named(file, "simple_block")
 }
@@ -79,7 +82,7 @@ value = { value = 1, type = "u8" }
     })
     .expect_err("oversized range should be rejected");
 
-    let message = error.to_string();
+    let message = common::error_chain(&error);
     assert!(
         message.contains("overflow.toml#oversized")
             && message.contains("exceeds the 32-bit address space"),

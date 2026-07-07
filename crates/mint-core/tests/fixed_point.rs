@@ -140,7 +140,7 @@ gain = { value = 300.5, type = "uq8.8" }
     let block = cfg.blocks.get("block").expect("block present");
 
     let err = common::build_block(block, &cfg.mint, true, None).expect_err("strict should fail");
-    let message = err.to_string();
+    let message = common::error_chain(&err);
     assert!(
         message.contains("fixed-point type 'uq8.8'") && message.contains("300.5"),
         "unexpected error: {message}"
@@ -173,7 +173,7 @@ signed_limit = { value = 9223372036854775808.0, type = "q63.0" }
 
     let err = common::build_block(block, &cfg.mint, true, None).expect_err("strict should fail");
     assert!(
-        err.to_string().contains("fixed-point type 'uq64.0'"),
+        common::error_chain(&err).contains("fixed-point type 'uq64.0'"),
         "unexpected strict error: {err}"
     );
 
@@ -209,7 +209,7 @@ gain = { value = inf, type = "uq8.8" }
 
     let err = common::build_block(block, &cfg.mint, false, None).expect_err("build should fail");
     assert!(
-        err.to_string().contains("cannot encode non-finite"),
+        common::error_chain(&err).contains("cannot encode non-finite"),
         "unexpected error: {err}"
     );
 }
@@ -328,7 +328,7 @@ checksum = { checksum = "crc32", type = "uq8.8" }
 
         let err = common::build_block(block, &cfg.mint, true, None).expect_err("build should fail");
         assert!(
-            err.to_string().contains(expected),
+            common::error_chain(&err).contains(expected),
             "expected '{expected}', got: {err}"
         );
     }

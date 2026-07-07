@@ -83,13 +83,9 @@ impl ExcelDataSource {
     }
 
     fn retrieve_cell(&self, name: &str) -> Result<&Data, DataError> {
-        let index = self
-            .names
-            .iter()
-            .position(|n| n == name)
-            .ok_or(DataError::RetrievalError(
-                "index not found in data sheet".to_owned(),
-            ))?;
+        let index = self.names.iter().position(|n| n == name).ok_or_else(|| {
+            DataError::RetrievalError(format!("name '{name}' not found in data sheet"))
+        })?;
 
         for column in &self.version_columns {
             if let Some(value) = column.get(index).filter(|v| !Self::cell_is_empty(v)) {
@@ -351,9 +347,12 @@ mod tests {
         let err = ds
             .retrieve_2d_array("Array")
             .expect_err("blank cell should be rejected");
+        let cause = std::error::Error::source(&err)
+            .expect("wrapped error should carry a cause")
+            .to_string();
         assert!(
-            err.to_string().contains("Empty cell in 2D array"),
-            "unexpected error: {err}"
+            cause.contains("Empty cell in 2D array"),
+            "unexpected error: {cause}"
         );
     }
 }

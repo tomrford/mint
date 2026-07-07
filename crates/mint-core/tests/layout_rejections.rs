@@ -93,8 +93,9 @@ b = { value = 0x22, type = "u32" }
     let block = cfg.blocks.get("block").expect("block present");
     let err = common::build_block(block, &cfg.mint, false, None)
         .expect_err("aliased field paths should be rejected");
+    let chain = common::error_chain(&err);
     assert!(
-        err.to_string().contains("Duplicate field path 'a.b'"),
-        "unexpected error: {err}"
+        chain.contains("Duplicate field path 'a.b'"),
+        "unexpected error: {chain}"
     );
 }

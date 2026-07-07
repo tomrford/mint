@@ -347,8 +347,9 @@ fn bitmap_rejects_field_wider_than_storage() {
 
     let res = common::build_block(block, &cfg.mint, false, None);
     let err = res.expect_err("oversized bitmap field should error");
+    let chain = common::error_chain(&err);
     assert!(
-        err.to_string().contains("exceed storage width"),
-        "unexpected error: {err}"
+        chain.contains("exceed storage width"),
+        "unexpected error: {chain}"
     );
 }

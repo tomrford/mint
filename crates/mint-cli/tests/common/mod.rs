@@ -146,3 +146,15 @@ pub fn build_args_for_layouts(
         },
     }
 }
+
+/// Renders an error and its full source chain as a single string.
+pub fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}

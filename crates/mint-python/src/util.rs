@@ -11,8 +11,15 @@ pub(crate) fn value_error(err: impl std::fmt::Display) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(err.to_string())
 }
 
-pub(crate) fn mint_error(err: impl std::fmt::Display) -> PyErr {
-    MintError::new_err(err.to_string())
+pub(crate) fn mint_error(err: impl std::error::Error) -> PyErr {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    MintError::new_err(message)
 }
 
 pub(crate) fn parse_python_json(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {

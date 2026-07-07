@@ -74,9 +74,9 @@ fn test_error_when_name_without_excel() {
     );
 
     let err = result.unwrap_err();
-    let err_str = format!("{}", err);
+    let err_str = common::error_chain(&err);
     assert!(
-        err_str.contains("Missing datasheet")
+        err_str.contains("missing datasheet")
             || err_str.contains("requires a value from a data source"),
         "Error should mention missing data source, got: {}",
         err_str
