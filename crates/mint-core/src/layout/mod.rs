@@ -28,11 +28,8 @@ pub fn load_layout(filename: impl AsRef<Path>) -> Result<Config, LayoutError> {
 
     match ext.as_str() {
         "toml" => parse_toml_layout_with_context(&text, &format!("file {}", filename.display())),
-        "yaml" | "yml" => {
-            parse_yaml_layout_with_context(&text, &format!("file {}", filename.display()))
-        }
         _ => Err(LayoutError::FileError(
-            "Unsupported layout file format; use .toml or .yaml".to_owned(),
+            "Unsupported layout file format; use .toml".to_owned(),
         )),
     }
 }
@@ -41,22 +38,11 @@ pub fn parse_toml_layout(text: &str) -> Result<Config, LayoutError> {
     parse_toml_layout_with_context(text, "TOML layout")
 }
 
-pub fn parse_yaml_layout(text: &str) -> Result<Config, LayoutError> {
-    parse_yaml_layout_with_context(text, "YAML layout")
-}
-
 fn parse_toml_layout_with_context(text: &str, context: &str) -> Result<Config, LayoutError> {
     let raw: TomlValue = toml::from_str(text)
         .map_err(|e| LayoutError::FileError(format!("failed to parse {}: {}", context, e)))?;
     let mut cfg: Config = raw
         .try_into()
-        .map_err(|e| LayoutError::FileError(format!("failed to parse {}: {}", context, e)))?;
-    promote_block_header_consts(&mut cfg)?;
-    Ok(cfg)
-}
-
-fn parse_yaml_layout_with_context(text: &str, context: &str) -> Result<Config, LayoutError> {
-    let mut cfg: Config = serde_yaml::from_str(text)
         .map_err(|e| LayoutError::FileError(format!("failed to parse {}: {}", context, e)))?;
     promote_block_header_consts(&mut cfg)?;
     Ok(cfg)

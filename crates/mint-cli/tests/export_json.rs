@@ -1,7 +1,7 @@
 use mint_cli::commands;
 use mint_cli::data;
-use mint_cli::layout::args::{BlockSelector, LayoutArgs};
-use mint_cli::output::args::{OutputArgs, OutputFormat};
+use {mint_cli::layout_args::LayoutArgs, mint_core::build::BlockSelector};
+use {mint_cli::output_args::OutputArgs, mint_core::output::OutputFormat};
 
 #[path = "common/mod.rs"]
 mod common;
@@ -40,12 +40,12 @@ message = { value = "Hi", type = "u8", size = 4 }
     let layout_path = common::write_layout_file("export_json_layout", layout);
     let layout_key = layout_path.clone();
 
-    let data_args = data::args::DataArgs {
+    let data_args = mint_cli::data_args::DataArgs {
         json: Some(
             r#"{"Default":{"DeviceName":"UnitA","EnableDebug":1,"RegionCode":7,"Coeffs":[10,20,30],"Counter":99}}"#
                 .to_owned(),
         ),
-        versions: Some("Default".to_owned()),
+        versions: vec!["Default".to_owned()],
         ..Default::default()
     };
     let ds = data::create_data_source(&data_args)

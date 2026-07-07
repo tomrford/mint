@@ -31,22 +31,9 @@ pub struct DataArgs {
         value_name = "NAME[/NAME...]",
         requires = "datasource",
         group = "version_selectors",
+        value_delimiter = '/',
+        value_parser = clap::builder::NonEmptyStringValueParser::new(),
         help = "Version columns to use in priority order (separate with '/')"
     )]
-    pub versions: Option<String>,
-}
-
-impl DataArgs {
-    /// Parses the version stack from the raw slash-separated string.
-    pub fn get_version_list(&self) -> Vec<String> {
-        let raw = self.versions.as_deref();
-        raw.map(|r| {
-            r.split('/')
-                .map(|name| name.trim())
-                .filter(|name| !name.is_empty())
-                .map(|name| name.to_owned())
-                .collect()
-        })
-        .unwrap_or_default()
-    }
+    pub versions: Vec<String>,
 }

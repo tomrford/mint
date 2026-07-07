@@ -39,7 +39,6 @@ struct PendingChecksum {
 /// Mutable state tracked during recursive bytestream building
 struct BuildState {
     buffer: Vec<u8>,
-    offset: usize,
     padding_count: u32,
     /// Maps dotted field paths to their byte offsets within the block data.
     known_offsets: HashMap<String, usize>,
@@ -99,7 +98,6 @@ impl Block {
     ) -> Result<BuildOutput, LayoutError> {
         let mut state = BuildState {
             buffer: Vec::with_capacity((self.header.length as usize).min(64 * 1024)),
-            offset: 0,
             padding_count: 0,
             known_offsets: HashMap::new(),
             pending_refs: Vec::new(),
@@ -156,13 +154,12 @@ impl Block {
         match table {
             Entry::Leaf(leaf) => {
                 let alignment = leaf.get_alignment();
-                while !state.offset.is_multiple_of(alignment) {
+                while !state.buffer.len().is_multiple_of(alignment) {
                     state.buffer.push(config.padding);
-                    state.offset += 1;
                     state.padding_count += 1;
                 }
 
-                let leaf_offset = state.offset;
+                let leaf_offset = state.buffer.len();
 
                 if let EntrySource::Ref(target) = &leaf.source {
                     leaf.validate_ref(target)?;
@@ -174,7 +171,6 @@ impl Block {
                         field_path: field_path.clone(),
                     });
                     state.buffer.extend(std::iter::repeat_n(0u8, size));
-                    state.offset += size;
                     return Ok(leaf_offset);
                 }
 
@@ -188,12 +184,10 @@ impl Block {
                         field_path: field_path.clone(),
                     });
                     state.buffer.extend(std::iter::repeat_n(0u8, size));
-                    state.offset += size;
                     return Ok(leaf_offset);
                 }
 
                 let bytes = leaf.emit_bytes(data_source, config, value_sink, field_path)?;
-                state.offset += bytes.len();
                 state.buffer.extend(bytes);
                 Ok(leaf_offset)
             }
@@ -236,7 +230,7 @@ impl Block {
                         source: Box::new(e),
                     })?;
                 }
-                Ok(branch_offset.unwrap_or(state.offset))
+                Ok(branch_offset.unwrap_or(state.buffer.len()))
             }
         }
     }

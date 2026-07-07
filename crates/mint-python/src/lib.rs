@@ -19,7 +19,7 @@ use mint_core::build::{self as core_build, BlockSelector, BuildFromLayoutsReques
 use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
 use mint_core::layout;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyList, PyModule};
+use pyo3::types::{PyAny, PyModule};
 
 use crate::types::{PyBlockStat, PyBuildBlock, PyBuildResult, PyBuildStats, PyDataRange, PyLayout};
 use crate::util::{mint_error, parse_python_json, py_to_json_value, value_error};
@@ -29,44 +29,14 @@ pyo3::create_exception!(mint, MintError, pyo3::exceptions::PyException);
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum LayoutSource {
     File { path: String },
-    String { text: String, format: LayoutFormat },
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LayoutFormat {
-    Toml,
-    Yaml,
-}
-
-impl LayoutFormat {
-    fn parse(value: &str) -> PyResult<Self> {
-        match value.to_ascii_lowercase().as_str() {
-            "toml" => Ok(Self::Toml),
-            "yaml" | "yml" => Ok(Self::Yaml),
-            other => Err(value_error(format!(
-                "unknown layout format '{other}', expected 'toml' or 'yaml'"
-            ))),
-        }
-    }
-
-    fn infer(name: &str) -> PyResult<Self> {
-        let Some((_, ext)) = name.rsplit_once('.') else {
-            return Err(value_error(
-                "layout format could not be inferred; pass format='toml' or format='yaml'",
-            ));
-        };
-        Self::parse(ext)
-    }
+    String { text: String },
 }
 
 impl LayoutSource {
     fn parse_config(&self) -> PyResult<mint_core::layout::block::Config> {
         match self {
             Self::File { path } => layout::load_layout(path).map_err(mint_error),
-            Self::String { text, format } => match format {
-                LayoutFormat::Toml => layout::parse_toml_layout(text).map_err(mint_error),
-                LayoutFormat::Yaml => layout::parse_yaml_layout(text).map_err(mint_error),
-            },
+            Self::String { text } => layout::parse_toml_layout(text).map_err(mint_error),
         }
     }
 }
@@ -101,7 +71,7 @@ fn build(
         return Err(value_error("at least one build block is required"));
     }
 
-    let data_source = create_data_source(py, data, json_path, xlsx_path, variants, main_sheet)?;
+    let data_source = create_data_source(data, json_path, xlsx_path, variants, main_sheet)?;
     let data_source_ref = data_source.as_deref();
 
     let mut named_layouts = Vec::new();
@@ -146,7 +116,6 @@ fn build(
 }
 
 fn create_data_source(
-    py: Python<'_>,
     data: Option<&Bound<'_, PyAny>>,
     json_path: Option<String>,
     xlsx_path: Option<String>,
@@ -175,7 +144,7 @@ fn create_data_source(
     }
 
     if let Some(data) = data {
-        let value = py_to_json_value(py, data)?;
+        let value = py_to_json_value(data)?;
         return Ok(Some(Box::new(
             JsonDataSource::from_value(value, &variants).map_err(mint_error)?,
         )));
@@ -202,12 +171,4 @@ pub(crate) fn py_json_loads(py: Python<'_>, text: &str) -> PyResult<Py<PyAny>> {
     parse_python_json(py)?
         .call_method1("loads", (text,))
         .map(|v| v.unbind())
-}
-
-pub(crate) fn py_json_dumps(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<String> {
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("separators", PyList::new(py, [",", ":"])?)?;
-    parse_python_json(py)?
-        .call_method("dumps", (value,), Some(&kwargs))?
-        .extract()
 }

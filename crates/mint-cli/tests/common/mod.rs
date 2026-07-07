@@ -5,10 +5,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mint_cli::args::Args;
-use mint_cli::data::{self, DataSource};
-use mint_cli::layout::args::{BlockSelector, LayoutArgs};
-use mint_cli::layout::used_values::{NoopValueSink, ValueCollector};
-use mint_cli::output::args::{OutputArgs, OutputFormat};
+use mint_cli::data;
+use mint_cli::layout_args::LayoutArgs;
+use mint_cli::output_args::OutputArgs;
+use mint_core::build::BlockSelector;
+use mint_core::data::DataSource;
+use mint_core::layout::used_values::{NoopValueSink, ValueCollector};
+use mint_core::output::OutputFormat;
 
 static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -47,9 +50,9 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
             blocks: vec![BlockSelector::named(layout_path, block_name)],
             strict: false,
         },
-        data: data::args::DataArgs {
+        data: mint_cli::data_args::DataArgs {
             xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-            versions: Some("Default".to_owned()),
+            versions: vec!["Default".to_owned()],
             ..Default::default()
         },
         output: OutputArgs {
@@ -67,9 +70,9 @@ pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
     let version_candidates: [&str; 2] = ["Default", "VarA/Default"];
 
     for ver in &version_candidates {
-        let ver_args = data::args::DataArgs {
+        let ver_args = mint_cli::data_args::DataArgs {
             xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-            versions: Some((*ver).to_owned()),
+            versions: ver.split('/').map(str::to_owned).collect(),
             ..Default::default()
         };
         if let Ok(Some(ds)) = data::create_data_source(&ver_args) {
@@ -90,11 +93,11 @@ pub fn assert_out_file_exists(out_path: &Path) {
 
 /// Build a block's bytestream, returning `(bytes, padding_count)`.
 pub fn build_block(
-    block: &mint_cli::layout::block::Block,
-    settings: &mint_cli::layout::settings::MintConfig,
+    block: &mint_core::layout::block::Block,
+    settings: &mint_core::layout::settings::MintConfig,
     strict: bool,
     data_source: Option<&dyn DataSource>,
-) -> Result<(Vec<u8>, u32), mint_cli::layout::error::LayoutError> {
+) -> Result<(Vec<u8>, u32), mint_core::layout::error::LayoutError> {
     let mut noop = NoopValueSink;
     let output = block.build_bytestream(data_source, settings, strict, &mut noop)?;
     Ok((output.bytestream, output.padding_count))
@@ -102,9 +105,9 @@ pub fn build_block(
 
 /// Build a block's bytestream and collect exported values.
 pub fn build_block_with_values(
-    block: &mint_cli::layout::block::Block,
-    settings: &mint_cli::layout::settings::MintConfig,
-) -> Result<((Vec<u8>, u32), serde_json::Value), mint_cli::layout::error::LayoutError> {
+    block: &mint_core::layout::block::Block,
+    settings: &mint_core::layout::settings::MintConfig,
+) -> Result<((Vec<u8>, u32), serde_json::Value), mint_core::layout::error::LayoutError> {
     let mut collector = ValueCollector::new();
     let output = block.build_bytestream(None, settings, false, &mut collector)?;
     Ok((
@@ -128,9 +131,9 @@ pub fn build_args_for_layouts(
             blocks: layouts,
             strict: false,
         },
-        data: data::args::DataArgs {
+        data: mint_cli::data_args::DataArgs {
             xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-            versions: Some("Default".to_owned()),
+            versions: vec!["Default".to_owned()],
             ..Default::default()
         },
         output: OutputArgs {

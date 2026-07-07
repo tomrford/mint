@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use mint_core::data::{ExcelDataSource, ExcelDataSourceOptions};
+use mint_core::data::{ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
 
 #[path = "common/mod.rs"]
 mod common;
@@ -146,6 +146,78 @@ bad.large_int_to_f64 = { value = 9007199254740993, type = "f64" }
     assert!(
         res.is_err(),
         "strict mode should reject lossy int to f64 conversion"
+    );
+}
+
+#[test]
+fn strict_conversions_reject_float_integer_boundaries() {
+    common::ensure_out_dir();
+
+    for (field, scalar_type, value) in [
+        ("bad.u64_boundary", "u64", "18446744073709551616.0"),
+        ("bad.i64_boundary", "i64", "9223372036854775808.0"),
+    ] {
+        let layout_toml = format!(
+            r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x80000
+length = 0x100
+padding = 0x00
+
+[block.data]
+{field} = {{ value = {value}, type = "{scalar_type}" }}
+"#
+        );
+
+        let path = common::unique_out_path("test_strict_float_integer_boundary", "toml");
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(layout_toml.as_bytes()).unwrap();
+
+        let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
+        let block = cfg.blocks.get("block").expect("block present");
+
+        let res = common::build_block(block, &cfg.mint, true, None);
+        assert!(
+            res.is_err(),
+            "strict mode should reject {value} to {scalar_type}"
+        );
+    }
+}
+
+#[test]
+fn strict_conversions_reject_lossy_u64_to_float() {
+    common::ensure_out_dir();
+
+    let layout_toml = r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x80000
+length = 0x100
+padding = 0x00
+
+[block.data]
+bad.large_u64_to_f64 = { name = "Value", type = "f64" }
+"#;
+
+    let path = common::unique_out_path("test_strict_bad_large_u64_to_f64", "toml");
+    let mut f = std::fs::File::create(&path).unwrap();
+    f.write_all(layout_toml.as_bytes()).unwrap();
+
+    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse bad layout");
+    let block = cfg.blocks.get("block").expect("block present");
+    let versions = vec!["Default".to_owned()];
+    let ds = JsonDataSource::from_str(r#"{"Default":{"Value":18446744073709551615}}"#, &versions)
+        .expect("datasource load");
+
+    let res = common::build_block(block, &cfg.mint, true, Some(&ds));
+    assert!(
+        res.is_err(),
+        "strict mode should reject lossy u64 to f64 conversion"
     );
 }
 

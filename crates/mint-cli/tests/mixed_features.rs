@@ -1,6 +1,6 @@
 use mint_cli::commands;
-use mint_cli::layout::args::BlockSelector;
-use mint_cli::output::args::{OutputArgs, OutputFormat};
+use mint_core::build::BlockSelector;
+use {mint_cli::output_args::OutputArgs, mint_core::output::OutputFormat};
 
 #[path = "common/mod.rs"]
 mod common;
@@ -66,16 +66,16 @@ checksum = { checksum = "crc32", type = "u32" }
     let le_path = common::write_layout_file("mixed_le", layout_le_end);
 
     // Prepare a datasheet (may be no-op for these, but keep realistic flow)
-    let data_args = mint_cli::data::args::DataArgs {
+    let data_args = mint_cli::data_args::DataArgs {
         xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-        versions: Some("Default".to_owned()),
+        versions: vec!["Default".to_owned()],
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&data_args).expect("datasource loads");
 
     // Case 1: Big endian, inline checksum, HEX with width 64
     let args_be_hex = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
+        layout: mint_cli::layout_args::LayoutArgs {
             blocks: vec![BlockSelector::named(be_path.clone(), "block")],
             strict: false,
         },
@@ -94,7 +94,7 @@ checksum = { checksum = "crc32", type = "u32" }
 
     // Case 2: Big endian, inline checksum, MOT with width 16
     let args_be_mot = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
+        layout: mint_cli::layout_args::LayoutArgs {
             blocks: vec![BlockSelector::named(be_path, "block")],
             strict: false,
         },
@@ -113,7 +113,7 @@ checksum = { checksum = "crc32", type = "u32" }
 
     // Case 3: Little endian, inline checksum, HEX width 16
     let args_le_hex = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
+        layout: mint_cli::layout_args::LayoutArgs {
             blocks: vec![BlockSelector::named(le_path.clone(), "block")],
             strict: true, // exercise strict path on numeric arrays
         },
@@ -132,7 +132,7 @@ checksum = { checksum = "crc32", type = "u32" }
 
     // Case 4: Little endian, inline checksum, MOT width 64
     let args_le_mot = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
+        layout: mint_cli::layout_args::LayoutArgs {
             blocks: vec![BlockSelector::named(le_path, "block")],
             strict: true,
         },

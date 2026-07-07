@@ -183,6 +183,49 @@ def test_json_data_requires_and_uses_explicit_variants():
     assert result.used_values["data.toml"]["config"]["value"] == 7
 
 
+def test_python_data_rejects_non_json_values_before_build():
+    layout = mint.Layout.from_string(
+        "data.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x2000
+        length = 0x10
+
+        [config.data]
+        value = { name = "Value", type = "u64" }
+        """,
+    )
+    blocks = layout.blocks("config")
+
+    with pytest.raises(ValueError, match="integer values must fit"):
+        mint.build(
+            blocks,
+            data={"Default": {"Value": (1 << 64) + 3}},
+            variants=["Default"],
+            strict=True,
+        )
+
+    with pytest.raises(ValueError, match="floating-point values must be finite"):
+        mint.build(
+            blocks,
+            data={"Default": {"Value": float("inf")}},
+            variants=["Default"],
+        )
+
+    with pytest.raises(ValueError, match="unsupported data value of type 'bytes'"):
+        mint.build(
+            blocks,
+            data={"Default": {"Value": b"abc"}},
+            variants=["Default"],
+        )
+
+    with pytest.raises(ValueError, match="data dictionaries must use string keys"):
+        mint.build(blocks, data={1: {"Value": 7}}, variants=["Default"])
+
+
 def test_render_srec_and_record_width_validation():
     layout = mint.Layout.from_file(str(LAYOUT))
     result = mint.build(layout.blocks("simple_block"))

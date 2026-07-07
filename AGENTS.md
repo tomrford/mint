@@ -1,6 +1,6 @@
 ## Project Overview
 
-mint is an embedded development tool that works with TOML layout files and data sources (Excel or JSON) to assemble, export, sign (and more) static binary files for flashing to microcontrollers. YAML layouts are parser-compatible but not the primary documented workflow.
+mint is an embedded development tool that works with TOML layout files and data sources (Excel or JSON) to assemble and export static binary files for flashing to microcontrollers. Signing and post-processing are handled downstream (see the sibling hexy project).
 
 ## Architecture & Codebase
 
@@ -12,7 +12,7 @@ mint is a Cargo workspace with three crates:
 
 ### Core Concepts
 
-- **Layouts**: TOML/YAML files defining memory blocks (`crates/mint-core/src/layout`).
+- **Layouts**: TOML files defining memory blocks (`crates/mint-core/src/layout`).
 - **DataSource**: Provides variant values by name (`crates/mint-core/src/data`).
   - **Excel** (`.xlsx`): Uses `Name` column for lookups; arrays referenced by sheet name (prefixed with `#`).
   - **JSON**: Raw JSON object with variant names as top-level keys, each containing an object with name:value pairs.

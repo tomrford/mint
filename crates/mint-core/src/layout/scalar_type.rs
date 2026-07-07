@@ -80,14 +80,6 @@ impl ScalarType {
         )
     }
 
-    /// Returns true if this is an unsigned integer type.
-    pub fn is_unsigned_integer(&self) -> bool {
-        matches!(
-            self,
-            ScalarType::U8 | ScalarType::U16 | ScalarType::U32 | ScalarType::U64
-        )
-    }
-
     /// Returns true if this is a signed type.
     pub fn is_signed(&self) -> bool {
         matches!(

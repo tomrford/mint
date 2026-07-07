@@ -28,7 +28,7 @@ The difference is where side effects happen. The CLI reads layout/data paths, wr
 
 ## Layouts and Blocks
 
-Use `Layout.from_file(...)` for normal TOML/YAML layout files:
+Use `Layout.from_file(...)` for normal TOML layout files:
 
 ```python
 import mint

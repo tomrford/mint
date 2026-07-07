@@ -286,19 +286,19 @@ Equivalent to the Excel example above:
 
 ```bash
 # All blocks, Excel source, single variant
-mint layout.toml --xlsx data.xlsx -v Default -o firmware.hex
+mint build layout.toml --xlsx data.xlsx -v Default -o firmware.hex
 
 # Specific block, JSON source, variant fallback chain
-mint layout.toml#config --json data.json -v Production/Default -o config.hex
+mint build layout.toml#config --json data.json -v Production/Default -o config.hex
 
 # Multiple blocks from same file
-mint layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o combined.hex
+mint build layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o combined.hex
 
 # Production build with safety checks and stats
-mint layout.toml --xlsx data.xlsx -v Production/Default -o release/fw.hex --strict --stats
+mint build layout.toml --xlsx data.xlsx -v Production/Default -o release/fw.hex --strict --stats
 
 # Motorola S-Record output
-mint layout.toml --xlsx data.xlsx -v Default -o firmware.mot --format mot
+mint build layout.toml --xlsx data.xlsx -v Default -o firmware.mot --format mot
 ```
 
 ## Starting from scratch checklist

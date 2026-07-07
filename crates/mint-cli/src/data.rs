@@ -1,14 +1,10 @@
 use crate::data_args::DataArgs;
-pub use mint_core::data::DataSource;
+use mint_core::data::DataSource;
 use mint_core::data::error::DataError;
 use mint_core::data::{ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
 
-pub mod args {
-    pub use crate::data_args::*;
-}
-
 pub fn create_data_source(args: &DataArgs) -> Result<Option<Box<dyn DataSource>>, DataError> {
-    let versions = args.get_version_list();
+    let versions = args.versions.clone();
     match (&args.xlsx, &args.json) {
         (Some(path), _) => {
             let mut options = ExcelDataSourceOptions::new(versions);

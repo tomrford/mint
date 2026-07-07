@@ -1,6 +1,6 @@
 use mint_cli::commands;
-use mint_cli::layout::settings::ChecksumConfig;
-use mint_cli::output::checksum::calculate_crc;
+use mint_core::layout::settings::ChecksumConfig;
+use mint_core::output::checksum::calculate_crc;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -52,11 +52,7 @@ checksum = { checksum = "crc32", type = "u32" }
 
     let layout_path = common::write_layout_file("crc_inline_basic", layout);
 
-    let args = common::build_args(
-        &layout_path,
-        "block",
-        mint_cli::output::args::OutputFormat::Hex,
-    );
+    let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
     let stats = commands::build(&args, None).expect("inline checksum build");
     assert_eq!(stats.blocks_processed, 1);
     let expected = calculate_crc(
@@ -88,11 +84,7 @@ value1 = { value = 0x11223344, type = "u32" }
 
     let layout_path = common::write_layout_file("crc_no_checksum", layout);
 
-    let args = common::build_args(
-        &layout_path,
-        "block",
-        mint_cli::output::args::OutputFormat::Hex,
-    );
+    let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
     let stats = commands::build(&args, None).expect("no checksum build");
     assert_eq!(stats.blocks_processed, 1);
 }
@@ -145,7 +137,7 @@ checksum = { checksum = "crc32c", type = "u32" }
     let args_a = common::build_args(
         &layout_path,
         "block_a",
-        mint_cli::output::args::OutputFormat::Hex,
+        mint_core::output::OutputFormat::Hex,
     );
     let stats_a = commands::build(&args_a, None).expect("block_a build");
 
@@ -153,7 +145,7 @@ checksum = { checksum = "crc32c", type = "u32" }
     let args_b = common::build_args(
         &layout_path,
         "block_b",
-        mint_cli::output::args::OutputFormat::Hex,
+        mint_core::output::OutputFormat::Hex,
     );
     let stats_b = commands::build(&args_b, None).expect("block_b build");
 
@@ -209,14 +201,14 @@ value = { value = 0x33333333, type = "u32" }
     let layout_path = common::write_layout_file("crc_combined", layout);
 
     let blocks = vec![
-        mint_cli::layout::args::BlockSelector::named(layout_path.clone(), "block_a"),
-        mint_cli::layout::args::BlockSelector::named(layout_path.clone(), "block_b"),
-        mint_cli::layout::args::BlockSelector::named(layout_path, "block_c"),
+        mint_core::build::BlockSelector::named(layout_path.clone(), "block_a"),
+        mint_core::build::BlockSelector::named(layout_path.clone(), "block_b"),
+        mint_core::build::BlockSelector::named(layout_path, "block_c"),
     ];
 
     let args = common::build_args_for_layouts(
         blocks,
-        mint_cli::output::args::OutputFormat::Hex,
+        mint_core::output::OutputFormat::Hex,
         "crc_combined",
     );
 
@@ -249,11 +241,7 @@ checksum = { checksum = "nonexistent", type = "u32" }
 
     let layout_path = common::write_layout_file("crc_bad_config", layout);
 
-    let args = common::build_args(
-        &layout_path,
-        "block",
-        mint_cli::output::args::OutputFormat::Hex,
-    );
+    let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
     let result = commands::build(&args, None);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("not found"));
@@ -289,11 +277,7 @@ checksum2 = { checksum = "crc32", type = "u32" }
 
     let layout_path = common::write_layout_file("crc_multiple", layout);
 
-    let args = common::build_args(
-        &layout_path,
-        "block",
-        mint_cli::output::args::OutputFormat::Hex,
-    );
+    let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
     let stats = commands::build(&args, None).expect("multiple checksum build");
 
     let crc1 = calculate_crc(&[0x42, 0x00, 0x00, 0x00], &standard_crc32());
@@ -338,11 +322,7 @@ length = 0x100
             "{layout_prefix}\n[block.data]\nvalue = {{ value = 0x42, type = \"u32\" }}\nchecksum = {{ checksum = \"crc32\", type = \"{type_name}\" }}\n"
         );
         let layout_path = common::write_layout_file("crc_wrong_type", &layout);
-        let args = common::build_args(
-            &layout_path,
-            "block",
-            mint_cli::output::args::OutputFormat::Hex,
-        );
+        let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
         let result = commands::build(&args, None);
         assert!(result.is_err(), "{type_name} should be rejected");
         assert!(result.unwrap_err().to_string().contains("must be u32"));

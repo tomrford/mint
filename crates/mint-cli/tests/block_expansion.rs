@@ -1,5 +1,5 @@
 use mint_cli::commands;
-use mint_cli::layout::args::BlockSelector;
+use mint_core::build::BlockSelector;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -15,7 +15,7 @@ fn test_deduplication_file_and_specific() {
     };
 
     let args = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
+        layout: mint_cli::layout_args::LayoutArgs {
             blocks: vec![
                 BlockSelector::all(layout_path),
                 // Request specific block that exists in the combined file
@@ -24,10 +24,10 @@ fn test_deduplication_file_and_specific() {
             strict: false,
         },
         data: Default::default(),
-        output: mint_cli::output::args::OutputArgs {
+        output: mint_cli::output_args::OutputArgs {
             out: common::unique_out_path("dedup_test", "hex"),
             record_width: 32,
-            format: mint_cli::output::args::OutputFormat::Hex,
+            format: mint_core::output::OutputFormat::Hex,
             export_json: None,
             stats: false,
             quiet: true,
@@ -36,7 +36,7 @@ fn test_deduplication_file_and_specific() {
 
     let stats = commands::build(&args, Some(ds.as_ref())).expect("build should succeed");
 
-    let cfg = mint_cli::layout::load_layout(layout_path).expect("layout loads");
+    let cfg = mint_core::layout::load_layout(layout_path).expect("layout loads");
     assert_eq!(
         stats.blocks_processed,
         cfg.blocks.len(),
@@ -55,15 +55,15 @@ fn test_file_expansion_builds_all_blocks() {
     };
 
     let args = mint_cli::args::Args {
-        layout: mint_cli::layout::args::LayoutArgs {
+        layout: mint_cli::layout_args::LayoutArgs {
             blocks: vec![BlockSelector::all(layout_path)],
             strict: false,
         },
         data: Default::default(),
-        output: mint_cli::output::args::OutputArgs {
+        output: mint_cli::output_args::OutputArgs {
             out: common::unique_out_path("all_blocks", "hex"),
             record_width: 32,
-            format: mint_cli::output::args::OutputFormat::Hex,
+            format: mint_core::output::OutputFormat::Hex,
             export_json: None,
             stats: false,
             quiet: true,
@@ -72,7 +72,7 @@ fn test_file_expansion_builds_all_blocks() {
 
     let stats = commands::build(&args, Some(ds.as_ref())).expect("build should succeed");
 
-    let cfg = mint_cli::layout::load_layout(layout_path).expect("layout loads");
+    let cfg = mint_core::layout::load_layout(layout_path).expect("layout loads");
     assert_eq!(
         stats.blocks_processed,
         cfg.blocks.len(),
