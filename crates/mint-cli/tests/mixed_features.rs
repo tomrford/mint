@@ -68,7 +68,7 @@ checksum = { checksum = "crc32", type = "u32" }
     // Prepare a datasheet (may be no-op for these, but keep realistic flow)
     let data_args = mint_cli::data_args::DataArgs {
         xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-        versions: vec!["Default".to_owned()],
+        variants: vec!["Default".to_owned()],
         ..Default::default()
     };
     let ds = mint_cli::data::create_data_source(&data_args).expect("datasource loads");

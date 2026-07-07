@@ -52,7 +52,7 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
         },
         data: mint_cli::data_args::DataArgs {
             xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-            versions: vec!["Default".to_owned()],
+            variants: vec!["Default".to_owned()],
             ..Default::default()
         },
         output: OutputArgs {
@@ -67,12 +67,12 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
 }
 
 pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
-    let version_candidates: [&str; 2] = ["Default", "VarA/Default"];
+    let variant_candidates: [&str; 2] = ["Default", "VarA/Default"];
 
-    for ver in &version_candidates {
+    for ver in &variant_candidates {
         let ver_args = mint_cli::data_args::DataArgs {
             xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-            versions: ver.split('/').map(str::to_owned).collect(),
+            variants: ver.split('/').map(str::to_owned).collect(),
             ..Default::default()
         };
         if let Ok(Some(ds)) = data::create_data_source(&ver_args) {
@@ -133,7 +133,7 @@ pub fn build_args_for_layouts(
         },
         data: mint_cli::data_args::DataArgs {
             xlsx: Some("../mint-core/tests/data/data.xlsx".to_owned()),
-            versions: vec!["Default".to_owned()],
+            variants: vec!["Default".to_owned()],
             ..Default::default()
         },
         output: OutputArgs {
@@ -145,4 +145,16 @@ pub fn build_args_for_layouts(
             quiet: false,
         },
     }
+}
+
+/// Renders an error and its full source chain as a single string.
+pub fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }

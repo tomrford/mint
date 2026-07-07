@@ -244,7 +244,7 @@ checksum = { checksum = "nonexistent", type = "u32" }
     let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
     let result = commands::build(&args, None);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("not found"));
+    assert!(common::error_chain(&result.unwrap_err()).contains("not found"));
 }
 
 /// Tests that multiple checksums are resolved in field order after refs.
@@ -325,6 +325,6 @@ length = 0x100
         let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
         let result = commands::build(&args, None);
         assert!(result.is_err(), "{type_name} should be rejected");
-        assert!(result.unwrap_err().to_string().contains("must be u32"));
+        assert!(common::error_chain(&result.unwrap_err()).contains("must be u32"));
     }
 }

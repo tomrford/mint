@@ -24,5 +24,8 @@ mint-core = { path = "../mint-core", version = "2.0.0" }
 pyo3 = { version = "0.28.3", features = ["abi3-py310"] }
 serde_json = { version = "1.0.142", features = ["preserve_order"] }
 
+[build-dependencies]
+pyo3-build-config = "0.28.3"
+
 [lints]
 workspace = true

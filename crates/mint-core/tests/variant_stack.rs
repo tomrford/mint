@@ -2,7 +2,7 @@ use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions};
 use mint_core::layout::value::DataValue;
 
 fn build_source(version: &str) -> ExcelDataSource {
-    let versions = version
+    let variants = version
         .split('/')
         .map(|name| name.trim())
         .filter(|name| !name.is_empty())
@@ -10,7 +10,7 @@ fn build_source(version: &str) -> ExcelDataSource {
         .collect();
     ExcelDataSource::from_path(
         "tests/data/data.xlsx",
-        ExcelDataSourceOptions::new(versions),
+        ExcelDataSourceOptions::new(variants),
     )
     .expect("datasource load")
 }

@@ -79,7 +79,7 @@ field = { const = "missing", type = "u32" }
     );
     let block = &config.blocks["block"];
     let err = common::build_block(block, &config.mint, false, None).unwrap_err();
-    let message = err.to_string();
+    let message = common::error_chain(&err);
 
     assert!(message.contains("Const 'missing' not found"), "{message}");
     assert!(message.contains("magic"), "{message}");
@@ -98,8 +98,9 @@ field = { const = "magic", type = "u8", size = 4 }
     );
     let block = &config.blocks["block"];
     let err = common::build_block(block, &config.mint, false, None).unwrap_err();
+    let chain = common::error_chain(&err);
 
-    assert!(err.to_string().contains("scalar const"), "{err}");
+    assert!(chain.contains("scalar const"), "{chain}");
 }
 
 #[test]

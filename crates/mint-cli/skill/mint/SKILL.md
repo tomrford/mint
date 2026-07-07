@@ -62,7 +62,7 @@ When setting up mint for a project, these parameters need to be established. If 
 
 - **Which values are constants vs. configurable** — one-off constants go as `value = ...`; reusable constants go in `[mint.const]` and fields use `const = "..."`; configurable values use `name = "..."` to pull from a data source.
 - **Data source format** — Excel workbook (typical for manufacturing/calibration workflows) or JSON (typical for CI pipelines that fetch or generate data).
-- **Variant names** — the columns/keys that represent build variants (e.g., Default, Debug, Production). The `-v` flag controls fallback priority.
+- **Variant names** — the columns/keys that represent build variants (e.g., Default, Debug, Production). The `--variants` flag controls fallback priority.
 
 ## Scalar types
 
@@ -198,7 +198,7 @@ The workbook has a **Main sheet** (or specify `--main-sheet`) with this structur
 | Matrix       | #CalibrationMatrix   | #CalibrationMatrix |            |
 
 - **Name column**: lookup keys matching layout `name` fields
-- **Variant columns**: one per build variant. First non-empty value in the `-v` priority chain wins.
+- **Variant columns**: one per build variant. First non-empty value in the `--variants` priority chain wins.
 - **Array sheet refs**: A cell value like `#DefaultCoefficients` points to a separate sheet containing array data. First row is headers (ignored), values read row-by-row until an empty cell.
 
 ### JSON (`--json`)
@@ -224,9 +224,9 @@ The workbook has a **Main sheet** (or specify `--main-sheet`) with this structur
 
 Top-level keys are variant names. Each contains an object of name:value pairs. Arrays are native JSON arrays. 2D arrays are arrays of arrays. Accepts a file path or inline JSON string.
 
-### Variant priority (`-v`)
+### Variant priority (`--variants`)
 
-`-v Debug/Default` means: look in Debug first, fall back to Default if the key is missing or null. The first non-empty value wins.
+`--variants Debug/Default` means: look in Debug first, fall back to Default if the key is missing or null. The first non-empty value wins.
 
 **Name matching**: The `name` field in the layout must exactly match a key in the data source. These are case-sensitive. When setting up a new data source, collect all `name = "..."` values from the layout and ensure each one exists in the source.
 
@@ -234,14 +234,14 @@ Top-level keys are variant names. Each contains an object of name:value pairs. A
 
 ```bash
 # Basic build
-mint build layout.toml --xlsx data.xlsx -v Default -o firmware.hex
+mint build layout.toml --xlsx data.xlsx --variants Default -o firmware.hex
 
 # Specific blocks
-mint build layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o out.hex
+mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Default -o out.hex
 
 # JSON data source (file or inline)
-mint build layout.toml --json data.json -v Debug/Default -o out.hex
-mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}' -v Default -o out.hex
+mint build layout.toml --json data.json --variants Debug/Default -o out.hex
+mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}' --variants Default -o out.hex
 
 # Output format options
 --format hex              # Intel HEX (default)

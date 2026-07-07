@@ -30,7 +30,7 @@ cargo install --path crates/mint-cli
 nix develop -c cargo build
 nix develop -c cargo test
 nix develop -c cargo clippy --workspace
-nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx -v Default
+nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx --variants Default
 nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml
 nix develop -c uv run --directory crates/mint-python --group dev pytest tests
 ```
@@ -47,13 +47,13 @@ nix develop -c uv run --directory crates/mint-python --group dev pytest tests
 
 ```bash
 # Excel data source
-mint build block.toml --xlsx data.xlsx -v Default --stats
+mint build block.toml --xlsx data.xlsx --variants Default --stats
 
 # JSON data source
-mint build layout.toml -j data.json -v Debug/Default
+mint build layout.toml -j data.json --variants Debug/Default
 
 # Multiple blocks with options
-mint build layout.toml#config layout.toml#data --xlsx data.xlsx -v Default --stats
+mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Default --stats
 ```
 
 ### Layout Example

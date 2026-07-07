@@ -220,7 +220,12 @@ impl Block {
                     );
 
                     if let Ok(o) = offset {
-                        state.known_offsets.insert(field_path.join("."), o);
+                        let joined = field_path.join(".");
+                        if state.known_offsets.insert(joined.clone(), o).is_some() {
+                            return Err(LayoutError::DataValueExportFailed(format!(
+                                "Duplicate field path '{joined}'; quoted dotted keys and nested tables must not collide"
+                            )));
+                        }
                         branch_offset.get_or_insert(o);
                     }
 

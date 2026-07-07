@@ -49,7 +49,7 @@ fn load_and_fail(name: &str, toml_str: &str) -> String {
     let config = mint_core::layout::load_layout(&path).expect("layout loads");
     let block = &config.blocks["block"];
     let err = common::build_block(block, &config.mint, false, None).unwrap_err();
-    format!("{}", err)
+    common::error_chain(&err)
 }
 
 // --- Happy path tests ---

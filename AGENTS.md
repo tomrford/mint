@@ -16,7 +16,7 @@ mint is a Cargo workspace with three crates:
 - **DataSource**: Provides variant values by name (`crates/mint-core/src/data`).
   - **Excel** (`.xlsx`): Uses `Name` column for lookups; arrays referenced by sheet name (prefixed with `#`).
   - **JSON**: Raw JSON object with variant names as top-level keys, each containing an object with name:value pairs.
-  - Supports variant priority ordering (e.g., `-v Debug/Default`).
+  - Supports variant priority ordering (e.g., `--variants Debug/Default`).
 - **Output**: Generates binary files, handling block overlaps and CRC calculations (`crates/mint-core/src/output`).
 
 ### Build Flow

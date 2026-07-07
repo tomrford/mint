@@ -221,7 +221,7 @@ The main sheet (named `Main` by default, override with `--main-sheet`) maps look
 | Matrix       | #Matrix       |             |            |
 
 - The **Name** column contains the lookup keys. These must match the `name = "..."` values in the layout exactly (case-sensitive).
-- Empty cells fall through to the next variant in the `-v` priority chain.
+- Empty cells fall through to the next variant in the `--variants` priority chain.
 - `#Coefficients` means "read from the sheet named Coefficients".
 
 ### Array sheets
@@ -286,19 +286,19 @@ Equivalent to the Excel example above:
 
 ```bash
 # All blocks, Excel source, single variant
-mint build layout.toml --xlsx data.xlsx -v Default -o firmware.hex
+mint build layout.toml --xlsx data.xlsx --variants Default -o firmware.hex
 
 # Specific block, JSON source, variant fallback chain
-mint build layout.toml#config --json data.json -v Production/Default -o config.hex
+mint build layout.toml#config --json data.json --variants Production/Default -o config.hex
 
 # Multiple blocks from same file
-mint build layout.toml#config layout.toml#data --xlsx data.xlsx -v Default -o combined.hex
+mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Default -o combined.hex
 
 # Production build with safety checks and stats
-mint build layout.toml --xlsx data.xlsx -v Production/Default -o release/fw.hex --strict --stats
+mint build layout.toml --xlsx data.xlsx --variants Production/Default -o release/fw.hex --strict --stats
 
 # Motorola S-Record output
-mint build layout.toml --xlsx data.xlsx -v Default -o firmware.mot --format mot
+mint build layout.toml --xlsx data.xlsx --variants Default -o firmware.mot --format mot
 ```
 
 ## Starting from scratch checklist

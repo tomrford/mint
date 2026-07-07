@@ -74,9 +74,9 @@ fn test_error_when_name_without_excel() {
     );
 
     let err = result.unwrap_err();
-    let err_str = format!("{}", err);
+    let err_str = common::error_chain(&err);
     assert!(
-        err_str.contains("Missing datasheet")
+        err_str.contains("missing datasheet")
             || err_str.contains("requires a value from a data source"),
         "Error should mention missing data source, got: {}",
         err_str
@@ -96,7 +96,7 @@ fn test_factory_returns_none_without_datasource() {
 
     // Test with versions flag but no datasource
     let args_version_no_datasource = mint_cli::data_args::DataArgs {
-        versions: vec!["Default".to_owned()],
+        variants: vec!["Default".to_owned()],
         ..Default::default()
     };
 

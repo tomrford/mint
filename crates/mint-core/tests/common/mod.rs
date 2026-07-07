@@ -34,11 +34,11 @@ pub fn unique_out_path(stem: &str, ext: &str) -> PathBuf {
 }
 
 pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
-    let version_candidates: [&str; 2] = ["Default", "VarA/Default"];
+    let variant_candidates: [&str; 2] = ["Default", "VarA/Default"];
 
-    for ver in &version_candidates {
-        let versions = ver.split('/').map(str::to_owned).collect();
-        let options = ExcelDataSourceOptions::new(versions);
+    for ver in &variant_candidates {
+        let variants = ver.split('/').map(str::to_owned).collect();
+        let options = ExcelDataSourceOptions::new(variants);
         if let Ok(ds) = ExcelDataSource::from_path("tests/data/data.xlsx", options) {
             return Some(Box::new(ds));
         }
@@ -78,4 +78,16 @@ pub fn build_block_with_values(
         (output.bytestream, output.padding_count),
         collector.into_value(),
     ))
+}
+
+/// Renders an error and its full source chain as a single string.
+pub fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }

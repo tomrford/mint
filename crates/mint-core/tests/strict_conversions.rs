@@ -210,8 +210,8 @@ bad.large_u64_to_f64 = { name = "Value", type = "f64" }
 
     let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse bad layout");
     let block = cfg.blocks.get("block").expect("block present");
-    let versions = vec!["Default".to_owned()];
-    let ds = JsonDataSource::from_str(r#"{"Default":{"Value":18446744073709551615}}"#, &versions)
+    let variants = vec!["Default".to_owned()];
+    let ds = JsonDataSource::from_str(r#"{"Default":{"Value":18446744073709551615}}"#, &variants)
         .expect("datasource load");
 
     let res = common::build_block(block, &cfg.mint, true, Some(&ds));

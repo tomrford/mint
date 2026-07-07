@@ -27,7 +27,7 @@ fn parses_short_xlsx_flag() {
         "layout.toml",
         "-x",
         "tests/data/data.xlsx",
-        "--versions",
+        "--variants",
         "Debug/Default",
     ])
     .expect("args should parse with -x");
@@ -42,7 +42,7 @@ fn parses_short_json_flag() {
         "layout.toml",
         "-j",
         "tests/data.json",
-        "--versions",
+        "--variants",
         "Debug/Default",
     ])
     .expect("args should parse with -j");
@@ -57,12 +57,12 @@ fn parses_versions_selector_flag() {
         "layout.toml",
         "--xlsx",
         "tests/data/data.xlsx",
-        "--versions",
+        "--variants",
         "Debug/Default",
     ])
     .expect("args should parse with --versions");
 
-    assert_eq!(args.data.versions, vec!["Debug", "Default"]);
+    assert_eq!(args.data.variants, vec!["Debug", "Default"]);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn preserves_explicit_build_invocation() {
         "layout.toml",
         "--json",
         "{}",
-        "--versions",
+        "--variants",
         "Default",
     ])
     .expect("explicit build should parse");
@@ -99,7 +99,7 @@ fn rejects_build_invocation_without_subcommand() {
         "layout.toml",
         "--json",
         "{}",
-        "--versions",
+        "--variants",
         "Default",
     ])
     .expect_err("build requires the build subcommand");

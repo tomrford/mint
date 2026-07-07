@@ -3,9 +3,9 @@
 use mint_core::data::{DataSource, JsonDataSource};
 use mint_core::layout::value::{DataValue, ValueSource};
 
-fn build_json_source(version: &str, json_data: &str) -> JsonDataSource {
-    let versions = version.split('/').map(str::to_owned).collect::<Vec<_>>();
-    JsonDataSource::from_str(json_data, &versions).expect("datasource load")
+fn build_json_source(variant: &str, json_data: &str) -> JsonDataSource {
+    let variants = variant.split('/').map(str::to_owned).collect::<Vec<_>>();
+    JsonDataSource::from_str(json_data, &variants).expect("datasource load")
 }
 
 #[test]
@@ -90,18 +90,18 @@ fn json_retrieve_missing_key_errors() {
 }
 
 #[test]
-fn json_retrieve_missing_version_errors() {
+fn json_retrieve_missing_variant_errors() {
     let json_data = r#"{
         "Default": {
             "TemperatureMax": 50
         }
     }"#;
 
-    let versions = vec!["NonExistent".to_owned()];
-    let result = JsonDataSource::from_str(json_data, &versions);
+    let variants = vec!["NonExistent".to_owned()];
+    let result = JsonDataSource::from_str(json_data, &variants);
     assert!(result.is_err());
     if let Err(e) = result {
-        println!("Missing version error: {:?}", e);
+        println!("Missing variant error: {:?}", e);
     }
 }
 
@@ -177,8 +177,8 @@ fn json_from_file() {
     let test_file = Path::new("/tmp/mint_test_json.json");
     fs::write(test_file, json_data).expect("write test file");
 
-    let versions = vec!["Default".to_owned()];
-    let ds = JsonDataSource::from_path(test_file, &versions).expect("datasource load");
+    let variants = vec!["Default".to_owned()];
+    let ds = JsonDataSource::from_path(test_file, &variants).expect("datasource load");
 
     let value = ds.retrieve_single_value("TemperatureMax").unwrap();
     assert!(matches!(value, DataValue::U64(50)));

@@ -5,6 +5,9 @@ use mint_core::layout::value::DataValue;
 use mint_core::output::OutputFormat;
 use std::path::PathBuf;
 
+#[path = "common/mod.rs"]
+mod common;
+
 fn simple_block_selector(file: &str) -> BlockSelector {
     BlockSelector::named(file, "simple_block")
 }
@@ -79,7 +82,7 @@ value = { value = 1, type = "u8" }
     })
     .expect_err("oversized range should be rejected");
 
-    let message = error.to_string();
+    let message = common::error_chain(&error);
     assert!(
         message.contains("overflow.toml#oversized")
             && message.contains("exceeds the 32-bit address space"),
@@ -89,10 +92,10 @@ value = { value = 1, type = "u8" }
 
 #[test]
 fn data_sources_can_be_constructed_without_cli_args() {
-    let versions = vec!["Default".to_owned()];
+    let variants = vec!["Default".to_owned()];
     let json_source = JsonDataSource::from_value(
         serde_json::json!({"Default": {"Flag": true, "Value": 7}}),
-        &versions,
+        &variants,
     )
     .expect("json data source should load");
 
@@ -106,7 +109,7 @@ fn data_sources_can_be_constructed_without_cli_args() {
 
     let excel_source = ExcelDataSource::from_path(
         "tests/data/data.xlsx",
-        ExcelDataSourceOptions::new(versions),
+        ExcelDataSourceOptions::new(variants),
     )
     .expect("excel data source should load");
 

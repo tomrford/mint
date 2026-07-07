@@ -147,7 +147,7 @@ def test_core_build_errors_raise_mint_error():
         """,
     )
 
-    with pytest.raises(mint.MintError, match="Block not found"):
+    with pytest.raises(mint.MintError, match="block not found"):
         mint.build(layout.blocks("missing"))
 
 
