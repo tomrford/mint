@@ -55,13 +55,13 @@ impl ExcelDataSource {
 
         let name_index = headers
             .iter()
-            .position(|cell| Self::cell_eq_ascii(cell, "Name"))
+            .position(|cell| Self::cell_eq(cell, "Name"))
             .ok_or(DataError::ColumnNotFound("Name".to_owned()))?;
 
         let mut names: Vec<String> = Vec::with_capacity(data_rows);
         names.extend(rows.iter().skip(1).map(|row| {
             row.get(name_index)
-                .map(|c| c.to_string().trim().to_owned())
+                .map(|c| c.to_string())
                 .unwrap_or_default()
         }));
         let version_columns =
@@ -102,9 +102,9 @@ impl ExcelDataSource {
         ))
     }
 
-    fn cell_eq_ascii(cell: &Data, target: &str) -> bool {
+    fn cell_eq(cell: &Data, target: &str) -> bool {
         match cell {
-            Data::String(s) => s.trim().eq_ignore_ascii_case(target),
+            Data::String(s) => s == target,
             _ => false,
         }
     }
@@ -140,7 +140,7 @@ impl ExcelDataSource {
             if seen.insert(v.clone()) {
                 let index = headers
                     .iter()
-                    .position(|cell| Self::cell_eq_ascii(cell, v))
+                    .position(|cell| Self::cell_eq(cell, v))
                     .ok_or_else(|| DataError::ColumnNotFound(v.clone()))?;
 
                 columns.push(Self::collect_column(rows, index, data_rows));
