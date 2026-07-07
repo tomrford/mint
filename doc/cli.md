@@ -97,7 +97,7 @@ mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"
 
 See [Data Sources](sources.md#json---json) for format details.
 
-### `--variants <NAME[/NAME...]>`
+### `-v, --variants <NAME[/NAME...]>`
 
 Variant columns to query, in priority order. The first non-empty value found wins.
 

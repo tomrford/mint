@@ -26,6 +26,7 @@ pub struct DataArgs {
     pub json: Option<String>,
 
     #[arg(
+        short = 'v',
         long = "variants",
         value_name = "NAME[/NAME...]",
         requires = "datasource",
