@@ -1,0 +1,209 @@
+name: Build release artifacts
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CICD_INTERMEDIATES_DIR: "_cicd-intermediates"
+
+jobs:
+  build-cli:
+    name: CLI ${{ matrix.job.target }} (${{ matrix.job.os }})
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - {
+              target: x86_64-unknown-linux-musl,
+              os: ubuntu-latest,
+              use-cross: true,
+            }
+          - {
+              target: aarch64-unknown-linux-musl,
+              os: ubuntu-latest,
+              use-cross: true,
+            }
+          - { target: x86_64-apple-darwin, os: macos-15-intel }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+
+    env:
+      BUILD_CMD: cargo
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Extract crate metadata
+        shell: bash
+        run: |
+          echo "PROJECT_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .targets[] | select(.kind[] == "bin") | .name')" >> "$GITHUB_ENV"
+          echo "PROJECT_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          targets: ${{ matrix.job.target }}
+
+      - name: Install cross
+        if: matrix.job.use-cross
+        uses: taiki-e/install-action@3771e22aa892e03fd35585fae288baad1755695c
+        with:
+          tool: cross
+
+      - name: Overwrite build command
+        if: matrix.job.use-cross
+        shell: bash
+        run: echo "BUILD_CMD=cross" >> "$GITHUB_ENV"
+
+      - name: Build
+        shell: bash
+        run: $BUILD_CMD build --locked --release --target=${{ matrix.job.target }} -p mint-cli --bin mint
+
+      - name: Build archive
+        shell: bash
+        run: |
+          TARGET="${{ matrix.job.target }}"
+          EXE_SUFFIX=""
+          case "$TARGET" in
+            *-pc-windows-*) EXE_SUFFIX=".exe" ;;
+          esac
+
+          BIN_NAME="${PROJECT_NAME}${EXE_SUFFIX}"
+          BIN_PATH="target/${TARGET}/release/${BIN_NAME}"
+
+          PKG_SUFFIX=".tar.gz"
+          case "$TARGET" in
+            *-pc-windows-*) PKG_SUFFIX=".zip" ;;
+          esac
+
+          PKG_BASENAME="${PROJECT_NAME}-v${PROJECT_VERSION}-${TARGET}"
+          PKG_NAME="${PKG_BASENAME}${PKG_SUFFIX}"
+
+          PKG_STAGING="${CICD_INTERMEDIATES_DIR}/package"
+          ARCHIVE_DIR="${PKG_STAGING}/${PKG_BASENAME}/"
+          mkdir -p "${ARCHIVE_DIR}"
+
+          cp "${BIN_PATH}" "${ARCHIVE_DIR}"
+          cp README.md LICENSE* "${ARCHIVE_DIR}" 2>/dev/null || true
+
+          pushd "${PKG_STAGING}/" >/dev/null
+          case "$TARGET" in
+            *-pc-windows-*)
+              7z a "${PKG_NAME}" "${PKG_BASENAME}"/* | tail -2
+              certutil -hashfile "${PKG_NAME}" SHA256 > "${PKG_NAME}.sha256"
+              ;;
+            *)
+              tar czf "${PKG_NAME}" "${PKG_BASENAME}"/*
+              shasum -a 256 "${PKG_NAME}" > "${PKG_NAME}.sha256"
+              ;;
+          esac
+          popd >/dev/null
+
+          echo "PKG_PATH=${PKG_STAGING}/${PKG_NAME}" >> "$GITHUB_ENV"
+          echo "PKG_CHECKSUM=${PKG_STAGING}/${PKG_NAME}.sha256" >> "$GITHUB_ENV"
+
+      - name: Upload CLI distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cli-dist-${{ matrix.job.target }}
+          path: |
+            ${{ env.PKG_PATH }}
+            ${{ env.PKG_CHECKSUM }}
+          if-no-files-found: error
+
+  build-python:
+    name: Python ${{ matrix.job.name }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - { name: linux-x86_64, os: ubuntu-latest, sdist: true }
+          - { name: macos-x86_64, os: macos-15-intel, sdist: false }
+          - { name: macos-aarch64, os: macos-latest, sdist: false }
+          - { name: windows-x86_64, os: windows-latest, sdist: false }
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+
+      - name: Install Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        shell: bash
+        run: python -m pip install --upgrade uv
+
+      - name: Build Linux wheel
+        if: runner.os == 'Linux'
+        uses: PyO3/maturin-action@12dee64e4a21f3a4a4fd4d34e05cc55f0eda098a
+        with:
+          command: build
+          manylinux: "2014"
+          working-directory: crates/mint-python
+          args: --release --out ../../dist
+
+      - name: Fix Linux dist permissions
+        if: runner.os == 'Linux'
+        run: sudo chown -R "$USER":"$USER" dist
+
+      - name: Build native wheel
+        if: runner.os != 'Linux'
+        shell: bash
+        run: uv run --directory crates/mint-python --group dev maturin build --release --compatibility pypi --out ../../dist
+
+      - name: Build source distribution
+        if: matrix.job.sdist
+        shell: bash
+        run: uv run --directory crates/mint-python --group dev maturin sdist --out ../../dist
+
+      - name: Test built wheel
+        shell: bash
+        run: |
+          WHEEL="$(find dist -maxdepth 1 -name '*.whl' | head -n 1)"
+          uv venv .venv-wheel
+          PYTHON=.venv-wheel/bin/python
+          if [[ ! -x "$PYTHON" ]]; then
+            PYTHON=.venv-wheel/Scripts/python.exe
+          fi
+          uv pip install --python "$PYTHON" "$WHEEL" pytest
+          "$PYTHON" -m pytest crates/mint-python/tests
+
+      - name: Test source distribution
+        if: matrix.job.sdist
+        shell: bash
+        run: |
+          SDIST="$(find dist -maxdepth 1 -name '*.tar.gz' | head -n 1)"
+          uv venv .venv-sdist
+          PYTHON=.venv-sdist/bin/python
+          if [[ ! -x "$PYTHON" ]]; then
+            PYTHON=.venv-sdist/Scripts/python.exe
+          fi
+          uv pip install --python "$PYTHON" "$SDIST" pytest
+          "$PYTHON" -m pytest crates/mint-python/tests
+
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: python-dist-${{ matrix.job.name }}
+          path: dist/*
+          if-no-files-found: error
