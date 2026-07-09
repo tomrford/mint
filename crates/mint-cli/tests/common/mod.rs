@@ -66,8 +66,9 @@ pub fn build_args(layout_path: &str, block_name: &str, format: OutputFormat) -> 
     }
 }
 
-pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
+pub fn find_working_datasource() -> Box<dyn DataSource> {
     let variant_candidates: [&str; 2] = ["Default", "VarA/Default"];
+    let mut failures = Vec::new();
 
     for ver in &variant_candidates {
         let ver_args = mint_cli::data_args::DataArgs {
@@ -75,11 +76,16 @@ pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
             variants: ver.split('/').map(str::to_owned).collect(),
             ..Default::default()
         };
-        if let Ok(Some(ds)) = data::create_data_source(&ver_args) {
-            return Some(ds);
+        match data::create_data_source(&ver_args) {
+            Ok(Some(ds)) => return ds,
+            Ok(None) => failures.push(format!("{ver}: no data source created")),
+            Err(error) => failures.push(format!("{ver}: {error}")),
         }
     }
-    None
+    panic!(
+        "expected checked-in Excel fixture at ../mint-core/tests/data/data.xlsx to load with a known variant: {}",
+        failures.join("; ")
+    );
 }
 
 /// Assert that the output file exists at the given path

@@ -1,15 +1,21 @@
 mod formatters;
 
 use comfy_table::{Attribute, Cell, ContentArrangement, Table};
-use formatters::{format_address_range, format_bytes, format_duration, format_space_used};
+use formatters::{format_address_range, format_bytes, format_duration, format_space_reserved};
 use mint_core::build::BuildStats;
 
 pub fn print_summary(stats: &BuildStats) {
+    let block_label = if stats.blocks_processed == 1 {
+        "block"
+    } else {
+        "blocks"
+    };
     println!(
-        "✓ Built {} blocks in {} ({:.1}% space used)",
+        "✓ Built {} {} in {} ({:.1}% space reserved)",
         stats.blocks_processed,
+        block_label,
         format_duration(stats.total_duration),
-        stats.space_used_pct()
+        stats.space_reserved_pct()
     );
 }
 
@@ -33,10 +39,10 @@ pub fn print_detailed(stats: &BuildStats) {
         "Total Allocated",
         &format_bytes(stats.total_allocated),
     ]);
-    summary_table.add_row(vec!["Total Used", &format_bytes(stats.total_used)]);
+    summary_table.add_row(vec!["Total Reserved", &format_bytes(stats.total_reserved)]);
     summary_table.add_row(vec![
-        "Space Used",
-        &format!("{:.1}%", stats.space_used_pct()),
+        "Space Reserved",
+        &format!("{:.1}%", stats.space_reserved_pct()),
     ]);
 
     println!("{summary_table}\n");
@@ -47,8 +53,8 @@ pub fn print_detailed(stats: &BuildStats) {
         .set_header(vec![
             Cell::new("Block").add_attribute(Attribute::Bold),
             Cell::new("Address Range").add_attribute(Attribute::Bold),
-            Cell::new("Used/Alloc").add_attribute(Attribute::Bold),
-            Cell::new("Space Used").add_attribute(Attribute::Bold),
+            Cell::new("Reserved/Alloc").add_attribute(Attribute::Bold),
+            Cell::new("Space Reserved").add_attribute(Attribute::Bold),
             Cell::new("Checksum Value").add_attribute(Attribute::Bold),
         ]);
 
@@ -61,10 +67,13 @@ pub fn print_detailed(stats: &BuildStats) {
             )),
             Cell::new(format!(
                 "{}/{}",
-                format_bytes(block.used_size as usize),
+                format_bytes(block.reserved_size as usize),
                 format_bytes(block.allocated_size as usize)
             )),
-            Cell::new(format_space_used(block.used_size, block.allocated_size)),
+            Cell::new(format_space_reserved(
+                block.reserved_size,
+                block.allocated_size,
+            )),
             Cell::new(format_checksum_values(&block.checksum_values)),
         ]);
     }

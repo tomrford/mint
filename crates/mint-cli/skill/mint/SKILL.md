@@ -246,7 +246,7 @@ mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}
 # Output format options
 --format hex              # Intel HEX (default)
 --format mot              # Motorola S-Record
---record-width 16         # Bytes per record (1-64, default 32)
+--record-width 16         # Bytes per record (1-128, default 32)
 
 # Build options
 --strict                  # Error on lossy type conversions (instead of saturate/truncate)

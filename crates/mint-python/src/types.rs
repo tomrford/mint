@@ -139,8 +139,8 @@ impl PyDataRange {
     }
 
     #[getter]
-    fn used_size(&self) -> u32 {
-        self.inner.used_size
+    fn reserved_size(&self) -> u32 {
+        self.inner.reserved_size
     }
 
     #[getter]
@@ -159,10 +159,10 @@ impl PyDataRange {
 
     fn __repr__(&self) -> String {
         format!(
-            "DataRange(start_address=0x{:X}, length={}, used_size={}, allocated_size={})",
+            "DataRange(start_address=0x{:X}, length={}, reserved_size={}, allocated_size={})",
             self.inner.start_address,
             self.inner.bytestream.len(),
-            self.inner.used_size,
+            self.inner.reserved_size,
             self.inner.allocated_size
         )
     }
@@ -197,8 +197,8 @@ impl PyBlockStat {
     }
 
     #[getter]
-    fn used_size(&self) -> u32 {
-        self.inner.used_size
+    fn reserved_size(&self) -> u32 {
+        self.inner.reserved_size
     }
 
     #[getter]
@@ -212,26 +212,26 @@ impl PyBlockStat {
 pub(crate) struct PyBuildStats {
     blocks_processed: usize,
     total_allocated: usize,
-    total_used: usize,
+    total_reserved: usize,
     total_duration_ms: f64,
     block_stats: Vec<PyBlockStat>,
-    space_used_pct: f64,
+    space_reserved_pct: f64,
 }
 
 impl From<BuildStats> for PyBuildStats {
     fn from(stats: BuildStats) -> Self {
-        let space_used_pct = stats.space_used_pct();
+        let space_reserved_pct = stats.space_reserved_pct();
         Self {
             blocks_processed: stats.blocks_processed,
             total_allocated: stats.total_allocated,
-            total_used: stats.total_used,
+            total_reserved: stats.total_reserved,
             total_duration_ms: stats.total_duration.as_secs_f64() * 1000.0,
             block_stats: stats
                 .block_stats
                 .into_iter()
                 .map(|inner| PyBlockStat { inner })
                 .collect(),
-            space_used_pct,
+            space_reserved_pct,
         }
     }
 }
@@ -249,8 +249,8 @@ impl PyBuildStats {
     }
 
     #[getter]
-    fn total_used(&self) -> usize {
-        self.total_used
+    fn total_reserved(&self) -> usize {
+        self.total_reserved
     }
 
     #[getter]
@@ -264,8 +264,8 @@ impl PyBuildStats {
     }
 
     #[getter]
-    fn space_used_pct(&self) -> f64 {
-        self.space_used_pct
+    fn space_reserved_pct(&self) -> f64 {
+        self.space_reserved_pct
     }
 }
 

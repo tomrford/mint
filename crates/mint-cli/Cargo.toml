@@ -2,7 +2,7 @@
 name = "mint-cli"
 version.workspace = true
 edition = "2024"
-description = "A CLI tool for building hex files from excel data and a layout definition."
+description = "Build static binary flash blocks from TOML layouts and Excel or JSON data sources."
 license = "MIT"
 readme = "../../README.md"
 repository = "https://github.com/tomrford/mint"

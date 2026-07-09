@@ -13,11 +13,15 @@ pub fn format_bytes(bytes: usize) -> String {
 }
 
 pub fn format_address_range(start: u32, allocated: u32) -> String {
-    let end = start + allocated - 1;
+    if allocated == 0 {
+        return format!("0x{start:X}");
+    }
+
+    let end = start as u64 + allocated as u64 - 1;
     format!("0x{:X}-0x{:X}", start, end)
 }
 
-pub fn format_space_used(used: u32, allocated: u32) -> String {
+pub fn format_space_reserved(used: u32, allocated: u32) -> String {
     if allocated == 0 {
         "0.0%".to_owned()
     } else {

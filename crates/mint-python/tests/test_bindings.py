@@ -7,6 +7,8 @@ import mint
 
 ROOT = Path(__file__).resolve().parents[3]
 LAYOUT = ROOT / "crates" / "mint-core" / "tests" / "data" / "blocks.toml"
+PYTHON_CRATE = Path(__file__).resolve().parents[1]
+XLSX_FIXTURE = PYTHON_CRATE.parent / "mint-core" / "tests" / "data" / "data.xlsx"
 
 
 def test_file_layout_builds_selected_blocks_and_exports_used_values():
@@ -181,6 +183,133 @@ def test_json_data_requires_and_uses_explicit_variants():
 
     assert result.ranges[0].data[:2] == b"\x07\x00"
     assert result.used_values["data.toml"]["config"]["value"] == 7
+
+
+def test_xlsx_path_builds_with_named_fixture_value():
+    layout = mint.Layout.from_string(
+        "xlsx.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x2000
+        length = 0x10
+
+        [config.data]
+        temperature_max = { name = "TemperatureMax", type = "u8" }
+        """,
+    )
+
+    result = mint.build(
+        layout.blocks("config"),
+        xlsx_path=str(XLSX_FIXTURE),
+        variants=["Default"],
+    )
+
+    assert result.ranges[0].data[:1] == b"\x32"
+
+
+def test_json_path_builds_from_file(tmp_path):
+    json_path = tmp_path / "data.json"
+    json_path.write_text('{"Default":{"Value":513}}')
+    layout = mint.Layout.from_string(
+        "json-path.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x2000
+        length = 0x10
+
+        [config.data]
+        value = { name = "Value", type = "u16" }
+        """,
+    )
+
+    result = mint.build(
+        layout.blocks("config"),
+        json_path=str(json_path),
+        variants=["Default"],
+    )
+
+    assert result.ranges[0].data[:2] == b"\x01\x02"
+
+
+def test_strict_rejects_lossy_python_data_conversion():
+    layout = mint.Layout.from_string(
+        "strict.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x2000
+        length = 0x10
+
+        [config.data]
+        value = { name = "Value", type = "u8" }
+        """,
+    )
+
+    with pytest.raises(mint.MintError):
+        mint.build(
+            layout.blocks("config"),
+            data={"Default": {"Value": 300}},
+            variants=["Default"],
+            strict=True,
+        )
+
+
+def test_python_data_builds_2d_array():
+    layout = mint.Layout.from_string(
+        "array.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x2000
+        length = 0x10
+
+        [config.data]
+        matrix = { name = "Matrix", type = "u16", size = [2, 2] }
+        """,
+    )
+
+    result = mint.build(
+        layout.blocks("config"),
+        data={"Default": {"Matrix": [[1, 2], [3, 4]]}},
+        variants=["Default"],
+    )
+
+    assert result.ranges[0].data[:8] == b"\x01\x00\x02\x00\x03\x00\x04\x00"
+
+
+def test_main_sheet_requires_xlsx_path():
+    layout = mint.Layout.from_string(
+        "main-sheet.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x2000
+        length = 0x10
+
+        [config.data]
+        value = { name = "Value", type = "u8" }
+        """,
+    )
+
+    with pytest.raises(ValueError, match="main_sheet requires xlsx_path"):
+        mint.build(
+            layout.blocks("config"),
+            data={"Default": {"Value": 1}},
+            variants=["Default"],
+            main_sheet="Config",
+        )
 
 
 def test_python_data_rejects_non_json_values_before_build():

@@ -10,9 +10,7 @@ fn test_deduplication_file_and_specific() {
 
     let layout_path = "../mint-core/tests/data/blocks.toml";
 
-    let Some(ds) = common::find_working_datasource() else {
-        return;
-    };
+    let ds = common::find_working_datasource();
 
     let args = mint_cli::args::Args {
         layout: mint_cli::layout_args::LayoutArgs {
@@ -50,9 +48,7 @@ fn test_file_expansion_builds_all_blocks() {
 
     let layout_path = "../mint-core/tests/data/blocks.toml";
 
-    let Some(ds) = common::find_working_datasource() else {
-        return;
-    };
+    let ds = common::find_working_datasource();
 
     let args = mint_cli::args::Args {
         layout: mint_cli::layout_args::LayoutArgs {

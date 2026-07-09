@@ -33,17 +33,22 @@ pub fn unique_out_path(stem: &str, ext: &str) -> PathBuf {
     test_out_dir().join(format!("{stem}-{unique_id}.{ext}"))
 }
 
-pub fn find_working_datasource() -> Option<Box<dyn DataSource>> {
+pub fn find_working_datasource() -> Box<dyn DataSource> {
     let variant_candidates: [&str; 2] = ["Default", "VarA/Default"];
+    let mut failures = Vec::new();
 
     for ver in &variant_candidates {
         let variants = ver.split('/').map(str::to_owned).collect();
         let options = ExcelDataSourceOptions::new(variants);
-        if let Ok(ds) = ExcelDataSource::from_path("tests/data/data.xlsx", options) {
-            return Some(Box::new(ds));
+        match ExcelDataSource::from_path("tests/data/data.xlsx", options) {
+            Ok(ds) => return Box::new(ds),
+            Err(error) => failures.push(format!("{ver}: {error}")),
         }
     }
-    None
+    panic!(
+        "expected checked-in Excel fixture at tests/data/data.xlsx to load with a known variant: {}",
+        failures.join("; ")
+    );
 }
 
 /// Assert that the output file exists at the given path
