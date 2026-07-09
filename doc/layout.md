@@ -243,6 +243,7 @@ The CRC covers all bytes from the start of the block data up to (but not includi
 - `type` must be `u32` (matching CRC-32 output width)
 - fixed-point types are not valid with `checksum`
 - `size`/`SIZE` cannot be used with `checksum`
+- a checksum must follow at least one data byte
 - The referenced config name must exist in `[mint.checksum]`
 - For more complex checksum operations (cross-block CRC or non-CRC algorithms), use a dedicated hex post-processing tool
 

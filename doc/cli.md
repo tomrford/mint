@@ -147,6 +147,8 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --forma
 mint build layout.toml --xlsx data.xlsx --variants Default -o output.mot --format mot
 ```
 
+Mint warns when a recognised file extension conflicts with the selected format. It keeps the output path unchanged. Custom and extensionless file names remain valid.
+
 ### `--record-width <N>`
 
 Bytes per data record in output file. Range: 1-128.

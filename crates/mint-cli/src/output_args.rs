@@ -55,3 +55,26 @@ pub struct OutputArgs {
     #[arg(long, help = "Suppress all output except errors")]
     pub quiet: bool,
 }
+
+impl OutputArgs {
+    pub fn extension_warning(&self) -> Option<String> {
+        let extension = self.out.extension()?.to_str()?.to_ascii_lowercase();
+        let conflicts = match self.format {
+            OutputFormat::Hex => {
+                matches!(extension.as_str(), "mot" | "srec" | "s19" | "s28" | "s37")
+            }
+            OutputFormat::Mot => matches!(extension.as_str(), "hex" | "ihex" | "ihx"),
+        };
+        if !conflicts {
+            return None;
+        }
+
+        let format_name = match self.format {
+            OutputFormat::Hex => "Intel HEX",
+            OutputFormat::Mot => "Motorola S-Record",
+        };
+        Some(format!(
+            "output extension '.{extension}' does not match {format_name} format"
+        ))
+    }
+}

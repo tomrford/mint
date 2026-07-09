@@ -176,6 +176,11 @@ impl Block {
 
                 if let EntrySource::Checksum(config_name) = &leaf.source {
                     leaf.validate_checksum(config_name, settings)?;
+                    if state.buffer.is_empty() {
+                        return Err(LayoutError::DataValueExportFailed(
+                            "Checksum must follow at least one data byte.".to_owned(),
+                        ));
+                    }
                     let size = leaf.scalar_type.size_bytes();
                     state.pending_checksums.push(PendingChecksum {
                         buffer_position: state.buffer.len(),
