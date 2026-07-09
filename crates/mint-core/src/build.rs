@@ -295,14 +295,38 @@ fn resolve_blocks_from_layouts(
 fn resolve_blocks(
     block_args: &[BlockSelector],
 ) -> Result<(Vec<ResolvedBlock>, HashMap<PathBuf, Config>), LayoutError> {
-    let unique_files: HashSet<PathBuf> = block_args.iter().map(|b| b.layout.clone()).collect();
+    let mut first_paths = HashMap::new();
+    let normalized_blocks = block_args
+        .iter()
+        .map(|block| {
+            let canonical = std::fs::canonicalize(&block.layout).map_err(|error| {
+                LayoutError::FileError(format!(
+                    "failed to resolve layout file '{}': {error}",
+                    block.layout.display()
+                ))
+            })?;
+            let layout = first_paths
+                .entry(canonical)
+                .or_insert_with(|| block.layout.clone())
+                .clone();
+            Ok(BlockSelector {
+                layout,
+                block: block.block.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, LayoutError>>()?;
+
+    let unique_files: HashSet<PathBuf> = normalized_blocks
+        .iter()
+        .map(|block| block.layout.clone())
+        .collect();
 
     let layouts: HashMap<PathBuf, Config> = unique_files
         .par_iter()
         .map(|file| layout::load_layout(file).map(|cfg| (file.clone(), cfg)))
         .collect::<Result<_, LayoutError>>()?;
 
-    let resolved = resolve_blocks_from_layouts(block_args, &layouts)?;
+    let resolved = resolve_blocks_from_layouts(&normalized_blocks, &layouts)?;
     Ok((resolved, layouts))
 }
 

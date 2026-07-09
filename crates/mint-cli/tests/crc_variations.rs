@@ -89,6 +89,38 @@ value1 = { value = 0x11223344, type = "u32" }
     assert_eq!(stats.blocks_processed, 1);
 }
 
+#[test]
+fn checksum_cannot_be_the_first_data_field() {
+    let layout = r#"
+[mint]
+endianness = "little"
+
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+
+[block.header]
+start_address = 0x1000
+length = 0x100
+
+[block.data]
+checksum = { checksum = "crc32", type = "u32" }
+value = { value = 1, type = "u8" }
+"#;
+    let layout_path = common::write_layout_file("crc_first", layout);
+    let args = common::build_args(&layout_path, "block", mint_core::output::OutputFormat::Hex);
+
+    let error = commands::build(&args, None).expect_err("first-field checksum should fail");
+    assert!(
+        common::error_chain(&error).contains("Checksum must follow at least one data byte"),
+        "unexpected error: {}",
+        common::error_chain(&error)
+    );
+}
+
 /// Tests that different named checksum configs produce different CRC values.
 #[test]
 fn named_checksum_configs_differ() {

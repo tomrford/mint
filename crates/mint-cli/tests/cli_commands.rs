@@ -78,3 +78,47 @@ fn explicit_build_invocation_writes_output() {
     );
     common::assert_out_file_exists(&out);
 }
+
+#[test]
+fn format_extension_mismatch_warns_without_renaming() {
+    let out = common::unique_out_path("format-mismatch", "hex");
+    let output = mint_command()
+        .args([
+            "build",
+            "../mint-core/tests/data/blocks.toml#simple_block",
+            "--format",
+            "mot",
+            "--out",
+        ])
+        .arg(&out)
+        .output()
+        .expect("mint build should run");
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8(output.stderr)
+            .expect("stderr is utf8")
+            .contains("warning: output extension '.hex' does not match Motorola S-Record format")
+    );
+    common::assert_out_file_exists(&out);
+}
+
+#[test]
+fn quiet_suppresses_format_extension_warning() {
+    let out = common::unique_out_path("quiet-format-mismatch", "hex");
+    let output = mint_command()
+        .args([
+            "build",
+            "../mint-core/tests/data/blocks.toml#simple_block",
+            "--format",
+            "mot",
+            "--out",
+        ])
+        .arg(&out)
+        .arg("--quiet")
+        .output()
+        .expect("mint build should run");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+}

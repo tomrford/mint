@@ -271,7 +271,7 @@ impl PyBuildStats {
 
 #[pyclass(name = "BuildResult", frozen, skip_from_py_object)]
 pub(crate) struct PyBuildResult {
-    ranges: Vec<PyDataRange>,
+    ranges: Vec<DataRange>,
     stats: PyBuildStats,
     used_values: Py<PyAny>,
 }
@@ -283,11 +283,7 @@ impl PyBuildResult {
             .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
         let used_values_text = serde_json::to_string(&used_values).map_err(value_error)?;
         Ok(Self {
-            ranges: artifact
-                .ranges
-                .into_iter()
-                .map(|inner| PyDataRange { inner })
-                .collect(),
+            ranges: artifact.ranges,
             stats: artifact.stats.into(),
             used_values: py_json_loads(py, &used_values_text)?,
         })
@@ -298,7 +294,11 @@ impl PyBuildResult {
 impl PyBuildResult {
     #[getter]
     fn ranges(&self) -> Vec<PyDataRange> {
-        self.ranges.clone()
+        self.ranges
+            .iter()
+            .cloned()
+            .map(|inner| PyDataRange { inner })
+            .collect()
     }
 
     #[getter]
@@ -324,15 +324,6 @@ impl PyBuildResult {
 
 impl PyBuildResult {
     fn render(&self, format: OutputFormat, record_width: usize) -> PyResult<String> {
-        let artifact = mint_core::build::BuildArtifact {
-            ranges: self
-                .ranges
-                .iter()
-                .map(|range| range.inner.clone())
-                .collect(),
-            stats: BuildStats::new(),
-            used_values: None,
-        };
-        artifact.render(format, record_width).map_err(mint_error)
+        mint_core::output::emit_hex(&self.ranges, record_width, format).map_err(mint_error)
     }
 }

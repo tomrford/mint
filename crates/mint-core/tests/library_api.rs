@@ -34,6 +34,27 @@ fn build_api_returns_intermediate_ranges_and_rendered_output() {
 }
 
 #[test]
+fn build_deduplicates_equivalent_layout_paths() {
+    let first_path = "tests/data/blocks.toml";
+    let artifact = build::build(BuildRequest {
+        blocks: vec![
+            simple_block_selector(first_path),
+            simple_block_selector("tests/data/./blocks.toml"),
+        ],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect("equivalent layout paths should be deduplicated");
+
+    assert_eq!(artifact.stats.blocks_processed, 1);
+    assert_eq!(
+        artifact.stats.block_stats[0].layout,
+        PathBuf::from(first_path)
+    );
+}
+
+#[test]
 fn build_from_layouts_accepts_parsed_toml_layouts() {
     let config = layout::parse_toml_layout(include_str!("data/blocks.toml"))
         .expect("layout string should parse");
