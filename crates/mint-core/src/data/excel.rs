@@ -1,5 +1,5 @@
 use calamine::{Data, Range, Reader, Xlsx, open_workbook};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::DataSource;
@@ -125,11 +125,12 @@ impl ExcelDataSource {
     }
 
     fn validate_unique_names(names: &[String]) -> Result<(), DataError> {
-        for (index, name) in names.iter().enumerate() {
+        let mut seen = HashSet::with_capacity(names.len());
+        for name in names {
             if name.trim().is_empty() {
                 continue;
             }
-            if names[index + 1..].iter().any(|other| other == name) {
+            if !seen.insert(name) {
                 return Err(DataError::RetrievalError(format!(
                     "duplicate name '{name}' in data sheet"
                 )));

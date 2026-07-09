@@ -102,7 +102,7 @@ for data_range in result.ranges:
     print(hex(data_range.start_address), data_range.data)
 ```
 
-`BuildResult.stats` exposes the same build summary data the CLI prints, including processed block count, total allocated/used bytes, duration, per-block stats, and space-used percentage.
+`BuildResult.stats` exposes the same build summary data the CLI prints: `blocks_processed`, `total_allocated`, `total_reserved`, `total_duration_ms`, per-block `block_stats`, and `space_reserved_pct`. Each `DataRange` also exposes `reserved_size` and `allocated_size`.
 
 `BuildResult.used_values` is the same used-values report shape that the CLI writes with `--export-json`: layout name, then block name, then the values used for that block.
 
