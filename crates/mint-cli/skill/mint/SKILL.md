@@ -175,7 +175,7 @@ For cross-block CRC or non-CRC algorithms, use a separate hex post-processing to
 
 ## Alignment
 
-mint applies **natural alignment**: each field is aligned to a boundary matching its type width (e.g., `u32` aligns to 4 bytes, `u16` / `uq8.8` to 2 bytes). Gaps are filled with the block's `padding` byte.
+mint applies **natural C aggregate alignment**. Each integer or fixed-point leaf aligns to its storage width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. All gaps use the block's `padding` byte.
 
 **This means mint does not support packed structs.** If the target C code uses `__attribute__((packed))`, `#pragma pack(1)`, or similar, the TOML layout will produce different offsets than the firmware expects. There is no way to disable alignment in mint. If the firmware uses packed structs, this is a fundamental incompatibility — raise it with the user immediately.
 
