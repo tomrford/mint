@@ -42,7 +42,8 @@ fn generated_example_header_is_checked_in_and_compiles_as_c11() {
 
     let generated = fs::read_to_string(&header_path).expect("generated header is readable");
     let checked_in = fs::read_to_string("../../doc/examples/blocks.h")
-        .expect("checked-in generated header is readable");
+        .expect("checked-in generated header is readable")
+        .replace("\r\n", "\n");
     assert_eq!(generated, checked_in);
 
     let source_path = header_path.with_extension("c");
