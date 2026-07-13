@@ -66,12 +66,6 @@ padding = 0xFF             # Padding byte value (default: 0xFF)
 
 Data fields are key-value pairs where the key is a dotted path (matching C struct hierarchy) and the value defines the field.
 
-### Aggregate alignment
-
-Mint lays out dotted paths as naturally aligned C aggregates. Each leaf uses its storage width for size and alignment: integer and fixed-point types align to their exact width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
-
-All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Target ABIs with different alignment rules remain the caller's responsibility.
-
 ### Field Attributes
 
 | Attribute     | Description                                                                           |
@@ -197,7 +191,7 @@ Fixed-point types are not valid with `bitmap`.
 
 ### Refs (Pointers)
 
-A `ref` entry resolves to the absolute memory address of another field within the same block. The ref target is a dotted path rooted at `block.data` — for example, `device.info.version` refers to `[block.data] device.info.version`. Refs can point to leaf fields or branch nodes (nested structs); a branch ref resolves to the branch's aligned aggregate start.
+A `ref` entry resolves to the absolute memory address of another field within the same block. The ref target is a dotted path rooted at `block.data` — for example, `device.info.version` refers to `[block.data] device.info.version`. Refs can point to leaf fields or branch nodes (nested structs); a branch ref resolves to the address of the branch's first child (post-alignment).
 
 ```toml
 [block.data]

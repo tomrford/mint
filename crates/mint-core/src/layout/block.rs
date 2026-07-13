@@ -88,15 +88,6 @@ pub enum Entry {
     Branch(IndexMap<String, Entry>),
 }
 
-impl Entry {
-    fn alignment(&self) -> usize {
-        match self {
-            Entry::Leaf(leaf) => leaf.get_alignment(),
-            Entry::Branch(branch) => branch.values().map(Self::alignment).max().unwrap_or(1),
-        }
-    }
-}
-
 impl Block {
     pub fn build_bytestream(
         &self,
@@ -148,9 +139,9 @@ impl Block {
         })
     }
 
-    /// Recursively builds the bytestream. Returns the aligned byte offset of
-    /// the entry. The branch caller records each child's path in
-    /// `known_offsets` on exit from recursion.
+    /// Recursively builds the bytestream. Returns the byte offset of the
+    /// first data byte emitted (post-alignment). The branch caller records
+    /// each child's path in `known_offsets` on exit from recursion.
     fn build_bytestream_inner(
         table: &Entry,
         data_source: Option<&dyn DataSource>,
@@ -163,7 +154,10 @@ impl Block {
         match table {
             Entry::Leaf(leaf) => {
                 let alignment = leaf.get_alignment();
-                pad_to_alignment(state, config.padding, alignment);
+                while !state.buffer.len().is_multiple_of(alignment) {
+                    state.buffer.push(config.padding);
+                    state.padding_count += 1;
+                }
 
                 let leaf_offset = state.buffer.len();
 
@@ -215,10 +209,7 @@ impl Block {
                     )));
                 }
 
-                let alignment = table.alignment();
-                pad_to_alignment(state, config.padding, alignment);
-                let branch_offset = state.buffer.len();
-
+                let mut branch_offset = None;
                 for (field_name, v) in branch.iter() {
                     let path_len = field_path.len();
                     field_path.extend(split_field_path(field_name)?);
@@ -240,6 +231,7 @@ impl Block {
                                 "Duplicate field path '{joined}'; quoted dotted keys and nested tables must not collide"
                             )));
                         }
+                        branch_offset.get_or_insert(o);
                     }
 
                     field_path.truncate(path_len);
@@ -248,9 +240,7 @@ impl Block {
                         source: Box::new(e),
                     })?;
                 }
-
-                pad_to_alignment(state, config.padding, alignment);
-                Ok(branch_offset)
+                Ok(branch_offset.unwrap_or(state.buffer.len()))
             }
         }
     }
@@ -343,14 +333,6 @@ impl Block {
         }
         Ok(())
     }
-}
-
-fn pad_to_alignment(state: &mut BuildState, padding: u8, alignment: usize) {
-    let padding_len = state.buffer.len().next_multiple_of(alignment) - state.buffer.len();
-    state
-        .buffer
-        .extend(std::iter::repeat_n(padding, padding_len));
-    state.padding_count += padding_len as u32;
 }
 
 fn split_field_path(field_name: &str) -> Result<Vec<String>, LayoutError> {
