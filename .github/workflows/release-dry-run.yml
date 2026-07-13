@@ -70,7 +70,7 @@ jobs:
           PY_CRATE_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-python") | .version')"
           CLI_CORE_REQ="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .dependencies[] | select(.name == "mint-core") | .req')"
           PY_CORE_REQ="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-python") | .dependencies[] | select(.name == "mint-core") | .req')"
-          PY_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("crates/mint-python/pyproject.toml", "rb"))["project"]["version"])')"
+          PY_VERSION_IS_DYNAMIC="$(python -c 'import tomllib; project = tomllib.load(open("crates/mint-python/pyproject.toml", "rb"))["project"]; print(str("version" in project.get("dynamic", [])).lower())')"
 
           if [[ "$CORE_VERSION" != "$VERSION" || "$CLI_VERSION" != "$VERSION" || "$PY_CRATE_VERSION" != "$VERSION" ]]; then
             echo "Tag $TAG must match mint-core $CORE_VERSION, mint-cli $CLI_VERSION, and mint-python $PY_CRATE_VERSION." >&2
@@ -81,8 +81,8 @@ jobs:
             echo "mint-cli requires $CLI_CORE_REQ; mint-python requires $PY_CORE_REQ." >&2
             exit 1
           fi
-          if [[ "$PY_VERSION" != "$VERSION" ]]; then
-            echo "Python project version $PY_VERSION does not match tag $TAG." >&2
+          if [[ "$PY_VERSION_IS_DYNAMIC" != "true" ]]; then
+            echo "mint-python must declare version as dynamic in pyproject.toml; Cargo metadata is the release version source." >&2
             exit 1
           fi
 
