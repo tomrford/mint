@@ -1,11 +1,17 @@
 mod writer;
 
-use crate::args::Args;
+use crate::args::{Args, HeaderArgs};
 use mint_core::build::{self, BuildRequest, BuildStats};
 use mint_core::data::DataSource;
 use mint_core::error::MintError;
 use mint_core::output::{self, OutputFile};
-use writer::write_output;
+use writer::{write_output, write_text};
+
+pub fn header(args: &HeaderArgs) -> Result<(), MintError> {
+    let contents = mint_core::header::generate(&args.blocks)?;
+    write_text(&args.out, &contents)?;
+    Ok(())
+}
 
 pub fn build(args: &Args, data_source: Option<&dyn DataSource>) -> Result<BuildStats, MintError> {
     let artifact = build::build(BuildRequest {

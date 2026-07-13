@@ -143,9 +143,9 @@ impl BlockSelector {
 }
 
 #[derive(Debug, Clone)]
-struct ResolvedBlock {
-    name: String,
-    layout: PathBuf,
+pub(crate) struct ResolvedBlock {
+    pub(crate) name: String,
+    pub(crate) layout: PathBuf,
 }
 
 struct BlockBuildResult {
@@ -292,7 +292,7 @@ fn resolve_blocks_from_layouts(
         .collect())
 }
 
-fn resolve_blocks(
+pub(crate) fn resolve_blocks(
     block_args: &[BlockSelector],
 ) -> Result<(Vec<ResolvedBlock>, HashMap<PathBuf, Config>), LayoutError> {
     let mut first_paths = HashMap::new();

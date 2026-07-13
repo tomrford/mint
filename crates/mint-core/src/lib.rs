@@ -12,5 +12,6 @@
 pub mod build;
 pub mod data;
 pub mod error;
+pub mod header;
 pub mod layout;
 pub mod output;

@@ -14,6 +14,9 @@ pub enum LayoutError {
     #[error("invalid block argument: {0}")]
     InvalidBlockArgument(String),
 
+    #[error("C header generation failed: {0}")]
+    HeaderGenerationFailed(String),
+
     #[error("no blocks provided")]
     NoBlocksProvided,
 

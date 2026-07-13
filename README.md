@@ -1,11 +1,11 @@
 # mint
 
-mint builds static binary flash blocks from TOML layout files and Excel or JSON data sources.
+mint builds static binary flash blocks from TOML layout files and Excel or JSON data sources. It also generates matching C headers from those layouts.
 
 mint is available as:
 
-- `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output rendering, and in-memory build APIs.
-- `mint-cli` - Implements the `mint` command-line tool for reading layout/data files, writing outputs, and printing terminal summaries.
+- `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output and C header rendering, and in-memory build APIs.
+- `mint-cli` - Implements the `mint` command-line tool for building flash files and generating C headers.
 - `mint-python` - Python bindings for `mint-core`.
 
 ![img](https://raw.githubusercontent.com/tomrford/mint/main/doc/img.png)
@@ -31,6 +31,7 @@ nix develop -c cargo build
 nix develop -c cargo test
 nix develop -c cargo clippy --workspace
 nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx --variants Default
+nix develop -c cargo run -p mint-cli -- header block.toml -o blocks.h
 nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml
 nix develop -c uv run --directory crates/mint-python --group dev pytest tests
 ```
@@ -54,6 +55,9 @@ mint build layout.toml -j data.json --variants Debug/Default
 
 # Multiple blocks with options
 mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Default --stats
+
+# Generate matching C typedefs and array/bitmap macros
+mint header layout.toml -o layout.h
 ```
 
 ### Layout Example
@@ -83,4 +87,4 @@ counter = { name = "Counter", type = "u64" }
 message = { value = "Hello", type = "u8", size = 16 }
 ```
 
-See [`doc/examples/block.toml`](https://github.com/tomrford/mint/blob/main/doc/examples/block.toml) for full examples.
+See [`doc/examples/block.toml`](https://github.com/tomrford/mint/blob/main/doc/examples/block.toml) and its [generated header](https://github.com/tomrford/mint/blob/main/doc/examples/blocks.h) for a complete example.
