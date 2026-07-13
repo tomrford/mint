@@ -130,10 +130,11 @@ target = { value = 0xFF, type = "u32" }
     );
 
     let (bytes, _) = load_and_build("ref_u64", &toml);
-    // ptr: 8 bytes at offset 0, target: at offset 8
-    assert_eq!(bytes.len(), 12);
+    // ptr: 8 bytes at offset 0, target: at offset 8, root tail padding to 16
+    assert_eq!(bytes.len(), 16);
     let expected_addr: u64 = 0x2000 + 8;
     assert_eq!(&bytes[0..8], &expected_addr.to_le_bytes());
+    assert_eq!(&bytes[12..16], &[0xFF; 4]);
 }
 
 #[test]
