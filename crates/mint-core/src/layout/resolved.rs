@@ -1,4 +1,4 @@
-use super::block::Entry;
+use super::block::{Block, Entry};
 use super::entry::{EntrySource, FingerprintTarget, LeafEntry, SizeSource};
 use super::error::{LayoutError, in_field_path};
 use super::settings::MintConfig;
@@ -26,10 +26,17 @@ pub struct ResolvedLayout<'a> {
 }
 
 pub(crate) fn validate_static<'a>(
-    entry: &'a Entry,
+    block: &'a Block,
     settings: &MintConfig,
 ) -> Result<ResolvedLayout<'a>, LayoutError> {
-    let resolved = ResolvedLayout::new(entry)?;
+    let resolved = ResolvedLayout::new(&block.data)?;
+    let total_size = resolved.total_size();
+    if total_size > block.header.length as usize {
+        return Err(LayoutError::InvalidLayout(format!(
+            "resolved layout size ({total_size} bytes) exceeds configured block length ({} bytes)",
+            block.header.length
+        )));
+    }
     for (path, _, leaf) in resolved.emission_leaves() {
         let size = leaf.size().map_err(|error| in_field_path(path, error))?;
         let result = match &leaf.source {

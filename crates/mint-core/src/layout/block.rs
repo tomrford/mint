@@ -1,7 +1,7 @@
 use super::entry::{EntrySource, LeafEntry};
 use super::error::{LayoutError, in_field_path};
 use super::header::Header;
-use super::resolved::ResolvedLayout;
+use super::resolved::{ResolvedLayout, validate_static};
 use super::scalar_type::ScalarType;
 use super::settings::{Endianness, MintConfig};
 use super::used_values::ValueSink;
@@ -129,14 +129,8 @@ impl Block {
         strict: bool,
         value_sink: &mut dyn ValueSink,
     ) -> Result<BuildOutput, LayoutError> {
-        let resolved = ResolvedLayout::new(&self.data)?;
+        let resolved = validate_static(self, settings)?;
         let total_size = resolved.total_size();
-        if total_size > self.header.length as usize {
-            return Err(LayoutError::InvalidLayout(format!(
-                "Block '{block_name}' resolved layout size ({total_size} bytes) exceeds configured block length ({} bytes).",
-                self.header.length
-            )));
-        }
         let config = BuildConfig {
             endianness: &settings.endianness,
             padding: self.header.padding,

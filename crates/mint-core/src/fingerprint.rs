@@ -23,7 +23,7 @@ impl BlockFingerprint {
 /// Calculate every block fingerprint in declaration order.
 pub fn calculate(config: &Config) -> Result<Vec<BlockFingerprint>, LayoutError> {
     for block in config.blocks.values() {
-        validate_static(&block.data, &config.mint)?;
+        validate_static(block, &config.mint)?;
     }
     Ok(layout::fingerprint::calculate(config)?
         .into_iter()
@@ -40,7 +40,7 @@ pub fn calculate_block(config: &Config, name: &str) -> Result<BlockFingerprint, 
             config.blocks.keys().cloned().collect::<Vec<_>>().join(", ")
         ))
     })?;
-    validate_static(&block.data, &config.mint)?;
+    validate_static(block, &config.mint)?;
     let value = layout::fingerprint::calculate_scoped(config, [name], true)?
         .swap_remove(name)
         .ok_or_else(|| {

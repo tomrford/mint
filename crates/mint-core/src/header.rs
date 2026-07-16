@@ -1,6 +1,6 @@
 use crate::build::{BlockSelector, resolve_blocks};
 use crate::error::MintError;
-use crate::layout::block::Entry;
+use crate::layout::block::{Block, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
@@ -54,7 +54,7 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
 
         let result = render_block(
             &selected.name,
-            &block.data,
+            block,
             &layout.mint,
             block_fingerprints,
             &mut names,
@@ -147,7 +147,7 @@ impl NameRegistry {
 
 fn render_block(
     block_name: &str,
-    data: &Entry,
+    block: &Block,
     settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
     names: &mut NameRegistry,
@@ -158,9 +158,9 @@ fn render_block(
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
-    validate_static(data, settings)?;
+    validate_static(block, settings)?;
 
-    let Entry::Branch(source) = data else {
+    let Entry::Branch(source) = &block.data else {
         return Err(header_error("block data must be a table"));
     };
 

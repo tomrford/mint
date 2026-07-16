@@ -279,6 +279,32 @@ pointer = { ref = "missing", type = "u32" }
 }
 
 #[test]
+fn fingerprints_reject_blocks_that_exceed_their_configured_length() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 4
+
+[block.data]
+value = { value = 1, type = "u64" }
+"#,
+    )
+    .expect("layout parses");
+
+    let error = fingerprint::calculate_block(&config, "block").expect_err("oversized block fails");
+    assert!(
+        error
+            .to_string()
+            .contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+        "{error}"
+    );
+}
+
+#[test]
 fn fingerprint_fields_reject_invalid_storage_and_unknown_blocks() {
     let wrong_type = layout::parse_toml_layout(&layout_with(
         "schema = { fingerprint = true, type = \"u32\" }",

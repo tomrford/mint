@@ -246,6 +246,24 @@ pointer = { ref = "missing", type = "u32" }
         "{missing_ref}"
     );
 
+    let oversized = error(
+        "header-oversized",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 4
+[block.data]
+value = { value = 1, type = "u64" }
+"#,
+    );
+    assert!(
+        oversized
+            .contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+        "{oversized}"
+    );
+
     let missing_const = error(
         "header-missing-const",
         r#"
