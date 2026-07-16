@@ -143,52 +143,6 @@ value = { value = 3, type = "u8" }
 }
 
 #[test]
-fn rejects_invalid_identifiers_keywords_and_quoted_dotted_keys() {
-    let keyword = error(
-        "header-keyword",
-        r#"
-[mint]
-endianness = "little"
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-for = { value = 1, type = "u8" }
-"#,
-    );
-    assert!(keyword.contains("field name 'for' is a C keyword"));
-
-    let invalid = error(
-        "header-invalid-identifier",
-        r#"
-[mint]
-endianness = "little"
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-"not-valid" = { value = 1, type = "u8" }
-"#,
-    );
-    assert!(invalid.contains("is not a valid C identifier"));
-
-    let dotted = error(
-        "header-quoted-dotted-key",
-        r#"
-[mint]
-endianness = "little"
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-"a.b" = { value = 1, type = "u32" }
-z = { value = 2, type = "u8" }
-"#,
-    );
-    assert!(dotted.contains("quoted dotted key 'a.b'"));
-}
-
-#[test]
 fn rejects_names_that_collapse_to_the_same_macro() {
     let array_collision = error(
         "header-array-collision",

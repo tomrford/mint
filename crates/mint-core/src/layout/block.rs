@@ -9,8 +9,10 @@ use crate::data::DataSource;
 use crate::output::checksum;
 
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::de::{Error as _, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
+use std::fmt;
 
 /// A ref that needs to be resolved after the main traversal pass.
 struct PendingRef {
@@ -64,11 +66,52 @@ pub struct BuildOutput {
     pub checksum_values: Vec<u32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Config {
     pub mint: MintConfig,
-    #[serde(flatten)]
     pub blocks: IndexMap<String, Block>,
+}
+
+impl<'de> Deserialize<'de> for Config {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ConfigVisitor;
+
+        impl<'de> Visitor<'de> for ConfigVisitor {
+            type Value = Config;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a layout configuration table")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut mint = None;
+                let mut blocks = IndexMap::new();
+
+                while let Some(name) = map.next_key::<String>()? {
+                    if name == "mint" {
+                        if mint.is_some() {
+                            return Err(M::Error::duplicate_field("mint"));
+                        }
+                        mint = Some(map.next_value()?);
+                    } else {
+                        super::validate_c_identifier(&name, "block").map_err(M::Error::custom)?;
+                        blocks.insert(name, map.next_value()?);
+                    }
+                }
+
+                let mint = mint.ok_or_else(|| M::Error::missing_field("mint"))?;
+                Ok(Config { mint, blocks })
+            }
+        }
+
+        deserializer.deserialize_map(ConfigVisitor)
+    }
 }
 
 /// Flash block.
@@ -78,14 +121,35 @@ pub struct Block {
     pub data: Entry,
 }
 
-/// TODO: Replace the untagged derive with a custom deserializer that treats
-/// maps with `type` as leaves, preserving scalar type parse errors without a
-/// raw-layout validation pass.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug)]
 pub enum Entry {
     Leaf(LeafEntry),
     Branch(IndexMap<String, Entry>),
+}
+
+impl<'de> Deserialize<'de> for Entry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let table = toml::Table::deserialize(deserializer)?;
+        if matches!(table.get("type"), Some(toml::Value::String(_))) {
+            return toml::Value::Table(table)
+                .try_into()
+                .map(Entry::Leaf)
+                .map_err(D::Error::custom);
+        }
+
+        let mut branch = IndexMap::with_capacity(table.len());
+        for (name, value) in table {
+            super::validate_c_identifier(&name, "field").map_err(D::Error::custom)?;
+            let entry = value
+                .try_into()
+                .map_err(|error| D::Error::custom(format!("in data field '{name}': {error}")))?;
+            branch.insert(name, entry);
+        }
+        Ok(Entry::Branch(branch))
+    }
 }
 
 impl Entry {
@@ -221,7 +285,7 @@ impl Block {
 
                 for (field_name, v) in branch.iter() {
                     let path_len = field_path.len();
-                    field_path.extend(split_field_path(field_name)?);
+                    field_path.push(field_name.clone());
 
                     let offset = Self::build_bytestream_inner(
                         v,
@@ -235,11 +299,7 @@ impl Block {
 
                     if let Ok(o) = offset {
                         let joined = field_path.join(".");
-                        if state.known_offsets.insert(joined.clone(), o).is_some() {
-                            return Err(LayoutError::DataValueExportFailed(format!(
-                                "Duplicate field path '{joined}'; quoted dotted keys and nested tables must not collide"
-                            )));
-                        }
+                        state.known_offsets.insert(joined, o);
                     }
 
                     field_path.truncate(path_len);
@@ -351,15 +411,4 @@ fn pad_to_alignment(state: &mut BuildState, padding: u8, alignment: usize) {
         .buffer
         .extend(std::iter::repeat_n(padding, padding_len));
     state.padding_count += padding_len as u32;
-}
-
-fn split_field_path(field_name: &str) -> Result<Vec<String>, LayoutError> {
-    let segments: Vec<&str> = field_name.split('.').collect();
-    if segments.iter().any(|s| s.is_empty()) {
-        return Err(LayoutError::DataValueExportFailed(format!(
-            "Invalid field path '{}'.",
-            field_name
-        )));
-    }
-    Ok(segments.into_iter().map(|s| s.to_owned()).collect())
 }

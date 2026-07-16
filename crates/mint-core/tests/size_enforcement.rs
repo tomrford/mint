@@ -126,13 +126,13 @@ both = { value = [1, 2, 3], type = "u16", size = 5, SIZE = 10 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let res = common::build_block(block, &cfg.mint, false, None);
-    assert!(res.is_err(), "Using both size and SIZE should error");
-    let err_msg = format!("{:?}", res.unwrap_err());
-    assert!(err_msg.contains("Use either 'size' or 'SIZE', not both"));
+    let error = mint_core::layout::load_layout(path.to_str().unwrap())
+        .expect_err("using both size and SIZE should fail parsing")
+        .to_string();
+    assert!(
+        error.contains("only one size key") && error.contains("'size'") && error.contains("'SIZE'"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]

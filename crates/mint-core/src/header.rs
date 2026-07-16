@@ -121,18 +121,12 @@ impl NameRegistry {
     }
 }
 
-enum CNode<'a> {
-    Branch(IndexMap<String, CNode<'a>>),
-    Leaf(&'a LeafEntry),
-}
-
 fn render_block(
     block_name: &str,
     data: &Entry,
     settings: &MintConfig,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
-    validate_c_identifier(block_name, "block")?;
     let typedef_name = format!("{block_name}_t");
     names.add_typedef(typedef_name.clone())?;
 
@@ -142,18 +136,17 @@ fn render_block(
     let Entry::Branch(source) = data else {
         return Err(header_error("block data must be a table"));
     };
-    let fields = build_nodes(source)?;
-    if fields.is_empty() {
+    if source.is_empty() {
         return Err(header_error("root data struct must not be empty"));
     }
 
     let mut paths = HashSet::new();
-    collect_paths(&fields, &mut Vec::new(), &mut paths);
+    collect_paths(source, &mut Vec::new(), &mut paths);
 
     let mut macros = Vec::new();
     let mut path = Vec::new();
     collect_macros(
-        &fields,
+        source,
         block_name,
         &macro_prefix,
         settings,
@@ -164,7 +157,7 @@ fn render_block(
     )?;
 
     let mut typedef = String::from("typedef struct {\n");
-    render_fields(&fields, 1, &macro_prefix, &mut path, &mut typedef)?;
+    render_fields(source, 1, &macro_prefix, &mut path, &mut typedef)?;
     typedef.push_str(&format!("}} {typedef_name};\n"));
 
     Ok(RenderedBlock {
@@ -174,35 +167,15 @@ fn render_block(
     })
 }
 
-fn build_nodes<'a>(
-    source: &'a IndexMap<String, Entry>,
-) -> Result<IndexMap<String, CNode<'a>>, LayoutError> {
-    let mut fields = IndexMap::new();
-    for (name, entry) in source {
-        if name.contains('.') {
-            return Err(header_error(format!(
-                "quoted dotted key '{name}' builds as a flat field with no C struct equivalent; use a nested table instead"
-            )));
-        }
-        validate_c_identifier(name, "field")?;
-        let node = match entry {
-            Entry::Leaf(leaf) => CNode::Leaf(leaf),
-            Entry::Branch(children) => CNode::Branch(build_nodes(children)?),
-        };
-        fields.insert(name.clone(), node);
-    }
-    Ok(fields)
-}
-
 fn collect_paths(
-    fields: &IndexMap<String, CNode<'_>>,
+    fields: &IndexMap<String, Entry>,
     path: &mut Vec<String>,
     paths: &mut HashSet<String>,
 ) {
     for (name, node) in fields {
         path.push(name.clone());
         paths.insert(path.join("."));
-        if let CNode::Branch(children) = node {
+        if let Entry::Branch(children) = node {
             collect_paths(children, path, paths);
         }
         path.pop();
@@ -211,7 +184,7 @@ fn collect_paths(
 
 #[allow(clippy::too_many_arguments)]
 fn collect_macros(
-    fields: &IndexMap<String, CNode<'_>>,
+    fields: &IndexMap<String, Entry>,
     block_name: &str,
     block_prefix: &str,
     settings: &MintConfig,
@@ -223,7 +196,7 @@ fn collect_macros(
     for (name, node) in fields {
         path.push(name.clone());
         match node {
-            CNode::Branch(children) => {
+            Entry::Branch(children) => {
                 if children.is_empty() {
                     return Err(header_error(format!(
                         "field branch '{}' must not be empty",
@@ -241,7 +214,7 @@ fn collect_macros(
                     output,
                 )?;
             }
-            CNode::Leaf(leaf) => collect_leaf_macros(
+            Entry::Leaf(leaf) => collect_leaf_macros(
                 leaf,
                 block_name,
                 block_prefix,
@@ -413,7 +386,7 @@ fn add_macro(
 }
 
 fn render_fields(
-    fields: &IndexMap<String, CNode<'_>>,
+    fields: &IndexMap<String, Entry>,
     depth: usize,
     block_prefix: &str,
     path: &mut Vec<String>,
@@ -423,12 +396,12 @@ fn render_fields(
     for (name, node) in fields {
         path.push(name.clone());
         match node {
-            CNode::Branch(children) => {
+            Entry::Branch(children) => {
                 output.push_str(&format!("{indent}struct {{\n"));
                 render_fields(children, depth + 1, block_prefix, path, output)?;
                 output.push_str(&format!("{indent}}} {name};\n"));
             }
-            CNode::Leaf(leaf) => {
+            Entry::Leaf(leaf) => {
                 let c_type = c_type(leaf.scalar_type);
                 let dimensions = match leaf.size()? {
                     None => String::new(),
@@ -507,23 +480,6 @@ fn bitmap_mask(storage_bits: usize, region_bits: usize, shift: usize) -> String 
     )
 }
 
-fn validate_c_identifier(name: &str, kind: &str) -> Result<(), LayoutError> {
-    let mut chars = name.chars();
-    let valid_start = chars
-        .next()
-        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic());
-    if !valid_start || !chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
-    {
-        return Err(header_error(format!(
-            "{kind} name '{name}' is not a valid C identifier"
-        )));
-    }
-    if C_KEYWORDS.contains(&name) {
-        return Err(header_error(format!("{kind} name '{name}' is a C keyword")));
-    }
-    Ok(())
-}
-
 fn to_upper_snake(value: &str, kind: &str) -> Result<String, LayoutError> {
     let chars = value.chars().collect::<Vec<_>>();
     let mut output = String::new();
@@ -569,50 +525,3 @@ fn to_upper_snake(value: &str, kind: &str) -> Result<String, LayoutError> {
 fn header_error(message: impl Into<String>) -> LayoutError {
     LayoutError::HeaderGenerationFailed(message.into())
 }
-
-const C_KEYWORDS: &[&str] = &[
-    "_Alignas",
-    "_Alignof",
-    "_Atomic",
-    "_Bool",
-    "_Complex",
-    "_Generic",
-    "_Imaginary",
-    "_Noreturn",
-    "_Static_assert",
-    "_Thread_local",
-    "auto",
-    "break",
-    "case",
-    "char",
-    "const",
-    "continue",
-    "default",
-    "do",
-    "double",
-    "else",
-    "enum",
-    "extern",
-    "float",
-    "for",
-    "goto",
-    "if",
-    "inline",
-    "int",
-    "long",
-    "register",
-    "restrict",
-    "return",
-    "short",
-    "signed",
-    "sizeof",
-    "static",
-    "struct",
-    "switch",
-    "typedef",
-    "union",
-    "unsigned",
-    "void",
-    "volatile",
-    "while",
-];
