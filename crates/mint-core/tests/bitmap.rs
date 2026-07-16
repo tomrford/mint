@@ -292,8 +292,7 @@ fn bitmap_rejects_size_key() {
 fn bitmap_rejects_field_wider_than_storage() {
     common::ensure_out_dir();
 
-    // Oversized bit counts previously overflowed the usize sum (panic in
-    // debug, wrap-to-valid in release); they must fail validation instead.
+    // Reject an oversized field before summing the bitmap widths.
     let layout = bitmap_layout(
         r#"bad = { type = "u64", bitmap = [
     { bits = 9223372036854775807, value = 0 },

@@ -31,8 +31,8 @@ All fields are required — no inheritance or partial configs.
 | Key             | Type           | Default      | Description                                   |
 | --------------- | -------------- | ------------ | --------------------------------------------- |
 | `start_address` | `u32` (hex ok) | — (required) | Base address in flash                         |
-| `length`        | `u32` (hex ok) | — (required) | Allocated size in bytes                       |
-| `padding`       | `u8` (hex ok)  | `0xFF`       | Fill byte for unused space and alignment gaps |
+| `length`        | `u32` (hex ok) | — (required) | Allocated size; resolved data must fit         |
+| `padding`       | `u8` (hex ok)  | `0xFF`       | Array, alignment, and tail fill byte           |
 
 ### `[blockname.data]` — field definitions
 
@@ -189,9 +189,9 @@ entries_ptr = { ref = "table.entries", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
 ```
 
-Ref targets are dotted paths rooted at the block's data section. `ref = "table"` would resolve to the address of the first field under `table` (i.e., `table.entries`). Forward and backward refs both work. Cross-block refs are not supported.
+Ref targets are dotted paths rooted at the block's data section and are validated before field values are emitted. `ref = "table"` resolves to the address of the branch containing `table.entries`. Forward and backward refs both work. Cross-block refs are not supported.
 
-Resolved address: `start_address + field_offset`.
+Resolved address: `start_address + field_offset`. The address must fit the ref's `u16`, `u32` or `u64` storage type.
 
 ## Excel data source
 

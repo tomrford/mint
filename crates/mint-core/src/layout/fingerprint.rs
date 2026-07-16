@@ -205,5 +205,5 @@ fn hash_usize(value: usize, hasher: &mut blake3::Hasher) -> Result<(), LayoutErr
 }
 
 fn layout_size_error(message: impl Into<String>) -> LayoutError {
-    LayoutError::DataValueExportFailed(message.into())
+    LayoutError::InvalidLayout(message.into())
 }

@@ -60,6 +60,8 @@ length = 0x1000            # Block size in bytes
 padding = 0xFF             # Padding byte value (default: 0xFF)
 ```
 
+The resolved data aggregate must fit within `length`. Mint rejects an oversized layout before emitting any field values.
+
 ---
 
 ## Block Data
@@ -238,6 +240,8 @@ count_ptr = { ref = "table.count", type = "u32" }
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
 - The resolved address is `start_address + target_offset`
+- The target path is validated from the resolved layout before field values are emitted
+- The resolved address must fit the ref's `u16`, `u32` or `u64` storage type
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
 
 ### ABI fingerprints
@@ -253,7 +257,7 @@ config_schema = { fingerprint = "config", type = "u64" }
 manifest_schema = { fingerprint = true, type = "u64" }
 ```
 
-Mint calculates every block fingerprint once after parsing the layout, then uses that map for build injection, cross-block references, header macros and the `mint fingerprint` command. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
+When a layout contains a fingerprint field, build and header generation calculate every block fingerprint once and reuse that map for field injection, cross-block references and header macros. The `mint fingerprint` command calculates every block fingerprint whether or not the layout contains fingerprint fields. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
 
 The fingerprint covers endianness and the resolved, nameless ABI: aggregate shape, offsets, sizes, alignments, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved offset and target kind rather than their name. Block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
 
@@ -285,7 +289,7 @@ version = { name = "Version", type = "u16" }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
-The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Checksums are resolved after data and refs are filled; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
+The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Checksums are resolved after all non-checksum fields are emitted; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
 
 **Checksum rules:**
 

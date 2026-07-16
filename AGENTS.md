@@ -17,21 +17,21 @@ mint is a Cargo workspace with three crates:
   - **Excel** (`.xlsx`): Uses `Name` column for lookups; arrays referenced by sheet name (prefixed with `#`).
   - **JSON**: Raw JSON object with variant names as top-level keys, each containing an object with name:value pairs.
   - Supports variant priority ordering (e.g., `--variants Debug/Default`).
-- **Output**: Generates binary files, handling block overlaps and CRC calculations (`crates/mint-core/src/output`).
+- **Output**: Combines emitted blocks into address ranges, rejects overlaps, and renders binary files (`crates/mint-core/src/output`).
 
 ### Build Flow
 
-1. **Parse Args**: `clap` defines top-level arguments in `crates/mint-cli/src/args.rs`, with flattened groups in `crates/mint-cli/src/layout_args.rs`, `crates/mint-cli/src/data_args.rs`, and `crates/mint-cli/src/output_args.rs`.
-2. **Resolve Blocks**: Parallel loading of layout files (`rayon`).
-3. **Build Bytestreams**: Each block is built by combining layout config with data from the selected source.
-4. **Output**: Binary files are generated (either per-block or combined).
+1. **Parse**: Serde parses each TOML layout into layout configuration types.
+2. **Resolve**: `ResolvedLayout` validates the ABI shape and calculates every field's offset, size and alignment.
+3. **Emit**: Each block starts as a padding-filled buffer. Data values, refs and fingerprints are written at resolved offsets, then checksums are resolved in field order.
+4. **Output**: Emitted blocks become address ranges, overlap checks run, and the selected output format is rendered.
 
 ### Key Directories
 
 - `crates/mint-cli/src/`: CLI entrypoint, arguments, terminal output, and file writing.
 - `crates/mint-cli/tests/`: CLI integration tests.
 - `crates/mint-core/src/build.rs`: Library build orchestration and intermediate artifact API.
-- `crates/mint-core/src/layout/`: Layout parsing and block configuration.
+- `crates/mint-core/src/layout/`: Layout parsing, ABI resolution (`resolved.rs`), and block emission (`block.rs`).
 - `crates/mint-core/src/data/`: Data source interaction and value retrieval.
 - `crates/mint-core/src/output/`: Binary generation and data ranges.
 - `crates/mint-core/tests/`: Core behavior and library API tests.
@@ -54,4 +54,3 @@ mint is a Cargo workspace with three crates:
 - Release archives build the `mint-cli` package and ship the `mint` binary.
 - crates.io publishing is ordered by dependency: publish `mint-core` first, then `mint-cli`.
 - PyPI publishing builds and tests `mint-python` wheels and a source distribution.
-

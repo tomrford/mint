@@ -98,7 +98,7 @@ struct SizeKeys {
 impl SizeKeys {
     fn resolve(&self) -> Result<(Option<SizeSource>, bool), LayoutError> {
         match (&self.size, &self.strict_size) {
-            (Some(_), Some(_)) => Err(LayoutError::DataValueExportFailed(
+            (Some(_), Some(_)) => Err(LayoutError::InvalidLayout(
                 "Use either 'size' or 'SIZE', not both.".into(),
             )),
             (Some(s), None) => Ok((Some(s.clone()), false)),
@@ -306,20 +306,7 @@ impl LeafEntry {
         value_sink: &mut dyn ValueSink,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
-        if let EntrySource::Ref(_) = &self.source {
-            return Err(LayoutError::DataValueExportFailed(
-                "Ref entries require resolved layout emission.".into(),
-            ));
-        }
-
-        if let EntrySource::Checksum(_) = &self.source {
-            return Err(LayoutError::DataValueExportFailed(
-                "Checksum entries require final block emission.".into(),
-            ));
-        }
-
         if let EntrySource::Bitmap(fields) = &self.source {
-            self.validate_bitmap(fields)?;
             return self.emit_bitmap(fields, data_source, config, value_sink, field_path);
         }
 
@@ -388,7 +375,7 @@ impl LeafEntry {
             return Err(fixed_point_unsupported_error("Ref", self.scalar_type));
         }
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
-            return Err(LayoutError::DataValueExportFailed(
+            return Err(LayoutError::InvalidLayout(
                 "size/SIZE keys are forbidden with ref.".into(),
             ));
         }
@@ -396,12 +383,12 @@ impl LeafEntry {
             self.scalar_type,
             ScalarType::U16 | ScalarType::U32 | ScalarType::U64
         ) {
-            return Err(LayoutError::DataValueExportFailed(
+            return Err(LayoutError::InvalidLayout(
                 "Ref requires unsigned integer storage type (u16, u32, u64).".into(),
             ));
         }
         if target.is_empty() {
-            return Err(LayoutError::DataValueExportFailed(
+            return Err(LayoutError::InvalidLayout(
                 "Ref target path must not be empty.".into(),
             ));
         }
@@ -414,12 +401,12 @@ impl LeafEntry {
             return Err(fixed_point_unsupported_error("Checksum", self.scalar_type));
         }
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
-            return Err(LayoutError::DataValueExportFailed(
+            return Err(LayoutError::InvalidLayout(
                 "size/SIZE keys are forbidden with checksum.".into(),
             ));
         }
         if !matches!(self.scalar_type, ScalarType::U32) {
-            return Err(LayoutError::DataValueExportFailed(format!(
+            return Err(LayoutError::InvalidLayout(format!(
                 "Checksum type must be u32 (4 bytes), got {} ({} bytes).",
                 self.scalar_type.name(),
                 self.scalar_type.size_bytes()
@@ -430,12 +417,12 @@ impl LeafEntry {
 
     pub fn validate_fingerprint(&self) -> Result<(), LayoutError> {
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
-            return Err(LayoutError::DataValueExportFailed(
+            return Err(LayoutError::InvalidLayout(
                 "size/SIZE keys are forbidden with fingerprint.".into(),
             ));
         }
         if !matches!(self.scalar_type, ScalarType::U64) {
-            return Err(LayoutError::DataValueExportFailed(format!(
+            return Err(LayoutError::InvalidLayout(format!(
                 "Fingerprint type must be u64 (8 bytes), got {} ({} bytes).",
                 self.scalar_type.name(),
                 self.scalar_type.size_bytes()
@@ -450,13 +437,13 @@ impl LeafEntry {
             return Err(fixed_point_unsupported_error("Bitmap", self.scalar_type));
         }
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
-            return Err(LayoutError::DataValueExportFailed(
+            return Err(LayoutError::InvalidLayout(
                 "size/SIZE keys are forbidden with bitmap.".into(),
             ));
         }
 
         if !self.scalar_type.is_integer() {
-            return Err(LayoutError::DataValueExportFailed(
+            return Err(LayoutError::InvalidLayout(
                 "Bitmap requires integer storage type.".into(),
             ));
         }
@@ -465,12 +452,12 @@ impl LeafEntry {
         let mut total_bits = 0usize;
         for field in fields {
             if field.bits == 0 {
-                return Err(LayoutError::DataValueExportFailed(
+                return Err(LayoutError::InvalidLayout(
                     "Bitmap field bits must be > 0.".into(),
                 ));
             }
             if field.bits > expected_bits {
-                return Err(LayoutError::DataValueExportFailed(format!(
+                return Err(LayoutError::InvalidLayout(format!(
                     "Bitmap field bits ({}) exceed storage width ({}).",
                     field.bits, expected_bits
                 )));
@@ -479,7 +466,7 @@ impl LeafEntry {
         }
 
         if total_bits != expected_bits {
-            return Err(LayoutError::DataValueExportFailed(format!(
+            return Err(LayoutError::InvalidLayout(format!(
                 "Bitmap total bits ({}) must equal storage width ({}).",
                 total_bits, expected_bits
             )));

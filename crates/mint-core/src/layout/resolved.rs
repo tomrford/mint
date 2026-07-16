@@ -289,5 +289,5 @@ fn aligned_offset(offset: usize, alignment: usize) -> Result<usize, LayoutError>
 }
 
 fn layout_size_error(message: impl Into<String>) -> LayoutError {
-    LayoutError::DataValueExportFailed(message.into())
+    LayoutError::InvalidLayout(message.into())
 }

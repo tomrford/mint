@@ -8,6 +8,9 @@ pub enum LayoutError {
     #[error("block not found: {0}")]
     BlockNotFound(String),
 
+    #[error("invalid layout: {0}")]
+    InvalidLayout(String),
+
     #[error("data value export failed: {0}")]
     DataValueExportFailed(String),
 

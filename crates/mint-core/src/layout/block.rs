@@ -132,7 +132,7 @@ impl Block {
         let resolved = ResolvedLayout::new(&self.data)?;
         let total_size = resolved.total_size();
         if total_size > self.header.length as usize {
-            return Err(LayoutError::DataValueExportFailed(format!(
+            return Err(LayoutError::InvalidLayout(format!(
                 "Block '{block_name}' resolved layout size ({total_size} bytes) exceeds configured block length ({} bytes).",
                 self.header.length
             )));
@@ -253,7 +253,6 @@ impl Block {
         value_sink: &mut dyn ValueSink,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
-        leaf.validate_ref(target)?;
         let target_offset = resolved.coordinates(target).ok_or_else(|| {
             LayoutError::DataValueExportFailed(format!(
                 "Ref target '{target}' not found in resolved layout."

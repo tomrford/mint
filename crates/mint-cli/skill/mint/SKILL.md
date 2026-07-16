@@ -30,8 +30,8 @@ fw_name = "BootloaderV2"
 
 [myblock.header]          # Per-block memory region
 start_address = 0x8000    # Required — base address in flash
-length = 0x1000           # Required — allocated size in bytes
-padding = 0xFF            # Fill byte for unused space (default: 0xFF)
+length = 0x1000           # Required — allocated size; resolved data must fit
+padding = 0xFF            # Array, alignment, and tail fill byte (default: 0xFF)
 
 [myblock.data]            # Field definitions (dotted paths = nested structs)
 schema = { fingerprint = true, type = "u64" }
@@ -155,7 +155,7 @@ table_ptr = { ref = "table", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
 ```
 
-The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + field_offset`. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
+The ref target is a dotted path rooted at the block's data section and is validated before field values are emitted. Refs resolve to `start_address + field_offset`, which must fit the selected storage type. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
 
 ### ABI fingerprints (`fingerprint`)
 
