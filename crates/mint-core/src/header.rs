@@ -142,10 +142,7 @@ fn render_block(
     let Entry::Branch(source) = data else {
         return Err(header_error("block data must be a table"));
     };
-    let mut fields = IndexMap::new();
-    for (name, entry) in source {
-        insert_entry(&mut fields, name, entry, &[])?;
-    }
+    let fields = build_nodes(source)?;
     if fields.is_empty() {
         return Err(header_error("root data struct must not be empty"));
     }
@@ -177,72 +174,24 @@ fn render_block(
     })
 }
 
-fn insert_entry<'a>(
-    target: &mut IndexMap<String, CNode<'a>>,
-    key: &str,
-    entry: &'a Entry,
-    parent: &[String],
-) -> Result<(), LayoutError> {
-    let segments = key.split('.').collect::<Vec<_>>();
-    if segments.iter().any(|segment| segment.is_empty()) {
-        return Err(header_error(format!("invalid field path '{key}'")));
-    }
-    insert_segments(target, &segments, entry, parent)
-}
-
-fn insert_segments<'a>(
-    target: &mut IndexMap<String, CNode<'a>>,
-    segments: &[&str],
-    entry: &'a Entry,
-    parent: &[String],
-) -> Result<(), LayoutError> {
-    let name = segments[0];
-    validate_c_identifier(name, "field")?;
-    let mut path = parent.to_vec();
-    path.push(name.to_owned());
-
-    if segments.len() > 1 {
-        let branch = branch_for_path(target, name, &path)?;
-        return insert_segments(branch, &segments[1..], entry, &path);
-    }
-
-    match entry {
-        Entry::Leaf(leaf) => {
-            if target.contains_key(name) {
-                return Err(path_collision(&path));
-            }
-            target.insert(name.to_owned(), CNode::Leaf(leaf));
+fn build_nodes<'a>(
+    source: &'a IndexMap<String, Entry>,
+) -> Result<IndexMap<String, CNode<'a>>, LayoutError> {
+    let mut fields = IndexMap::new();
+    for (name, entry) in source {
+        if name.contains('.') {
+            return Err(header_error(format!(
+                "quoted dotted key '{name}' builds as a flat field with no C struct equivalent; use a nested table instead"
+            )));
         }
-        Entry::Branch(source) => {
-            let branch = branch_for_path(target, name, &path)?;
-            for (child_name, child) in source {
-                insert_entry(branch, child_name, child, &path)?;
-            }
-        }
+        validate_c_identifier(name, "field")?;
+        let node = match entry {
+            Entry::Leaf(leaf) => CNode::Leaf(leaf),
+            Entry::Branch(children) => CNode::Branch(build_nodes(children)?),
+        };
+        fields.insert(name.clone(), node);
     }
-    Ok(())
-}
-
-fn branch_for_path<'a, 'b>(
-    target: &'b mut IndexMap<String, CNode<'a>>,
-    name: &str,
-    path: &[String],
-) -> Result<&'b mut IndexMap<String, CNode<'a>>, LayoutError> {
-    if !target.contains_key(name) {
-        target.insert(name.to_owned(), CNode::Branch(IndexMap::new()));
-    }
-    match target.get_mut(name) {
-        Some(CNode::Branch(branch)) => Ok(branch),
-        Some(CNode::Leaf(_)) => Err(path_collision(path)),
-        None => Err(header_error("failed to construct field tree")),
-    }
-}
-
-fn path_collision(path: &[String]) -> LayoutError {
-    header_error(format!(
-        "field path '{}' is duplicated or used as both a leaf and a branch",
-        path.join(".")
-    ))
+    Ok(fields)
 }
 
 fn collect_paths(

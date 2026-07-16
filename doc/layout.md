@@ -85,7 +85,7 @@ Each selected block becomes a `<block>_t` typedef, and dotted paths become inlin
 
 Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros.
 
-Block and field names must be valid non-keyword C identifiers. Header generation rejects duplicate paths, leaf-versus-branch conflicts, duplicate typedefs, and names that collide when converted to upper snake case. It renders the complete header before writing the output file.
+Block and field names must be valid non-keyword C identifiers. Quoted dotted keys (`"a.b" = ...`) are rejected: they build as flat fields, which no C struct can reproduce — use a nested table instead. Header generation also rejects duplicate typedefs and names that collide when converted to upper snake case. It renders the complete header before writing the output file.
 
 ### Field Attributes
 

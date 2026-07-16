@@ -266,7 +266,7 @@ Run `mint --help` for the full argument list.
 
 **Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
 
-**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, and named bitmap regions receive shift and mask macros. Header generation rejects invalid C identifiers and generated-name collisions.
+**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, and named bitmap regions receive shift and mask macros. Header generation rejects invalid C identifiers, generated-name collisions, and quoted dotted keys (which build as flat fields no C struct can reproduce).
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
 

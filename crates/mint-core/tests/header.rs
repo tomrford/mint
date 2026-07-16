@@ -143,7 +143,7 @@ value = { value = 3, type = "u8" }
 }
 
 #[test]
-fn rejects_invalid_identifiers_keywords_and_field_tree_collisions() {
+fn rejects_invalid_identifiers_keywords_and_quoted_dotted_keys() {
     let keyword = error(
         "header-keyword",
         r#"
@@ -172,8 +172,8 @@ length = 16
     );
     assert!(invalid.contains("is not a valid C identifier"));
 
-    let collision = error(
-        "header-field-collision",
+    let dotted = error(
+        "header-quoted-dotted-key",
         r#"
 [mint]
 endianness = "little"
@@ -181,12 +181,11 @@ endianness = "little"
 start_address = 0
 length = 16
 [block.data]
-"a.b" = { value = 1, type = "u8" }
-[block.data.a]
-b = { value = 2, type = "u8" }
+"a.b" = { value = 1, type = "u32" }
+z = { value = 2, type = "u8" }
 "#,
     );
-    assert!(collision.contains("field path 'a.b' is duplicated"));
+    assert!(dotted.contains("quoted dotted key 'a.b'"));
 }
 
 #[test]
