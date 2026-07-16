@@ -83,9 +83,9 @@ mint header layout.toml -o layout.h
 mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
-Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum and ref fields remain integer members.
+Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members.
 
-Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros.
+Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
 
 The layout parser guarantees valid block and field names. Header generation rejects duplicate typedefs and generated names that collide when converted to upper snake case. It renders the complete header before writing the output file.
 
@@ -94,12 +94,13 @@ The layout parser guarantees valid block and field names. Header generation reje
 | Attribute     | Description                                                                           |
 | ------------- | ------------------------------------------------------------------------------------- |
 | `type`        | Data type (required)                                                                  |
-| `value`       | Literal value (mutually exclusive with `name`, `const`, `bitmap`, `ref`, `checksum`)  |
-| `name`        | Data source lookup key (mutually exclusive with `value`, `const`, `bitmap`, `ref`, `checksum`) |
+| `value`       | Literal value (mutually exclusive with other sources)                             |
+| `name`        | Data source lookup key (mutually exclusive with other sources)                    |
 | `const`       | Const lookup key from `[mint.const]` or an auto-promoted block header const            |
 | `bitmap`      | Bitmap field definitions (see below)                                                  |
 | `ref`         | Pointer to another field in the same block (see below)                                |
 | `checksum`    | Inline checksum referencing a named config (see below)                                |
+| `fingerprint` | `true` for this block or another block name in the same file (see below)              |
 | `size`/`SIZE` | Array size; `size` pads if data is shorter, `SIZE` errors if data is shorter.         |
 
 ---
@@ -231,13 +232,39 @@ count_ptr = { ref = "table.count", type = "u32" }
 
 **Ref rules:**
 
-- `ref` is mutually exclusive with `name`, `value`, `bitmap`, and `checksum`
+- `ref` is mutually exclusive with every other source
 - `type` must be an unsigned integer type (`u16`, `u32`, `u64`)
 - fixed-point types are not valid with `ref`
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
 - The resolved address is `start_address + target_offset`
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
+
+### ABI fingerprints
+
+A `fingerprint` field stores a deterministic 64-bit identifier for a block's resolved ABI. Use `true` for the containing block or name another block in the same TOML file:
+
+```toml
+[config.data]
+schema = { fingerprint = true, type = "u64" }
+
+[manifest.data]
+config_schema = { fingerprint = "config", type = "u64" }
+manifest_schema = { fingerprint = true, type = "u64" }
+```
+
+Mint calculates every block fingerprint once after parsing the layout, then uses that map for build injection, cross-block references, header macros and the `mint fingerprint` command. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
+
+The fingerprint covers endianness and the resolved, nameless ABI: aggregate shape, offsets, sizes, alignments, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved offset and target kind rather than their name. Block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
+
+Fingerprint fields require `type = "u64"` and cannot use `size` or `SIZE`. The marker and referenced fingerprint value are not inputs to the containing block's own fingerprint; the field contributes as a normal `u64` at its resolved position. This keeps self-fingerprints non-recursive and prevents cross-block dependency cycles.
+
+Calculate fingerprints without building data:
+
+```bash
+mint fingerprint layout.toml#config  # one bare 16-character value
+mint fingerprint layout.toml         # "block fingerprint" lines
+```
 
 ### Checksums
 
@@ -262,7 +289,7 @@ The CRC covers all bytes from the start of the block data up to (but not includi
 
 **Checksum rules:**
 
-- `checksum` is mutually exclusive with `name`, `value`, `bitmap`, and `ref`
+- `checksum` is mutually exclusive with every other source
 - `type` must be `u32` (matching CRC-32 output width)
 - fixed-point types are not valid with `checksum`
 - `size`/`SIZE` cannot be used with `checksum`

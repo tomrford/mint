@@ -64,14 +64,17 @@ _Static_assert(CONFIG_MATRIX_ROWS == 2u, "matrix rows");
 _Static_assert(CONFIG_MATRIX_COLS == 2u, "matrix columns");
 _Static_assert(CONFIG_FLAGS_ENABLE_DEBUG_SHIFT == 0u, "bitmap shift");
 _Static_assert(CONFIG_FLAGS_REGION_CODE_MASK == UINT16_C(0x00F0), "bitmap mask");
-_Static_assert(offsetof(config_t, device.id) == 0u, "device id offset");
-_Static_assert(offsetof(config_t, device.name) == 4u, "device name offset");
-_Static_assert(offsetof(config_t, flags) == 24u, "flags offset");
-_Static_assert(offsetof(config_t, coefficients) == 28u, "coefficients offset");
-_Static_assert(offsetof(config_t, matrix) == 44u, "matrix offset");
-_Static_assert(offsetof(config_t, checksum) == 52u, "checksum offset");
-_Static_assert(sizeof(config_t) == 56u, "config size");
-_Static_assert(sizeof(data_t) == 32u, "data size");
+_Static_assert(CONFIG_SCHEMA_FINGERPRINT == UINT64_C(0x3E02A8698C5E7D0E), "config fingerprint");
+_Static_assert(DATA_CONFIG_SCHEMA_FINGERPRINT == CONFIG_SCHEMA_FINGERPRINT, "cross-block fingerprint");
+_Static_assert(offsetof(config_t, schema) == 0u, "schema offset");
+_Static_assert(offsetof(config_t, device.id) == 8u, "device id offset");
+_Static_assert(offsetof(config_t, device.name) == 12u, "device name offset");
+_Static_assert(offsetof(config_t, flags) == 32u, "flags offset");
+_Static_assert(offsetof(config_t, coefficients) == 36u, "coefficients offset");
+_Static_assert(offsetof(config_t, matrix) == 52u, "matrix offset");
+_Static_assert(offsetof(config_t, checksum) == 60u, "checksum offset");
+_Static_assert(sizeof(config_t) == 64u, "config size");
+_Static_assert(sizeof(data_t) == 48u, "data size");
 
 int use_generated_header(config_t *config, data_t *data) {{
   config->device.id = 1u;

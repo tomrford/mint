@@ -11,9 +11,26 @@ use crate::data::DataSource;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
-const LEAF_SOURCE_KEYS: &[&str] = &["name", "value", "bitmap", "ref", "checksum", "const"];
+const LEAF_SOURCE_KEYS: &[&str] = &[
+    "name",
+    "value",
+    "bitmap",
+    "ref",
+    "checksum",
+    "const",
+    "fingerprint",
+];
 const LEAF_KEYS: &[&str] = &[
-    "type", "size", "SIZE", "name", "value", "bitmap", "ref", "checksum", "const",
+    "type",
+    "size",
+    "SIZE",
+    "name",
+    "value",
+    "bitmap",
+    "ref",
+    "checksum",
+    "const",
+    "fingerprint",
 ];
 const BITMAP_SOURCE_KEYS: &[&str] = &["name", "value"];
 const BITMAP_KEYS: &[&str] = &["bits", "name", "value"];
@@ -106,6 +123,60 @@ pub enum EntrySource {
     Checksum(String),
     #[serde(rename = "const")]
     Const(String),
+    #[serde(rename = "fingerprint")]
+    Fingerprint(FingerprintTarget),
+}
+
+#[derive(Debug, Clone)]
+pub enum FingerprintTarget {
+    SelfBlock,
+    Block(String),
+}
+
+impl FingerprintTarget {
+    pub(crate) fn block_name<'a>(&'a self, current_block: &'a str) -> &'a str {
+        match self {
+            Self::SelfBlock => current_block,
+            Self::Block(name) => name,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for FingerprintTarget {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct TargetVisitor;
+
+        impl serde::de::Visitor<'_> for TargetVisitor {
+            type Value = FingerprintTarget;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("`true` for the containing block or a non-empty block name")
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                if value {
+                    Ok(FingerprintTarget::SelfBlock)
+                } else {
+                    Err(E::custom(
+                        "fingerprint must be `true` for the containing block or a block name",
+                    ))
+                }
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                if value.is_empty() {
+                    Err(E::custom("fingerprint block name must not be empty"))
+                } else {
+                    Ok(FingerprintTarget::Block(value.to_owned()))
+                }
+            }
+        }
+
+        deserializer.deserialize_any(TargetVisitor)
+    }
 }
 
 /// Single bitmap field within a bitmap entry.
@@ -378,6 +449,22 @@ impl LeafEntry {
         Ok(())
     }
 
+    pub fn validate_fingerprint(&self) -> Result<(), LayoutError> {
+        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
+            return Err(LayoutError::DataValueExportFailed(
+                "size/SIZE keys are forbidden with fingerprint.".into(),
+            ));
+        }
+        if !matches!(self.scalar_type, ScalarType::U64) {
+            return Err(LayoutError::DataValueExportFailed(format!(
+                "Fingerprint type must be u64 (8 bytes), got {} ({} bytes).",
+                self.scalar_type.name(),
+                self.scalar_type.size_bytes()
+            )));
+        }
+        Ok(())
+    }
+
     /// Validates bitmap entry rules.
     pub(crate) fn validate_bitmap(&self, fields: &[BitmapField]) -> Result<(), LayoutError> {
         if self.scalar_type.fixed_point().is_some() {
@@ -493,6 +580,9 @@ impl LeafEntry {
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Fingerprint(_) => {
+                unreachable!("fingerprint handled in build_bytestream")
+            }
         }
     }
 
@@ -588,6 +678,9 @@ impl LeafEntry {
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Fingerprint(_) => {
+                unreachable!("fingerprint handled in build_bytestream")
+            }
         }
 
         if out.len() > total_bytes {
@@ -689,6 +782,9 @@ impl LeafEntry {
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Fingerprint(_) => {
+                unreachable!("fingerprint handled in build_bytestream")
+            }
         }
     }
 }

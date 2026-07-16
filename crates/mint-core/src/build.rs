@@ -203,9 +203,11 @@ fn build_resolved(
     strict: bool,
     capture_values: bool,
 ) -> Result<BuildArtifact, MintError> {
+    let fingerprints = calculate_layout_fingerprints(layouts)?;
     let mut results = build_bytestreams(
         &resolved_blocks,
         layouts,
+        &fingerprints,
         data_source,
         strict,
         capture_values,
@@ -224,6 +226,21 @@ fn build_resolved(
         stats,
         used_values,
     })
+}
+
+fn calculate_layout_fingerprints(
+    layouts: &HashMap<PathBuf, Config>,
+) -> Result<HashMap<PathBuf, HashMap<String, u64>>, LayoutError> {
+    layouts
+        .par_iter()
+        .map(|(path, config)| {
+            if !layout::fingerprint::uses_fingerprints(config) {
+                return Ok((path.clone(), HashMap::new()));
+            }
+            layout::fingerprint::calculate(config)
+                .map(|values| (path.clone(), values.into_iter().collect()))
+        })
+        .collect()
 }
 
 fn collect_named_layouts(
@@ -333,6 +350,7 @@ pub(crate) fn resolve_blocks(
 fn build_bytestreams(
     blocks: &[ResolvedBlock],
     layouts: &HashMap<PathBuf, Config>,
+    fingerprints: &HashMap<PathBuf, HashMap<String, u64>>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
@@ -340,7 +358,14 @@ fn build_bytestreams(
     blocks
         .par_iter()
         .map(|resolved| {
-            build_single_bytestream(resolved, layouts, data_source, strict, capture_values)
+            build_single_bytestream(
+                resolved,
+                layouts,
+                fingerprints,
+                data_source,
+                strict,
+                capture_values,
+            )
         })
         .collect()
 }
@@ -348,6 +373,7 @@ fn build_bytestreams(
 fn build_single_bytestream(
     resolved: &ResolvedBlock,
     layouts: &HashMap<PathBuf, Config>,
+    fingerprints: &HashMap<PathBuf, HashMap<String, u64>>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
@@ -368,6 +394,12 @@ fn build_single_bytestream(
                 available_blocks
             ))
         })?;
+        let fingerprints = fingerprints.get(&resolved.layout).ok_or_else(|| {
+            LayoutError::FileError(format!(
+                "resolved layout missing from fingerprint map: {}",
+                resolved.layout.display()
+            ))
+        })?;
         let mut collector = ValueCollector::new();
         let mut noop = NoopValueSink;
         let value_sink = if capture_values {
@@ -376,7 +408,14 @@ fn build_single_bytestream(
             &mut noop as &mut dyn crate::layout::used_values::ValueSink
         };
 
-        let build_output = block.build_bytestream(data_source, &layout.mint, strict, value_sink)?;
+        let build_output = block.build_bytestream(
+            &resolved.name,
+            fingerprints,
+            data_source,
+            &layout.mint,
+            strict,
+            value_sink,
+        )?;
 
         let data_range = output::bytestream_to_datarange(build_output.bytestream, &block.header)?;
 

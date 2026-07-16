@@ -5,7 +5,7 @@ description: "Guide for working with mint, an embedded development tool that ass
 
 # mint
 
-mint builds binary flash images (Intel HEX or Motorola S-Record) from a declarative TOML layout file and an optional data source (Excel workbook or JSON). Each layout describes one or more memory blocks — contiguous regions that map to C structs stored at known flash addresses. mint resolves data values, enforces types, computes CRCs, pads to size, and emits the output file. It can also generate matching C headers without a data source.
+mint builds binary flash images (Intel HEX or Motorola S-Record) from a declarative TOML layout file and an optional data source (Excel workbook or JSON). Each layout describes one or more memory blocks — contiguous regions that map to C structs stored at known flash addresses. mint resolves data values, enforces types, computes CRCs, pads to size, and emits the output file. It can also generate matching C headers and ABI fingerprints without a data source.
 
 Install: `cargo install mint-cli` or via nix flake.
 
@@ -34,6 +34,7 @@ length = 0x1000           # Required — allocated size in bytes
 padding = 0xFF            # Fill byte for unused space (default: 0xFF)
 
 [myblock.data]            # Field definitions (dotted paths = nested structs)
+schema = { fingerprint = true, type = "u64" }
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 voltage = { const = "default_voltage", type = "f32" }
@@ -156,6 +157,20 @@ count_ptr = { ref = "table.count", type = "u32" }
 
 The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + field_offset`. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
 
+### ABI fingerprints (`fingerprint`)
+
+Store the containing block's ABI fingerprint or another block's fingerprint from the same layout:
+
+```toml
+[config.data]
+schema = { fingerprint = true, type = "u64" }
+
+[manifest.data]
+config_schema = { fingerprint = "config", type = "u64" }
+```
+
+Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
+
 ### Checksums (`checksum`)
 
 Compute a CRC over all preceding bytes in the block and place the result inline.
@@ -246,6 +261,10 @@ mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Defau
 # C header for all blocks (no data source required)
 mint header layout.toml -o layout.h
 
+# ABI fingerprints without a data source or build
+mint fingerprint layout.toml#config
+mint fingerprint layout.toml
+
 # JSON data source (file or inline)
 mint build layout.toml --json data.json --variants Debug/Default -o out.hex
 mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}' --variants Default -o out.hex
@@ -268,7 +287,7 @@ Run `mint --help` for the full argument list.
 
 **Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
 
-**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, and named bitmap regions receive shift and mask macros. Layout parsing guarantees valid block and field names; header generation rejects generated-name collisions.
+**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects generated-name collisions.
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
 
@@ -282,7 +301,8 @@ Run `mint --help` for the full argument list.
 - **2D arrays must come from data source**: You cannot inline a 2D array literal in TOML. Use a `name` reference instead.
 - **Checksum type**: Must be `u32`. No other widths are supported.
 - **Ref type**: Must be unsigned (`u16`, `u32`, `u64`).
-- **`size`/`SIZE` cannot combine with `ref`, `checksum`, or `bitmap`.**
+- **Fingerprint type**: Must be `u64`; targets are `true` or another block in the same layout.
+- **`size`/`SIZE` cannot combine with `ref`, `checksum`, `fingerprint`, or `bitmap`.**
 - **Strict mode**: Without `--strict`, out-of-range integer values saturate and float-to-int casts truncate (e.g., 300 into `u8` becomes 255, 1.5 into `u8` becomes 1). Fixed-point values scale by `2^F`, round ties-to-even, then clamp. With `--strict`, mint errors instead.
 
 ## Further reference

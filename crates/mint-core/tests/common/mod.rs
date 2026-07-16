@@ -68,7 +68,15 @@ pub fn build_block(
     data_source: Option<&dyn DataSource>,
 ) -> Result<(Vec<u8>, u32), mint_core::layout::error::LayoutError> {
     let mut noop = NoopValueSink;
-    let output = block.build_bytestream(data_source, settings, strict, &mut noop)?;
+    let fingerprints = Default::default();
+    let output = block.build_bytestream(
+        "block",
+        &fingerprints,
+        data_source,
+        settings,
+        strict,
+        &mut noop,
+    )?;
     Ok((output.bytestream, output.padding_count))
 }
 
@@ -78,7 +86,15 @@ pub fn build_block_with_values(
     settings: &mint_core::layout::settings::MintConfig,
 ) -> Result<((Vec<u8>, u32), serde_json::Value), mint_core::layout::error::LayoutError> {
     let mut collector = ValueCollector::new();
-    let output = block.build_bytestream(None, settings, false, &mut collector)?;
+    let fingerprints = Default::default();
+    let output = block.build_bytestream(
+        "block",
+        &fingerprints,
+        None,
+        settings,
+        false,
+        &mut collector,
+    )?;
     Ok((
         (output.bytestream, output.padding_count),
         collector.into_value(),

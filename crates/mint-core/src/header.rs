@@ -3,6 +3,7 @@ use crate::error::MintError;
 use crate::layout::block::{BuildConfig, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
+use crate::layout::fingerprint;
 use crate::layout::scalar_type::ScalarType;
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
@@ -15,6 +16,16 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     }
 
     let (resolved, layouts) = resolve_blocks(blocks)?;
+    let fingerprints = layouts
+        .iter()
+        .map(|(path, layout)| {
+            if fingerprint::uses_fingerprints(layout) {
+                fingerprint::calculate(layout).map(|values| (path.clone(), values))
+            } else {
+                Ok((path.clone(), IndexMap::new()))
+            }
+        })
+        .collect::<Result<HashMap<_, _>, LayoutError>>()?;
     let mut rendered = Vec::with_capacity(resolved.len());
     let mut names = NameRegistry::default();
     let mut guard_parts = Vec::with_capacity(resolved.len());
@@ -33,8 +44,20 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
                 selected.layout.display()
             ))
         })?;
+        let block_fingerprints = fingerprints.get(&selected.layout).ok_or_else(|| {
+            LayoutError::FileError(format!(
+                "resolved layout missing from fingerprint map: {}",
+                selected.layout.display()
+            ))
+        })?;
 
-        let result = render_block(&selected.name, &block.data, &layout.mint, &mut names);
+        let result = render_block(
+            &selected.name,
+            &block.data,
+            &layout.mint,
+            block_fingerprints,
+            &mut names,
+        );
         let block_output = result.map_err(|source| MintError::InHeaderBlock {
             block_name: selected.name.clone(),
             layout_file: selected.layout.display().to_string(),
@@ -125,6 +148,7 @@ fn render_block(
     block_name: &str,
     data: &Entry,
     settings: &MintConfig,
+    fingerprints: &IndexMap<String, u64>,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
     let typedef_name = format!("{block_name}_t");
@@ -150,6 +174,7 @@ fn render_block(
         block_name,
         &macro_prefix,
         settings,
+        fingerprints,
         &paths,
         names,
         &mut path,
@@ -188,6 +213,7 @@ fn collect_macros(
     block_name: &str,
     block_prefix: &str,
     settings: &MintConfig,
+    fingerprints: &IndexMap<String, u64>,
     paths: &HashSet<String>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
@@ -208,6 +234,7 @@ fn collect_macros(
                     block_name,
                     block_prefix,
                     settings,
+                    fingerprints,
                     paths,
                     names,
                     path,
@@ -219,6 +246,7 @@ fn collect_macros(
                 block_name,
                 block_prefix,
                 settings,
+                fingerprints,
                 paths,
                 names,
                 path,
@@ -236,6 +264,7 @@ fn collect_leaf_macros(
     block_name: &str,
     block_prefix: &str,
     settings: &MintConfig,
+    fingerprints: &IndexMap<String, u64>,
     paths: &HashSet<String>,
     names: &mut NameRegistry,
     path: &[String],
@@ -316,6 +345,24 @@ fn collect_leaf_macros(
         }
     }
 
+    if let EntrySource::Fingerprint(target) = &leaf.source {
+        let target_name = target.block_name(block_name);
+        let value = fingerprints.get(target_name).ok_or_else(|| {
+            header_error(format!(
+                "fingerprint target '{target_name}' from '{}' does not exist",
+                path.join(".")
+            ))
+        })?;
+        add_macro(
+            names,
+            output,
+            format!("{path_prefix}_FINGERPRINT"),
+            format!("UINT64_C(0x{value:016X})"),
+            format!("fingerprint '{}#{}'", block_name, path.join(".")),
+            true,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -338,6 +385,7 @@ fn validate_leaf(
             }
         }
         EntrySource::Checksum(name) => leaf.validate_checksum(name, settings)?,
+        EntrySource::Fingerprint(_) => leaf.validate_fingerprint()?,
         EntrySource::Const(name) => {
             let config = BuildConfig {
                 endianness: &settings.endianness,
@@ -415,6 +463,7 @@ fn render_fields(
                 };
                 let comment = match &leaf.source {
                     EntrySource::Bitmap(_) => " /* bitmap storage */".to_owned(),
+                    EntrySource::Fingerprint(_) => " /* fingerprint */".to_owned(),
                     _ => leaf
                         .scalar_type
                         .fixed_point()

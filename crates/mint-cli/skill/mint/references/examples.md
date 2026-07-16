@@ -49,8 +49,9 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `bitmap`   | array of bitmap fields    | Bitfield packing. Mutually exclusive with other sources.                                                                                            |
 | `ref`      | string                    | Dotted path to another field in same block. Mutually exclusive with other sources.                                                                  |
 | `checksum` | string                    | Name of a `[mint.checksum.<name>]` config, used inside `checksum = { checksum = \"name\", type = \"u32\" }`. Mutually exclusive with other sources. |
-| `size`     | integer or `[rows, cols]` | Array/string dimensions. Pads if data is shorter. Cannot combine with `SIZE`, `ref`, `checksum`, or `bitmap`.                                       |
-| `SIZE`     | integer or `[rows, cols]` | Strict array dimensions. Errors if data is shorter. Cannot combine with `size`, `ref`, `checksum`, or `bitmap`.                                     |
+| `fingerprint` | `true` or string       | This block's ABI fingerprint, or another block's fingerprint from the same layout. Mutually exclusive with other sources.                         |
+| `size`     | integer or `[rows, cols]` | Array/string dimensions. Pads if data is shorter. Cannot combine with `SIZE`, `ref`, `checksum`, `fingerprint`, or `bitmap`.                        |
+| `SIZE`     | integer or `[rows, cols]` | Strict array dimensions. Errors if data is shorter. Cannot combine with `size`, `ref`, `checksum`, `fingerprint`, or `bitmap`.                      |
 
 #### Source constraints
 
@@ -69,6 +70,7 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `bitmap`           | integer types only  | no                         | Sum of `bits` must equal type width; fixed-point not allowed |
 | `ref`              | `u16`, `u32`, `u64` | no                         | Resolves to absolute address of target; fixed-point not allowed |
 | `checksum`         | `u32` only          | no                         | CRC over all preceding bytes in block; fixed-point not allowed |
+| `fingerprint`      | `u64` only          | no                         | Injects a nameless ABI fingerprint for this or another same-file block |
 
 #### Bitmap sub-field schema
 
@@ -117,6 +119,7 @@ start_address = 0x8000
 length = 0x100
 
 [config.data]
+schema = { fingerprint = true, type = "u64" }
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 version = { name = "Version", type = "u16" }
@@ -137,6 +140,8 @@ start_address = 0x8100
 length = 0x100
 
 [data.data]
+schema = { fingerprint = true, type = "u64" }
+config_schema = { fingerprint = "config", type = "u64" }
 counter = { name = "Counter", type = "u64" }
 message = { value = "Hello", type = "u8", size = 16 }
 ip = { value = [192, 168, 1, 1], type = "u8", size = 4 }
@@ -147,6 +152,7 @@ Generate the corresponding C typedefs, array extent macros, and named bitmap shi
 
 ```bash
 mint header layout.toml -o layout.h
+mint fingerprint layout.toml
 ```
 
 Key observations:

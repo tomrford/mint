@@ -39,7 +39,71 @@ fn top_level_help_lists_commands() {
     assert!(stdout.contains("Commands:"));
     assert!(stdout.contains("build"));
     assert!(stdout.contains("header"));
+    assert!(stdout.contains("fingerprint"));
     assert!(stdout.contains("skill"));
+}
+
+#[test]
+fn fingerprint_prints_only_hex_for_one_block_and_named_lines_for_a_file() {
+    let layout = common::write_layout_file(
+        "fingerprint-output",
+        r#"
+[mint]
+endianness = "little"
+
+[config.header]
+start_address = 0x1000
+length = 0x20
+
+[config.data]
+value = { value = 1, type = "u32" }
+
+[data.header]
+start_address = 0x2000
+length = 0x20
+
+[data.data]
+value = { value = [1, 2], type = "u16", size = 2 }
+"#,
+    );
+    let selector = mint_core::build::BlockSelector::all(&layout);
+    let fingerprints = mint_core::fingerprint::load(&selector).expect("fingerprints load");
+
+    let one = mint_command()
+        .arg("fingerprint")
+        .arg(format!("{layout}#config"))
+        .output()
+        .expect("fingerprint command runs");
+    assert!(
+        one.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&one.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(one.stdout).expect("stdout is utf8"),
+        format!("{}\n", fingerprints[0].hex())
+    );
+    assert!(one.stderr.is_empty());
+
+    let all = mint_command()
+        .arg("fingerprint")
+        .arg(&layout)
+        .output()
+        .expect("fingerprint command runs");
+    assert!(
+        all.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&all.stderr)
+    );
+    let expected = fingerprints
+        .iter()
+        .map(|fingerprint| format!("{} {}\n", fingerprint.block, fingerprint.hex()))
+        .collect::<String>();
+    assert_eq!(
+        String::from_utf8(all.stdout).expect("stdout is utf8"),
+        expected
+    );
+    assert!(all.stderr.is_empty());
 }
 
 #[test]

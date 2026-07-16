@@ -2,6 +2,7 @@ pub mod block;
 mod conversions;
 pub(crate) mod entry;
 pub mod error;
+pub(crate) mod fingerprint;
 pub mod header;
 pub mod scalar_type;
 pub mod settings;

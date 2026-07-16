@@ -60,6 +60,12 @@ pub struct BuildConfig<'a> {
     pub consts: &'a HashMap<String, ValueSource>,
 }
 
+struct BuildContext<'a> {
+    config: BuildConfig<'a>,
+    block_name: &'a str,
+    fingerprints: &'a HashMap<String, u64>,
+}
+
 pub struct BuildOutput {
     pub bytestream: Vec<u8>,
     pub padding_count: u32,
@@ -164,6 +170,8 @@ impl Entry {
 impl Block {
     pub fn build_bytestream(
         &self,
+        block_name: &str,
+        fingerprints: &HashMap<String, u64>,
         data_source: Option<&dyn DataSource>,
         settings: &MintConfig,
         strict: bool,
@@ -177,11 +185,15 @@ impl Block {
             pending_checksums: Vec::new(),
             resolved_checksum_values: Vec::new(),
         };
-        let config = BuildConfig {
-            endianness: &settings.endianness,
-            padding: self.header.padding,
-            strict,
-            consts: &settings.consts,
+        let context = BuildContext {
+            config: BuildConfig {
+                endianness: &settings.endianness,
+                padding: self.header.padding,
+                strict,
+                consts: &settings.consts,
+            },
+            block_name,
+            fingerprints,
         };
 
         let mut field_path = Vec::new();
@@ -190,19 +202,19 @@ impl Block {
             data_source,
             settings,
             &mut state,
-            &config,
+            &context,
             value_sink,
             &mut field_path,
         )?;
 
         // Resolve pending refs now that all offsets are known.
         if !state.pending_refs.is_empty() {
-            Self::resolve_pending_refs(&mut state, &config, &self.header, value_sink)?;
+            Self::resolve_pending_refs(&mut state, &context.config, &self.header, value_sink)?;
         }
 
         // Resolve pending checksums now that the bytestream is complete.
         if !state.pending_checksums.is_empty() {
-            Self::resolve_pending_checksums(&mut state, settings, &config, value_sink)?;
+            Self::resolve_pending_checksums(&mut state, settings, &context.config, value_sink)?;
         }
 
         Ok(BuildOutput {
@@ -220,14 +232,14 @@ impl Block {
         data_source: Option<&dyn DataSource>,
         settings: &MintConfig,
         state: &mut BuildState,
-        config: &BuildConfig,
+        context: &BuildContext,
         value_sink: &mut dyn ValueSink,
         field_path: &mut Vec<String>,
     ) -> Result<usize, LayoutError> {
         match table {
             Entry::Leaf(leaf) => {
                 let alignment = leaf.get_alignment();
-                pad_to_alignment(state, config.padding, alignment);
+                pad_to_alignment(state, context.config.padding, alignment);
 
                 let leaf_offset = state.buffer.len();
 
@@ -262,7 +274,31 @@ impl Block {
                     return Ok(leaf_offset);
                 }
 
-                let bytes = leaf.emit_bytes(data_source, config, value_sink, field_path)?;
+                if let EntrySource::Fingerprint(target) = &leaf.source {
+                    leaf.validate_fingerprint()?;
+                    let target_name = target.block_name(context.block_name);
+                    let value = context.fingerprints.get(target_name).ok_or_else(|| {
+                        LayoutError::BlockNotFound(format!(
+                            "fingerprint target '{target_name}' from block '{}'. Available blocks: {}",
+                            context.block_name,
+                            context.fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
+                        ))
+                    })?;
+                    let bytes = DataValue::U64(*value).to_bytes(
+                        leaf.scalar_type,
+                        context.config.endianness,
+                        true,
+                    )?;
+                    value_sink.record_value(
+                        field_path,
+                        serde_json::Value::Number(serde_json::Number::from(*value)),
+                    )?;
+                    state.buffer.extend(bytes);
+                    return Ok(leaf_offset);
+                }
+
+                let bytes =
+                    leaf.emit_bytes(data_source, &context.config, value_sink, field_path)?;
                 state.buffer.extend(bytes);
                 Ok(leaf_offset)
             }
@@ -280,7 +316,7 @@ impl Block {
                 }
 
                 let alignment = table.alignment();
-                pad_to_alignment(state, config.padding, alignment);
+                pad_to_alignment(state, context.config.padding, alignment);
                 let branch_offset = state.buffer.len();
 
                 for (field_name, v) in branch.iter() {
@@ -292,7 +328,7 @@ impl Block {
                         data_source,
                         settings,
                         state,
-                        config,
+                        context,
                         value_sink,
                         field_path,
                     );
@@ -309,7 +345,7 @@ impl Block {
                     })?;
                 }
 
-                pad_to_alignment(state, config.padding, alignment);
+                pad_to_alignment(state, context.config.padding, alignment);
                 Ok(branch_offset)
             }
         }

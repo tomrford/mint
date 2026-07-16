@@ -60,6 +60,16 @@ result = mint.build(layout.blocks())
 
 Calling `layout.blocks()` with no names builds every block in that layout. Passing names builds those blocks in the requested order.
 
+A named `BuildBlock` exposes the same lowercase hexadecimal ABI fingerprint as `mint fingerprint FILE#BLOCK`:
+
+```python
+config = layout.blocks("config")[0]
+print(config.fingerprint)
+result = mint.build([config])
+```
+
+The singular property requires a named selector. `layout.blocks()` represents every block and therefore has no single `fingerprint` value.
+
 ## Data Sources
 
 `mint.build(...)` accepts at most one data source:

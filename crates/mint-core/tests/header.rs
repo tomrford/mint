@@ -94,6 +94,30 @@ bitmap = { type = "u64", bitmap = [{ bits = 64, name = "WholeField" }] }
 }
 
 #[test]
+fn emits_fingerprint_values_for_firmware_comparison() {
+    let header = generate(
+        "header-fingerprint",
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x100
+
+[block.data]
+schema = { fingerprint = true, type = "u64" }
+version = { value = 1, type = "u16" }
+payload = { value = [1, 2, 3], type = "u8", size = 3 }
+"#,
+        |path| vec![BlockSelector::all(path)],
+    );
+
+    assert!(header.contains("#define BLOCK_SCHEMA_FINGERPRINT UINT64_C(0x636CA69EB274AAFA)"));
+    assert!(header.contains("uint64_t schema; /* fingerprint */"));
+}
+
+#[test]
 fn emits_array_macros_nested_structs_and_selected_order_deterministically() {
     let layout = r#"
 [mint]

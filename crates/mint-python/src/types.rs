@@ -117,6 +117,30 @@ impl PyBuildBlock {
         self.name.as_deref()
     }
 
+    #[getter]
+    fn fingerprint(&self, py: Python<'_>) -> PyResult<String> {
+        let name = self.name.clone().ok_or_else(|| {
+            value_error(
+                "fingerprint requires a named block selector; pass a block name to Layout.blocks()",
+            )
+        })?;
+        let source = self.source.clone();
+        py.detach(move || {
+            let config = source.parse_config()?;
+            let available = config.blocks.keys().cloned().collect::<Vec<_>>();
+            let fingerprint = mint_core::fingerprint::calculate(&config)
+                .map_err(mint_error)?
+                .into_iter()
+                .find(|fingerprint| fingerprint.block == name)
+                .ok_or_else(|| {
+                    mint_error(mint_core::layout::error::LayoutError::BlockNotFound(
+                        format!("'{name}'. Available blocks: {}", available.join(", ")),
+                    ))
+                })?;
+            Ok(fingerprint.hex())
+        })
+    }
+
     fn __repr__(&self) -> String {
         match &self.name {
             Some(name) => format!("BuildBlock(layout={:?}, name={:?})", self.layout_name, name),

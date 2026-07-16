@@ -16,7 +16,7 @@ pub const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
     bin_name = "mint",
     author,
     version,
-    about = "Build flash blocks and generate C headers from TOML layouts",
+    about = "Build flash blocks and generate C headers and ABI fingerprints from TOML layouts",
     after_help = "Run `mint <COMMAND> --help` for command options."
 )]
 pub struct Cli {
@@ -33,6 +33,8 @@ pub enum Command {
     Build(Args),
     #[command(about = "Generate a C header from layout blocks")]
     Header(HeaderArgs),
+    #[command(about = "Print ABI fingerprints for layout blocks")]
+    Fingerprint(FingerprintArgs),
     #[command(about = "Print the bundled Mint skill text")]
     Skill,
 }
@@ -56,4 +58,10 @@ pub struct HeaderArgs {
 
     #[arg(short, long, value_name = "FILE", help = "Output C header path")]
     pub out: PathBuf,
+}
+
+#[derive(ClapArgs, Debug)]
+pub struct FingerprintArgs {
+    #[arg(value_name = "FILE[#BLOCK] | FILE", value_parser = parse_block_arg, help = "A layout block selector as file[#block], or a layout file for all blocks")]
+    pub block: BlockSelector,
 }
