@@ -18,7 +18,13 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let (resolved, layouts) = resolve_blocks(blocks)?;
     let fingerprints = layouts
         .iter()
-        .map(|(path, layout)| fingerprint::calculate(layout).map(|values| (path.clone(), values)))
+        .map(|(path, layout)| {
+            if fingerprint::uses_fingerprints(layout) {
+                fingerprint::calculate(layout).map(|values| (path.clone(), values))
+            } else {
+                Ok((path.clone(), IndexMap::new()))
+            }
+        })
         .collect::<Result<HashMap<_, _>, LayoutError>>()?;
     let mut rendered = Vec::with_capacity(resolved.len());
     let mut names = NameRegistry::default();
@@ -340,7 +346,7 @@ fn collect_leaf_macros(
     }
 
     if let EntrySource::Fingerprint(target) = &leaf.source {
-        let target_name = target.block_name(block_name)?;
+        let target_name = target.block_name(block_name);
         let value = fingerprints.get(target_name).ok_or_else(|| {
             header_error(format!(
                 "fingerprint target '{target_name}' from '{}' does not exist",
@@ -379,7 +385,7 @@ fn validate_leaf(
             }
         }
         EntrySource::Checksum(name) => leaf.validate_checksum(name, settings)?,
-        EntrySource::Fingerprint(target) => leaf.validate_fingerprint(target)?,
+        EntrySource::Fingerprint(_) => leaf.validate_fingerprint()?,
         EntrySource::Const(name) => {
             let config = BuildConfig {
                 endianness: &settings.endianness,

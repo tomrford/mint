@@ -188,6 +188,68 @@ payload = { value = [1, 2, 3], type = "u8", size = 3 }
 }
 
 #[test]
+fn fingerprint_targets_are_validated_at_parse_time() {
+    let error = layout::parse_toml_layout(&layout_with(
+        "schema = { fingerprint = false, type = \"u64\" }",
+    ))
+    .expect_err("false target fails to parse");
+    assert!(
+        error
+            .to_string()
+            .contains("fingerprint must be `true` for the containing block or a block name"),
+        "unexpected error: {error}"
+    );
+
+    let error = layout::parse_toml_layout(&layout_with(
+        "schema = { fingerprint = \"\", type = \"u64\" }",
+    ))
+    .expect_err("empty target fails to parse");
+    assert!(
+        error
+            .to_string()
+            .contains("fingerprint block name must not be empty"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn blocks_without_fingerprint_fields_build_despite_invalid_siblings() {
+    let source = r#"
+[mint]
+endianness = "little"
+
+[good.header]
+start_address = 0x1000
+length = 0x20
+
+[good.data]
+value = { value = 7, type = "u16" }
+
+[bad.header]
+start_address = 0x2000
+length = 0x20
+
+[bad.data]
+pointer = { ref = "missing", type = "u32" }
+"#;
+    let config = layout::parse_toml_layout(source).expect("layout parses");
+    fingerprint::calculate(&config).expect_err("whole-file calculation rejects the bad ref");
+
+    let artifact = mint_core::build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("siblings.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("siblings.toml", "good")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect("selected block builds without touching the invalid sibling");
+    assert_eq!(artifact.ranges.len(), 1);
+}
+
+#[test]
 fn fingerprint_fields_reject_invalid_storage_and_unknown_blocks() {
     let wrong_type = layout::parse_toml_layout(&layout_with(
         "schema = { fingerprint = true, type = \"u32\" }",

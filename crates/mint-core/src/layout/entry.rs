@@ -127,25 +127,55 @@ pub enum EntrySource {
     Fingerprint(FingerprintTarget),
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum FingerprintTarget {
-    SelfBlock(bool),
+    SelfBlock,
     Block(String),
 }
 
 impl FingerprintTarget {
-    pub(crate) fn block_name<'a>(&'a self, current_block: &'a str) -> Result<&'a str, LayoutError> {
+    pub(crate) fn block_name<'a>(&'a self, current_block: &'a str) -> &'a str {
         match self {
-            Self::SelfBlock(true) => Ok(current_block),
-            Self::SelfBlock(false) => Err(LayoutError::DataValueExportFailed(
-                "Fingerprint self-reference must be true.".into(),
-            )),
-            Self::Block(name) if name.is_empty() => Err(LayoutError::DataValueExportFailed(
-                "Fingerprint block name must not be empty.".into(),
-            )),
-            Self::Block(name) => Ok(name),
+            Self::SelfBlock => current_block,
+            Self::Block(name) => name,
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for FingerprintTarget {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct TargetVisitor;
+
+        impl serde::de::Visitor<'_> for TargetVisitor {
+            type Value = FingerprintTarget;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("`true` for the containing block or a non-empty block name")
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                if value {
+                    Ok(FingerprintTarget::SelfBlock)
+                } else {
+                    Err(E::custom(
+                        "fingerprint must be `true` for the containing block or a block name",
+                    ))
+                }
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                if value.is_empty() {
+                    Err(E::custom("fingerprint block name must not be empty"))
+                } else {
+                    Ok(FingerprintTarget::Block(value.to_owned()))
+                }
+            }
+        }
+
+        deserializer.deserialize_any(TargetVisitor)
     }
 }
 
@@ -419,7 +449,7 @@ impl LeafEntry {
         Ok(())
     }
 
-    pub fn validate_fingerprint(&self, target: &FingerprintTarget) -> Result<(), LayoutError> {
+    pub fn validate_fingerprint(&self) -> Result<(), LayoutError> {
         if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
             return Err(LayoutError::DataValueExportFailed(
                 "size/SIZE keys are forbidden with fingerprint.".into(),
@@ -432,7 +462,6 @@ impl LeafEntry {
                 self.scalar_type.size_bytes()
             )));
         }
-        target.block_name("")?;
         Ok(())
     }
 

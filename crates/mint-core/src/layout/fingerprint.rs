@@ -8,6 +8,21 @@ use std::collections::HashMap;
 
 const HASH_CONTEXT: &str = "mint block ABI fingerprint v1";
 
+/// Whether any block in the layout contains a fingerprint field.
+pub(crate) fn uses_fingerprints(config: &Config) -> bool {
+    fn entry_uses_fingerprints(entry: &Entry) -> bool {
+        match entry {
+            Entry::Leaf(leaf) => matches!(leaf.source, EntrySource::Fingerprint(_)),
+            Entry::Branch(entries) => entries.values().any(entry_uses_fingerprints),
+        }
+    }
+
+    config
+        .blocks
+        .values()
+        .any(|block| entry_uses_fingerprints(&block.data))
+}
+
 pub(crate) fn calculate(config: &Config) -> Result<IndexMap<String, u64>, LayoutError> {
     let mut dependencies = IndexMap::with_capacity(config.blocks.len());
     let mut fingerprints = IndexMap::with_capacity(config.blocks.len());
@@ -21,7 +36,7 @@ pub(crate) fn calculate(config: &Config) -> Result<IndexMap<String, u64>, Layout
 
     for (block_name, targets) in dependencies {
         for target in targets {
-            let target_name = target.block_name(&block_name)?;
+            let target_name = target.block_name(&block_name);
             if !fingerprints.contains_key(target_name) {
                 return Err(LayoutError::BlockNotFound(format!(
                     "fingerprint target '{target_name}' from block '{block_name}'. Available blocks: {}",
@@ -160,7 +175,7 @@ fn collect_entry(
                     LeafKind::Ref(target.clone())
                 }
                 EntrySource::Fingerprint(target) => {
-                    leaf.validate_fingerprint(target)?;
+                    leaf.validate_fingerprint()?;
                     fingerprint_targets.push(target.clone());
                     LeafKind::Plain
                 }

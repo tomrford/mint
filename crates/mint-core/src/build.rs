@@ -234,6 +234,9 @@ fn calculate_layout_fingerprints(
     layouts
         .par_iter()
         .map(|(path, config)| {
+            if !layout::fingerprint::uses_fingerprints(config) {
+                return Ok((path.clone(), HashMap::new()));
+            }
             layout::fingerprint::calculate(config)
                 .map(|values| (path.clone(), values.into_iter().collect()))
         })

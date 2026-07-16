@@ -275,8 +275,8 @@ impl Block {
                 }
 
                 if let EntrySource::Fingerprint(target) = &leaf.source {
-                    leaf.validate_fingerprint(target)?;
-                    let target_name = target.block_name(context.block_name)?;
+                    leaf.validate_fingerprint()?;
+                    let target_name = target.block_name(context.block_name);
                     let value = context.fingerprints.get(target_name).ok_or_else(|| {
                         LayoutError::BlockNotFound(format!(
                             "fingerprint target '{target_name}' from block '{}'. Available blocks: {}",
