@@ -24,10 +24,7 @@ samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
 "#;
 
     let path = common::write_layout_file("fixed-point-literals", layout);
-    let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let (bytes, _) = common::build_block(block, &cfg.mint, true, None).expect("build succeeds");
+    let (bytes, _) = common::build_block(&path, "block", true, None).expect("build succeeds");
     assert_eq!(
         bytes,
         vec![0x80, 0x01, 0x02, 0x00, 0x02, 0x00, 0x80, 0x00, 0x00, 0x01]
@@ -51,10 +48,7 @@ unit = { value = 1.0, type = "uq8.8" }
 "#;
 
     let path = common::write_layout_file("fixed-point-big-endian", layout);
-    let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let (bytes, _) = common::build_block(block, &cfg.mint, true, None).expect("build succeeds");
+    let (bytes, _) = common::build_block(&path, "block", true, None).expect("build succeeds");
     assert_eq!(bytes, vec![0xFE, 0xC0, 0x01, 0x00]);
 }
 
@@ -75,9 +69,6 @@ grid = { name = "Grid", type = "uq8.8", size = [2, 2] }
 "#;
 
     let path = common::write_layout_file("fixed-point-json", layout);
-    let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let variants = vec!["Default".to_owned()];
     let ds = JsonDataSource::from_str(
         r#"{"Default":{"Ratio":0.25,"Grid":[[0.5,1.0],[1.5,2.0]]}}"#,
@@ -85,8 +76,7 @@ grid = { name = "Grid", type = "uq8.8", size = [2, 2] }
     )
     .expect("datasource loads");
 
-    let (bytes, _) =
-        common::build_block(block, &cfg.mint, true, Some(&ds)).expect("build succeeds");
+    let (bytes, _) = common::build_block(&path, "block", true, Some(&ds)).expect("build succeeds");
     assert_eq!(
         bytes,
         vec![0x00, 0x40, 0x80, 0x00, 0x00, 0x01, 0x80, 0x01, 0x00, 0x02]
@@ -110,11 +100,7 @@ samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
 "#;
 
     let path = common::write_layout_file("fixed-point-values", layout);
-    let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let ((_, _), values) =
-        common::build_block_with_values(block, &cfg.mint).expect("build succeeds");
+    let ((_, _), values) = common::build_block_with_values(&path, "block").expect("build succeeds");
     assert_eq!(values["gain"].as_f64(), Some(1.5));
     assert_eq!(values["samples"][0].as_f64(), Some(0.5));
     assert_eq!(values["samples"][1].as_f64(), Some(1.0));
@@ -136,18 +122,15 @@ gain = { value = 300.5, type = "uq8.8" }
 "#;
 
     let path = common::write_layout_file("fixed-point-overflow", layout);
-    let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let err = common::build_block(block, &cfg.mint, true, None).expect_err("strict should fail");
+    let err = common::build_block(&path, "block", true, None).expect_err("strict should fail");
     let message = common::error_chain(&err);
     assert!(
         message.contains("fixed-point type 'uq8.8'") && message.contains("300.5"),
         "unexpected error: {message}"
     );
 
-    let (bytes, _) = common::build_block(block, &cfg.mint, false, None)
-        .expect("non-strict overflow should clamp");
+    let (bytes, _) =
+        common::build_block(&path, "block", false, None).expect("non-strict overflow should clamp");
     assert_eq!(bytes, vec![0xFF, 0xFF]);
 }
 
@@ -168,17 +151,14 @@ signed_limit = { value = 9223372036854775808.0, type = "q63.0" }
 "#;
 
     let path = common::write_layout_file("fixed-point-64bit-float-overflow", layout);
-    let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let err = common::build_block(block, &cfg.mint, true, None).expect_err("strict should fail");
+    let err = common::build_block(&path, "block", true, None).expect_err("strict should fail");
     assert!(
         common::error_chain(&err).contains("fixed-point type 'uq64.0'"),
         "unexpected strict error: {err}"
     );
 
-    let (bytes, _) = common::build_block(block, &cfg.mint, false, None)
-        .expect("non-strict overflow should clamp");
+    let (bytes, _) =
+        common::build_block(&path, "block", false, None).expect("non-strict overflow should clamp");
     assert_eq!(
         bytes,
         vec![
@@ -204,10 +184,7 @@ gain = { value = inf, type = "uq8.8" }
 "#;
 
     let path = common::write_layout_file("fixed-point-non-finite", layout);
-    let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let err = common::build_block(block, &cfg.mint, false, None).expect_err("build should fail");
+    let err = common::build_block(&path, "block", false, None).expect_err("build should fail");
     assert!(
         common::error_chain(&err).contains("cannot encode non-finite"),
         "unexpected error: {err}"
@@ -323,10 +300,7 @@ checksum = { checksum = "crc32", type = "uq8.8" }
         ),
     ] {
         let path = common::write_layout_file(stem, layout);
-        let cfg = mint_core::layout::load_layout(&path).expect("layout loads");
-        let block = cfg.blocks.get("block").expect("block present");
-
-        let err = common::build_block(block, &cfg.mint, true, None).expect_err("build should fail");
+        let err = common::build_block(&path, "block", true, None).expect_err("build should fail");
         assert!(
             common::error_chain(&err).contains(expected),
             "expected '{expected}', got: {err}"

@@ -30,25 +30,19 @@ fn ref_layout_with_endian(start_address: u32, endianness: &str, data_content: &s
 fn load_and_build(name: &str, toml_str: &str) -> (Vec<u8>, u32) {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
-    let config = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = &config.blocks["block"];
-    common::build_block(block, &config.mint, false, None).expect("build succeeds")
+    common::build_block(&path, "block", false, None).expect("build succeeds")
 }
 
 fn load_and_build_with_values(name: &str, toml_str: &str) -> ((Vec<u8>, u32), serde_json::Value) {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
-    let config = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = &config.blocks["block"];
-    common::build_block_with_values(block, &config.mint).expect("build succeeds")
+    common::build_block_with_values(&path, "block").expect("build succeeds")
 }
 
 fn load_and_fail(name: &str, toml_str: &str) -> String {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
-    let config = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = &config.blocks["block"];
-    let err = common::build_block(block, &config.mint, false, None).unwrap_err();
+    let err = common::build_block(&path, "block", false, None).unwrap_err();
     common::error_chain(&err)
 }
 
@@ -113,6 +107,24 @@ ptr = { ref = "target", type = "u16" }
     );
 
     let err = load_and_fail("ref_u16_overflow", &toml);
+    assert!(
+        err.contains("out of range for u16"),
+        "expected u16 range error, got: {err}"
+    );
+}
+
+#[test]
+fn ref_u16_rejects_target_offset_that_pushes_address_out_of_range() {
+    let toml = ref_layout(
+        0xFFFC,
+        r#"
+prefix = { value = 0x42, type = "u32" }
+target = { value = 0x24, type = "u32" }
+ptr = { ref = "target", type = "u16" }
+"#,
+    );
+
+    let err = load_and_fail("ref_u16_offset_overflow", &toml);
     assert!(
         err.contains("out of range for u16"),
         "expected u16 range error, got: {err}"
@@ -332,7 +344,7 @@ field = { value = 0x42, type = "u32" }
 [block.data.empty]
 "#,
             ),
-            "Empty branch",
+            "empty branch",
         ),
     ];
 

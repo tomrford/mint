@@ -299,7 +299,7 @@ impl LeafEntry {
         self.scalar_type.size_bytes()
     }
 
-    pub fn emit_bytes(
+    pub(crate) fn emit_bytes(
         &self,
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
@@ -308,13 +308,13 @@ impl LeafEntry {
     ) -> Result<Vec<u8>, LayoutError> {
         if let EntrySource::Ref(_) = &self.source {
             return Err(LayoutError::DataValueExportFailed(
-                "Ref entries are resolved in a fixup pass, not via emit_bytes.".into(),
+                "Ref entries require resolved layout emission.".into(),
             ));
         }
 
         if let EntrySource::Checksum(_) = &self.source {
             return Err(LayoutError::DataValueExportFailed(
-                "Checksum entries are resolved in a fixup pass, not via emit_bytes.".into(),
+                "Checksum entries require final block emission.".into(),
             ));
         }
 
@@ -346,7 +346,7 @@ impl LeafEntry {
     }
 
     /// Validates const entry rules and returns the resolved const value.
-    pub fn validate_const<'a>(
+    pub(crate) fn validate_const<'a>(
         &self,
         name: &str,
         config: &'a BuildConfig<'a>,
@@ -578,10 +578,10 @@ impl LeafEntry {
                 )),
             },
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
-            EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
-            EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Ref(_) => unreachable!("ref handled by block emitter"),
+            EntrySource::Checksum(_) => unreachable!("checksum handled by block emitter"),
             EntrySource::Fingerprint(_) => {
-                unreachable!("fingerprint handled in build_bytestream")
+                unreachable!("fingerprint handled by block emitter")
             }
         }
     }
@@ -676,10 +676,10 @@ impl LeafEntry {
                 }
             }
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
-            EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
-            EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Ref(_) => unreachable!("ref handled by block emitter"),
+            EntrySource::Checksum(_) => unreachable!("checksum handled by block emitter"),
             EntrySource::Fingerprint(_) => {
-                unreachable!("fingerprint handled in build_bytestream")
+                unreachable!("fingerprint handled by block emitter")
             }
         }
 
@@ -780,10 +780,10 @@ impl LeafEntry {
                 ))
             }
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
-            EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
-            EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Ref(_) => unreachable!("ref handled by block emitter"),
+            EntrySource::Checksum(_) => unreachable!("checksum handled by block emitter"),
             EntrySource::Fingerprint(_) => {
-                unreachable!("fingerprint handled in build_bytestream")
+                unreachable!("fingerprint handled by block emitter")
             }
         }
     }

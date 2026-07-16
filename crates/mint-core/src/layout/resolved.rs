@@ -74,6 +74,14 @@ impl<'a> ResolvedLayout<'a> {
         })
     }
 
+    pub(crate) fn emission_leaves(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (&str, ResolvedCoordinates, &LeafEntry)> {
+        self.leaves
+            .iter()
+            .map(|leaf| (leaf.path.as_str(), leaf.coordinates, leaf.leaf))
+    }
+
     pub(crate) fn target(&self, path: &str) -> Option<ResolvedTarget> {
         self.nodes.get(path).copied()
     }

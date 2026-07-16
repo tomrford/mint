@@ -10,7 +10,6 @@ use mint_cli::layout_args::LayoutArgs;
 use mint_cli::output_args::OutputArgs;
 use mint_core::build::BlockSelector;
 use mint_core::data::DataSource;
-use mint_core::layout::used_values::{NoopValueSink, ValueCollector};
 use mint_core::output::OutputFormat;
 
 static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
@@ -95,47 +94,6 @@ pub fn assert_out_file_exists(out_path: &Path) {
         "expected output file to exist: {}",
         out_path.display()
     );
-}
-
-/// Build a block's bytestream, returning `(bytes, padding_count)`.
-pub fn build_block(
-    block: &mint_core::layout::block::Block,
-    settings: &mint_core::layout::settings::MintConfig,
-    strict: bool,
-    data_source: Option<&dyn DataSource>,
-) -> Result<(Vec<u8>, u32), mint_core::layout::error::LayoutError> {
-    let mut noop = NoopValueSink;
-    let fingerprints = Default::default();
-    let output = block.build_bytestream(
-        "block",
-        &fingerprints,
-        data_source,
-        settings,
-        strict,
-        &mut noop,
-    )?;
-    Ok((output.bytestream, output.padding_count))
-}
-
-/// Build a block's bytestream and collect exported values.
-pub fn build_block_with_values(
-    block: &mint_core::layout::block::Block,
-    settings: &mint_core::layout::settings::MintConfig,
-) -> Result<((Vec<u8>, u32), serde_json::Value), mint_core::layout::error::LayoutError> {
-    let mut collector = ValueCollector::new();
-    let fingerprints = Default::default();
-    let output = block.build_bytestream(
-        "block",
-        &fingerprints,
-        None,
-        settings,
-        false,
-        &mut collector,
-    )?;
-    Ok((
-        (output.bytestream, output.padding_count),
-        collector.into_value(),
-    ))
 }
 
 /// Build test args for multiple layouts with a unique output path.

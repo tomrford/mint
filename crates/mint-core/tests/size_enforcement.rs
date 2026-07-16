@@ -34,10 +34,7 @@ short_array = { value = [1, 2, 3], type = "u16", size = 10 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let (bytes, _padding) = common::build_block(block, &cfg.mint, false, None)
+    let (bytes, _padding) = common::build_block(&path, "block", false, None)
         .expect("lowercase size should allow padding");
 
     assert!(bytes.len() >= 20);
@@ -64,10 +61,7 @@ short_array = { value = [1, 2, 3], type = "u16", SIZE = 10 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let res = common::build_block(block, &cfg.mint, false, None);
+    let res = common::build_block(&path, "block", false, None);
     assert!(res.is_err(), "SIZE should reject underfilled array");
     let err_msg = format!("{:?}", res.unwrap_err());
     assert!(err_msg.contains("smaller than defined size"));
@@ -94,12 +88,9 @@ matrix = { name = "CalibrationMatrix", type = "i16", SIZE = [5, 3] }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let ds = default_excel_source();
 
-    let res = common::build_block(block, &cfg.mint, false, Some(&ds));
+    let res = common::build_block(&path, "block", false, Some(&ds));
     assert!(res.is_err(), "SIZE should reject underfilled 2D array");
     let err_msg = format!("{:?}", res.unwrap_err());
     assert!(err_msg.contains("smaller than defined size"));
@@ -156,11 +147,8 @@ exact_array = { value = [1, 2, 3, 4, 5], type = "u16", SIZE = 5 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let (bytes, _padding) =
-        common::build_block(block, &cfg.mint, false, None).expect("SIZE should accept exact match");
+        common::build_block(&path, "block", false, None).expect("SIZE should accept exact match");
 
     assert!(bytes.len() >= 10);
 }

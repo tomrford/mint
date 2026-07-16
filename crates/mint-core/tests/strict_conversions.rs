@@ -39,11 +39,7 @@ overflow.u8_float_high = { value = 300.0, type = "u8" }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let (bytes, _) =
-        common::build_block(block, &cfg.mint, false, None).expect("non-strict converts");
+    let (bytes, _) = common::build_block(&path, "block", false, None).expect("non-strict converts");
     assert_eq!(
         &bytes[..6],
         &[0xff, 0x00, 0x7f, 0x80, 0x01, 0xff],
@@ -73,12 +69,9 @@ ok.int_exact_to_f32   = { value = 16777216, type = "f32" }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse ok layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let ds = default_excel_source();
 
-    let (bytes, _) = common::build_block(block, &cfg.mint, true, Some(&ds))
+    let (bytes, _) = common::build_block(&path, "block", true, Some(&ds))
         .expect("strict conversions should succeed");
     assert!(!bytes.is_empty());
 }
@@ -104,12 +97,9 @@ bad.frac_to_u8 = { value = 1.5, type = "u8" }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse bad layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let ds = default_excel_source();
 
-    let res = common::build_block(block, &cfg.mint, true, Some(&ds));
+    let res = common::build_block(&path, "block", true, Some(&ds));
     assert!(
         res.is_err(),
         "strict mode should reject fractional float to int"
@@ -137,12 +127,9 @@ bad.large_int_to_f64 = { value = 9007199254740993, type = "f64" }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse bad layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let ds = default_excel_source();
 
-    let res = common::build_block(block, &cfg.mint, true, Some(&ds));
+    let res = common::build_block(&path, "block", true, Some(&ds));
     assert!(
         res.is_err(),
         "strict mode should reject lossy int to f64 conversion"
@@ -176,10 +163,7 @@ padding = 0x00
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(layout_toml.as_bytes()).unwrap();
 
-        let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-        let block = cfg.blocks.get("block").expect("block present");
-
-        let res = common::build_block(block, &cfg.mint, true, None);
+        let res = common::build_block(&path, "block", true, None);
         assert!(
             res.is_err(),
             "strict mode should reject {value} to {scalar_type}"
@@ -208,13 +192,11 @@ bad.large_u64_to_f64 = { name = "Value", type = "f64" }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse bad layout");
-    let block = cfg.blocks.get("block").expect("block present");
     let variants = vec!["Default".to_owned()];
     let ds = JsonDataSource::from_str(r#"{"Default":{"Value":18446744073709551615}}"#, &variants)
         .expect("datasource load");
 
-    let res = common::build_block(block, &cfg.mint, true, Some(&ds));
+    let res = common::build_block(&path, "block", true, Some(&ds));
     assert!(
         res.is_err(),
         "strict mode should reject lossy u64 to f64 conversion"
@@ -244,11 +226,8 @@ bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse bool layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let (bytes, _) =
-        common::build_block(block, &cfg.mint, true, None).expect("bool literals convert");
+        common::build_block(&path, "block", true, None).expect("bool literals convert");
     assert!(
         bytes.starts_with(&[1, 0, 1, 0, 1]),
         "bool values should map to 0/1, got {:?}",

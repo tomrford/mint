@@ -408,7 +408,7 @@ fn build_single_bytestream(
             &mut noop as &mut dyn crate::layout::used_values::ValueSink
         };
 
-        let build_output = block.build_bytestream(
+        let build_output = block.emit(
             &resolved.name,
             fingerprints,
             data_source,

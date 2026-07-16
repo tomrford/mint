@@ -4,8 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use mint_core::build::{self, BlockSelector, BuildRequest};
 use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions};
-use mint_core::layout::used_values::{NoopValueSink, ValueCollector};
+use mint_core::layout::error::LayoutError;
+use mint_core::layout::resolved::ResolvedLayout;
 
 static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -62,43 +64,72 @@ pub fn assert_out_file_exists(out_path: &Path) {
 
 /// Build a block's bytestream, returning `(bytes, padding_count)`.
 pub fn build_block(
-    block: &mint_core::layout::block::Block,
-    settings: &mint_core::layout::settings::MintConfig,
+    layout_path: impl AsRef<Path>,
+    block_name: &str,
     strict: bool,
     data_source: Option<&dyn DataSource>,
-) -> Result<(Vec<u8>, u32), mint_core::layout::error::LayoutError> {
-    let mut noop = NoopValueSink;
-    let fingerprints = Default::default();
-    let output = block.build_bytestream(
-        "block",
-        &fingerprints,
+) -> Result<(Vec<u8>, u32), mint_core::error::MintError> {
+    let layout_path = layout_path.as_ref();
+    let config = mint_core::layout::load_layout(layout_path)?;
+    let block = config.blocks.get(block_name).ok_or_else(|| {
+        LayoutError::BlockNotFound(format!("test block '{block_name}' not found"))
+    })?;
+    let resolved = ResolvedLayout::new(&block.data)?;
+    let leaf_size = resolved
+        .leaves()
+        .map(|leaf| leaf.coordinates.size)
+        .sum::<usize>();
+    let padding_count = u32::try_from(resolved.total_size() - leaf_size).map_err(|_| {
+        LayoutError::DataValueExportFailed("test padding count exceeds u32".to_owned())
+    })?;
+    let artifact = build::build(BuildRequest {
+        blocks: vec![BlockSelector::named(layout_path, block_name)],
         data_source,
-        settings,
         strict,
-        &mut noop,
-    )?;
-    Ok((output.bytestream, output.padding_count))
+        capture_values: false,
+    })?;
+    let bytestream = artifact
+        .ranges
+        .into_iter()
+        .next()
+        .expect("one requested block produces one range")
+        .bytestream;
+    Ok((bytestream, padding_count))
 }
 
 /// Build a block's bytestream and collect exported values.
 pub fn build_block_with_values(
-    block: &mint_core::layout::block::Block,
-    settings: &mint_core::layout::settings::MintConfig,
-) -> Result<((Vec<u8>, u32), serde_json::Value), mint_core::layout::error::LayoutError> {
-    let mut collector = ValueCollector::new();
-    let fingerprints = Default::default();
-    let output = block.build_bytestream(
-        "block",
-        &fingerprints,
-        None,
-        settings,
-        false,
-        &mut collector,
-    )?;
-    Ok((
-        (output.bytestream, output.padding_count),
-        collector.into_value(),
-    ))
+    layout_path: impl AsRef<Path>,
+    block_name: &str,
+) -> Result<((Vec<u8>, u32), serde_json::Value), mint_core::error::MintError> {
+    let layout_path = layout_path.as_ref();
+    let config = mint_core::layout::load_layout(layout_path)?;
+    let block = config.blocks.get(block_name).ok_or_else(|| {
+        LayoutError::BlockNotFound(format!("test block '{block_name}' not found"))
+    })?;
+    let resolved = ResolvedLayout::new(&block.data)?;
+    let leaf_size = resolved
+        .leaves()
+        .map(|leaf| leaf.coordinates.size)
+        .sum::<usize>();
+    let padding_count = u32::try_from(resolved.total_size() - leaf_size).map_err(|_| {
+        LayoutError::DataValueExportFailed("test padding count exceeds u32".to_owned())
+    })?;
+    let artifact = build::build(BuildRequest {
+        blocks: vec![BlockSelector::named(layout_path, block_name)],
+        data_source: None,
+        strict: false,
+        capture_values: true,
+    })?;
+    let bytestream = artifact
+        .ranges
+        .into_iter()
+        .next()
+        .expect("one requested block produces one range")
+        .bytestream;
+    let report = artifact.used_values.expect("captured values report");
+    let values = report[layout_path.to_string_lossy().as_ref()][block_name].clone();
+    Ok(((bytestream, padding_count), values))
 }
 
 /// Renders an error and its full source chain as a single string.

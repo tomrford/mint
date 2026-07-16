@@ -1,15 +1,9 @@
 #[path = "common/mod.rs"]
 mod common;
 
-fn load_config(name: &str, toml: &str) -> mint_core::layout::block::Config {
-    let path = common::write_layout_file(name, toml);
-    mint_core::layout::load_layout(&path).expect("layout loads")
-}
-
 fn build_block(name: &str, toml: &str) -> Vec<u8> {
-    let config = load_config(name, toml);
-    let block = &config.blocks["block"];
-    let (bytes, _) = common::build_block(block, &config.mint, false, None).expect("build succeeds");
+    let path = common::write_layout_file(name, toml);
+    let (bytes, _) = common::build_block(&path, "block", false, None).expect("build succeeds");
     bytes
 }
 
@@ -69,7 +63,7 @@ len = { const = "block.length", type = "u32" }
 
 #[test]
 fn const_unknown_name_lists_available_consts() {
-    let config = load_config(
+    let path = common::write_layout_file(
         "const_unknown",
         &const_layout(
             r#"
@@ -77,8 +71,7 @@ field = { const = "missing", type = "u32" }
 "#,
         ),
     );
-    let block = &config.blocks["block"];
-    let err = common::build_block(block, &config.mint, false, None).unwrap_err();
+    let err = common::build_block(&path, "block", false, None).unwrap_err();
     let message = common::error_chain(&err);
 
     assert!(message.contains("Const 'missing' not found"), "{message}");
@@ -88,7 +81,7 @@ field = { const = "missing", type = "u32" }
 
 #[test]
 fn const_rejects_scalar_size() {
-    let config = load_config(
+    let path = common::write_layout_file(
         "const_scalar_size",
         &const_layout(
             r#"
@@ -96,8 +89,7 @@ field = { const = "magic", type = "u8", size = 4 }
 "#,
         ),
     );
-    let block = &config.blocks["block"];
-    let err = common::build_block(block, &config.mint, false, None).unwrap_err();
+    let err = common::build_block(&path, "block", false, None).unwrap_err();
     let chain = common::error_chain(&err);
 
     assert!(chain.contains("scalar const"), "{chain}");
