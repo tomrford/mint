@@ -31,9 +31,21 @@ padding = 0xEE
 
 fn build_output(data: &str) -> BuildOutput {
     let config = layout::parse_toml_layout(&layout(data)).expect("layout parses");
+    let fingerprints = mint_core::fingerprint::calculate(&config)
+        .expect("fingerprints calculate")
+        .into_iter()
+        .map(|fingerprint| (fingerprint.block, fingerprint.value))
+        .collect();
     let mut value_sink = NoopValueSink;
     config.blocks["block"]
-        .build_bytestream(None, &config.mint, false, &mut value_sink)
+        .build_bytestream(
+            "block",
+            &fingerprints,
+            None,
+            &config.mint,
+            false,
+            &mut value_sink,
+        )
         .expect("block builds")
 }
 
@@ -118,9 +130,21 @@ checksum = { checksum = "crc32", type = "u32" }
 "#,
     );
     let config = layout::parse_toml_layout(&source).expect("layout parses");
+    let fingerprints = mint_core::fingerprint::calculate(&config)
+        .expect("fingerprints calculate")
+        .into_iter()
+        .map(|fingerprint| (fingerprint.block, fingerprint.value))
+        .collect();
     let mut value_sink = NoopValueSink;
     let output = config.blocks["block"]
-        .build_bytestream(None, &config.mint, false, &mut value_sink)
+        .build_bytestream(
+            "block",
+            &fingerprints,
+            None,
+            &config.mint,
+            false,
+            &mut value_sink,
+        )
         .expect("block builds");
     let checksum = calculate_crc(&output.bytestream[..12], &config.mint.checksum["crc32"]);
 

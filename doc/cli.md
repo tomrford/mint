@@ -1,10 +1,11 @@
 # Command Line Interface
 
-mint builds flash blocks from layout files and data sources, and generates matching C headers from layouts.
+mint builds flash blocks from layout files and data sources, and generates matching C headers and ABI fingerprints from layouts.
 
 ```
 mint build [OPTIONS] [FILE[#BLOCK] | FILE]...
 mint header [FILE[#BLOCK] | FILE]... -o FILE
+mint fingerprint FILE[#BLOCK]
 mint skill
 ```
 
@@ -54,6 +55,51 @@ mint header layout.toml#config layout.toml#data -o blocks.h
 The command renders and validates the complete header before writing it. Each block becomes a `<block>_t` typedef. Dotted paths become inline nested structs, array dimensions use generated macros, and named bitmap regions receive `_SHIFT` and `_MASK` macros. The output contains storage types and shape only; it does not contain data values, block addresses, packing directives, or explicit padding members.
 
 Generated structs use Mint's natural aggregate alignment contract. The target ABI must align exact-width integers to their width, `float` to 4 bytes, and `double` to 8 bytes.
+
+---
+
+## ABI fingerprints
+
+`mint fingerprint` calculates fingerprints without a data source or block build. Selecting one block prints exactly its 16-character lowercase hexadecimal value:
+
+```bash
+mint fingerprint layout.toml#config
+```
+
+```text
+3e02a8698c5e7d0e
+```
+
+Selecting a file prints every block in declaration order as `<block> <fingerprint>`:
+
+```bash
+mint fingerprint layout.toml
+```
+
+```text
+config 3e02a8698c5e7d0e
+data 57ddcf99766ea79b
+```
+
+Stdout contains only these values. Diagnostics use stderr and failures return a non-zero exit code, so the command is suitable for build-system extraction. The fingerprint is also available as a macro when `mint header` encounters a `fingerprint` field.
+
+For configure-time CMake integration, track the layout as a configure dependency and pass the bare selected-block value into firmware compilation:
+
+```cmake
+set(LAYOUT "${CMAKE_CURRENT_SOURCE_DIR}/layout.toml")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LAYOUT}")
+
+execute_process(
+  COMMAND mint fingerprint "${LAYOUT}#config"
+  OUTPUT_VARIABLE CONFIG_FINGERPRINT
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY
+)
+
+target_compile_definitions(
+  firmware PRIVATE "CONFIG_SCHEMA_FINGERPRINT=0x${CONFIG_FINGERPRINT}ULL"
+)
+```
 
 ---
 

@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define CONFIG_SCHEMA_FINGERPRINT UINT64_C(0x3E02A8698C5E7D0E)
+
 #define CONFIG_DEVICE_NAME_LEN 16u
 
 #define CONFIG_FLAGS_ENABLE_DEBUG_SHIFT 0u
@@ -16,11 +18,16 @@
 #define CONFIG_MATRIX_ROWS 2u
 #define CONFIG_MATRIX_COLS 2u
 
+#define DATA_SCHEMA_FINGERPRINT UINT64_C(0x57DDCF99766EA79B)
+
+#define DATA_CONFIG_SCHEMA_FINGERPRINT UINT64_C(0x3E02A8698C5E7D0E)
+
 #define DATA_MESSAGE_LEN 16u
 
 #define DATA_IP_LEN 4u
 
 typedef struct {
+  uint64_t schema; /* fingerprint */
   struct {
     uint32_t id;
     uint8_t name[CONFIG_DEVICE_NAME_LEN];
@@ -34,6 +41,8 @@ typedef struct {
 } config_t;
 
 typedef struct {
+  uint64_t schema; /* fingerprint */
+  uint64_t config_schema; /* fingerprint */
   uint64_t counter;
   uint8_t message[DATA_MESSAGE_LEN];
   uint8_t ip[DATA_IP_LEN];

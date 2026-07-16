@@ -1,6 +1,6 @@
 mod writer;
 
-use crate::args::{Args, HeaderArgs};
+use crate::args::{Args, FingerprintArgs, HeaderArgs};
 use mint_core::build::{self, BuildRequest, BuildStats};
 use mint_core::data::DataSource;
 use mint_core::error::MintError;
@@ -10,6 +10,20 @@ use writer::{write_output, write_text};
 pub fn header(args: &HeaderArgs) -> Result<(), MintError> {
     let contents = mint_core::header::generate(&args.blocks)?;
     write_text(&args.out, &contents)?;
+    Ok(())
+}
+
+pub fn fingerprint(args: &FingerprintArgs) -> Result<(), MintError> {
+    let fingerprints = mint_core::fingerprint::load(&args.block)?;
+    if args.block.block.is_some() {
+        for fingerprint in fingerprints {
+            println!("{}", fingerprint.hex());
+        }
+    } else {
+        for fingerprint in fingerprints {
+            println!("{} {}", fingerprint.block, fingerprint.hex());
+        }
+    }
     Ok(())
 }
 

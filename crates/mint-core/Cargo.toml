@@ -11,6 +11,7 @@ keywords = ["flash", "hex", "layout", "excel", "data"]
 
 [dependencies]
 bin_file = "0.1.4"
+blake3 = "1.8.5"
 calamine = "0.34.0"
 indexmap = { version = "2.10.0", features = ["serde"] }
 rayon = "1.11.0"

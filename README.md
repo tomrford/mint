@@ -1,11 +1,11 @@
 # mint
 
-mint builds static binary flash blocks from TOML layout files and Excel or JSON data sources. It also generates matching C headers from those layouts.
+mint builds static binary flash blocks from TOML layout files and Excel or JSON data sources. It also generates matching C headers and ABI fingerprints from those layouts.
 
 mint is available as:
 
-- `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output and C header rendering, and in-memory build APIs.
-- `mint-cli` - Implements the `mint` command-line tool for building flash files and generating C headers.
+- `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output, C header rendering, ABI fingerprints, and in-memory build APIs.
+- `mint-cli` - Implements the `mint` command-line tool for building flash files and generating C headers and ABI fingerprints.
 - `mint-python` - Python bindings for `mint-core`.
 
 ![img](https://raw.githubusercontent.com/tomrford/mint/main/doc/img.png)
@@ -32,6 +32,7 @@ nix develop -c cargo test
 nix develop -c cargo clippy --workspace
 nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx --variants Default
 nix develop -c cargo run -p mint-cli -- header block.toml -o blocks.h
+nix develop -c cargo run -p mint-cli -- fingerprint block.toml
 nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml
 nix develop -c uv run --directory crates/mint-python --group dev pytest tests
 ```
@@ -58,6 +59,9 @@ mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Defau
 
 # Generate matching C typedefs and array/bitmap macros
 mint header layout.toml -o layout.h
+
+# Print every block's ABI fingerprint
+mint fingerprint layout.toml
 ```
 
 ### Layout Example
@@ -71,6 +75,7 @@ start_address = 0x8000
 length = 0x100
 
 [config.data]
+schema = { fingerprint = true, type = "u64" }
 device.id = { value = 0x1234, type = "u32" }
 device.name = { name = "DeviceName", type = "u8", size = 16 }
 version = { name = "Version", type = "u16" }

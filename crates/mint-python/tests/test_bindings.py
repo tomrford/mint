@@ -61,6 +61,34 @@ def test_from_string_builds_all_blocks_when_no_names_are_given():
     assert none_result.stats.blocks_processed == 2
 
 
+def test_named_build_block_exposes_the_fingerprint_used_in_output():
+    layout = mint.Layout.from_string(
+        "fingerprint.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x1000
+        length = 0x20
+
+        [config.data]
+        schema = { fingerprint = true, type = "u64" }
+        value = { value = 7, type = "u16" }
+        """,
+    )
+    block = layout.blocks("config")[0]
+
+    assert len(block.fingerprint) == 16
+    result = mint.build([block])
+    assert int.from_bytes(result.ranges[0].data[:8], "little") == int(
+        block.fingerprint, 16
+    )
+
+    with pytest.raises(ValueError, match="requires a named block selector"):
+        _ = layout.blocks()[0].fingerprint
+
+
 def test_from_string_accepts_varargs_block_names():
     layout = mint.Layout.from_string(
         "generated.toml",

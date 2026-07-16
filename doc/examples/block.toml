@@ -16,6 +16,8 @@ start_address = 0x8000
 length = 0x100
 
 [config.data]
+# Intrinsic ABI fingerprint for this block
+schema = { fingerprint = true, type = "u64" }
 # Literal scalar
 device.id = { value = 0x1234, type = "u32" }
 # String from data source
@@ -43,6 +45,9 @@ start_address = 0x8100
 length = 0x100
 
 [data.data]
+# Fingerprints for this block and the config block in the same layout
+schema = { fingerprint = true, type = "u64" }
+config_schema = { fingerprint = "config", type = "u64" }
 # Scalar from data source
 counter = { name = "Counter", type = "u64" }
 # Literal string

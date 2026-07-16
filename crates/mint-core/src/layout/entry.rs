@@ -11,9 +11,26 @@ use crate::data::DataSource;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
-const LEAF_SOURCE_KEYS: &[&str] = &["name", "value", "bitmap", "ref", "checksum", "const"];
+const LEAF_SOURCE_KEYS: &[&str] = &[
+    "name",
+    "value",
+    "bitmap",
+    "ref",
+    "checksum",
+    "const",
+    "fingerprint",
+];
 const LEAF_KEYS: &[&str] = &[
-    "type", "size", "SIZE", "name", "value", "bitmap", "ref", "checksum", "const",
+    "type",
+    "size",
+    "SIZE",
+    "name",
+    "value",
+    "bitmap",
+    "ref",
+    "checksum",
+    "const",
+    "fingerprint",
 ];
 const BITMAP_SOURCE_KEYS: &[&str] = &["name", "value"];
 const BITMAP_KEYS: &[&str] = &["bits", "name", "value"];
@@ -106,6 +123,30 @@ pub enum EntrySource {
     Checksum(String),
     #[serde(rename = "const")]
     Const(String),
+    #[serde(rename = "fingerprint")]
+    Fingerprint(FingerprintTarget),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum FingerprintTarget {
+    SelfBlock(bool),
+    Block(String),
+}
+
+impl FingerprintTarget {
+    pub(crate) fn block_name<'a>(&'a self, current_block: &'a str) -> Result<&'a str, LayoutError> {
+        match self {
+            Self::SelfBlock(true) => Ok(current_block),
+            Self::SelfBlock(false) => Err(LayoutError::DataValueExportFailed(
+                "Fingerprint self-reference must be true.".into(),
+            )),
+            Self::Block(name) if name.is_empty() => Err(LayoutError::DataValueExportFailed(
+                "Fingerprint block name must not be empty.".into(),
+            )),
+            Self::Block(name) => Ok(name),
+        }
+    }
 }
 
 /// Single bitmap field within a bitmap entry.
@@ -378,6 +419,23 @@ impl LeafEntry {
         Ok(())
     }
 
+    pub fn validate_fingerprint(&self, target: &FingerprintTarget) -> Result<(), LayoutError> {
+        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
+            return Err(LayoutError::DataValueExportFailed(
+                "size/SIZE keys are forbidden with fingerprint.".into(),
+            ));
+        }
+        if !matches!(self.scalar_type, ScalarType::U64) {
+            return Err(LayoutError::DataValueExportFailed(format!(
+                "Fingerprint type must be u64 (8 bytes), got {} ({} bytes).",
+                self.scalar_type.name(),
+                self.scalar_type.size_bytes()
+            )));
+        }
+        target.block_name("")?;
+        Ok(())
+    }
+
     /// Validates bitmap entry rules.
     pub(crate) fn validate_bitmap(&self, fields: &[BitmapField]) -> Result<(), LayoutError> {
         if self.scalar_type.fixed_point().is_some() {
@@ -493,6 +551,9 @@ impl LeafEntry {
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Fingerprint(_) => {
+                unreachable!("fingerprint handled in build_bytestream")
+            }
         }
     }
 
@@ -588,6 +649,9 @@ impl LeafEntry {
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Fingerprint(_) => {
+                unreachable!("fingerprint handled in build_bytestream")
+            }
         }
 
         if out.len() > total_bytes {
@@ -689,6 +753,9 @@ impl LeafEntry {
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled in build_bytestream"),
             EntrySource::Checksum(_) => unreachable!("checksum handled in build_bytestream"),
+            EntrySource::Fingerprint(_) => {
+                unreachable!("fingerprint handled in build_bytestream")
+            }
         }
     }
 }
