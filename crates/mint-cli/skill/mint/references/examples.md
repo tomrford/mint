@@ -96,32 +96,9 @@ Each dotted-path branch aligns to the maximum alignment of its children. Childre
 
 ---
 
-## C struct to TOML layout
+## TOML layout and generated C header
 
-Given this C header:
-
-```c
-typedef struct {
-  struct {
-    uint32_t id;
-    uint8_t name[16];
-  } device;
-  uint16_t version;
-  uint16_t flags; /* bitmap: [0] EnableDebug, [1:3] reserved, [4:7] RegionCode, [8:15] reserved */
-  float coefficients[4];
-  int16_t matrix[2][2];
-  uint32_t checksum;
-} config_t; /* at 0x8000, 256 bytes allocated */
-
-typedef struct {
-  uint64_t counter;
-  uint8_t message[16];
-  uint8_t ip[4];
-  uint32_t checksum;
-} data_t; /* at 0x8100, 256 bytes allocated */
-```
-
-The corresponding layout file:
+Define the memory shape in the layout file:
 
 ```toml
 [mint]
@@ -166,10 +143,16 @@ ip = { value = [192, 168, 1, 1], type = "u8", size = 4 }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
+Generate the corresponding C typedefs, array extent macros, and named bitmap shift/mask macros from that layout:
+
+```bash
+mint header layout.toml -o layout.h
+```
+
 Key observations:
 
 - Dotted paths (`device.id`, `device.name`) reproduce the struct nesting.
-- `uint8_t name[16]` becomes `type = "u8", size = 16` — this is how strings and byte arrays work.
+- `type = "u8", size = 16` generates a `uint8_t` array using a reusable `_LEN` macro.
 - The bitmap's total bits (1+3+4+8 = 16) match the `u16` type width.
 - `gain_q8_8` stores `1.5` as a Q8.8 fixed-point value in a `uint16_t`-sized slot.
 - `device.id` uses `value` (constant), while `device.name` uses `name` (from data source).
@@ -299,6 +282,9 @@ mint build layout.toml --xlsx data.xlsx --variants Production/Default -o release
 
 # Motorola S-Record output
 mint build layout.toml --xlsx data.xlsx --variants Default -o firmware.mot --format mot
+
+# Matching C header, with no data source
+mint header layout.toml -o layout.h
 ```
 
 ## Starting from scratch checklist
@@ -312,4 +298,5 @@ When creating a mint layout for a new project:
 5. **Choose padding byte** — usually `0xFF` (erased NOR flash) or `0x00`. Check what the firmware/bootloader expects in unused regions.
 6. **Map each struct field** to a TOML entry, choosing `value` for constants or `name` for data-source-driven values.
 7. **Set up the data source** — create the Excel workbook or JSON file with all the `name` keys the layout references.
-8. **Verify** — build with `--stats` to confirm block sizes and checksums match expectations. Use `--strict` to catch type conversion issues early.
+8. **Generate the header** — run `mint header layout.toml -o layout.h` so firmware consumes the layout-owned struct shape.
+9. **Verify** — build with `--stats` to confirm block sizes and checksums match expectations. Use `--strict` to catch type conversion issues early.

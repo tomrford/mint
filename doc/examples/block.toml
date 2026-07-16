@@ -1,5 +1,5 @@
 # Example layout file demonstrating all features.
-# See blocks.h for corresponding C struct.
+# Regenerate blocks.h with: mint header block.toml -o blocks.h
 
 [mint]
 endianness = "little"

@@ -1,6 +1,6 @@
 pub mod block;
 mod conversions;
-mod entry;
+pub(crate) mod entry;
 pub mod error;
 pub mod header;
 pub mod scalar_type;

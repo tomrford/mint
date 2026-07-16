@@ -1,9 +1,10 @@
 # Command Line Interface
 
-mint builds flash blocks from layout files and data sources, emitting Intel HEX or Motorola S-Record files.
+mint builds flash blocks from layout files and data sources, and generates matching C headers from layouts.
 
 ```
 mint build [OPTIONS] [FILE[#BLOCK] | FILE]...
+mint header [FILE[#BLOCK] | FILE]... -o FILE
 mint skill
 ```
 
@@ -35,6 +36,24 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex
 # Mix both styles
 mint build layout.toml#config layout.toml --xlsx data.xlsx --variants Default -o combined.hex
 ```
+
+---
+
+## C header generation
+
+`mint header` uses the same file and block selectors as `mint build`, but requires no data source:
+
+```bash
+# Generate every block in layout order
+mint header layout.toml -o layout.h
+
+# Generate selected blocks in argument order
+mint header layout.toml#config layout.toml#data -o blocks.h
+```
+
+The command renders and validates the complete header before writing it. Each block becomes a `<block>_t` typedef. Dotted paths become inline nested structs, array dimensions use generated macros, and named bitmap regions receive `_SHIFT` and `_MASK` macros. The output contains storage types and shape only; it does not contain data values, block addresses, packing directives, or explicit padding members.
+
+Generated structs use Mint's natural aggregate alignment contract. The target ABI must align exact-width integers to their width, `float` to 4 bytes, and `double` to 8 bytes.
 
 ---
 

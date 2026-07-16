@@ -108,6 +108,10 @@ impl BitmapField {
 }
 
 impl LeafEntry {
+    pub(crate) fn size(&self) -> Result<Option<SizeSource>, LayoutError> {
+        self.size_keys.resolve().map(|(size, _)| size)
+    }
+
     /// Returns the alignment of the leaf entry.
     pub fn get_alignment(&self) -> usize {
         self.scalar_type.size_bytes()
@@ -264,7 +268,7 @@ impl LeafEntry {
     }
 
     /// Validates bitmap entry rules.
-    fn validate_bitmap(&self, fields: &[BitmapField]) -> Result<(), LayoutError> {
+    pub(crate) fn validate_bitmap(&self, fields: &[BitmapField]) -> Result<(), LayoutError> {
         if self.scalar_type.fixed_point().is_some() {
             return Err(fixed_point_unsupported_error("Bitmap", self.scalar_type));
         }

@@ -194,3 +194,24 @@ fn parses_skill_command() {
 
     assert!(matches!(cli.command, Command::Skill));
 }
+
+#[test]
+fn parses_header_command_without_build_options() {
+    let cli = Cli::try_parse_from([
+        "mint",
+        "header",
+        "layout.toml#config",
+        "layout.toml#data",
+        "-o",
+        "layout.h",
+    ])
+    .expect("header command should parse");
+
+    let Command::Header(args) = cli.command else {
+        panic!("expected header command");
+    };
+    assert_eq!(args.blocks.len(), 2);
+    assert_eq!(args.blocks[0].block.as_deref(), Some("config"));
+    assert_eq!(args.blocks[1].block.as_deref(), Some("data"));
+    assert_eq!(args.out, Path::new("layout.h"));
+}

@@ -22,4 +22,12 @@ pub enum MintError {
         #[source]
         source: Box<MintError>,
     },
+
+    #[error("while generating a header for block '{block_name}' from '{layout_file}'")]
+    InHeaderBlock {
+        block_name: String,
+        layout_file: String,
+        #[source]
+        source: Box<MintError>,
+    },
 }

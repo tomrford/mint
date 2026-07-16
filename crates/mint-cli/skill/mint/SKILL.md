@@ -5,7 +5,7 @@ description: "Guide for working with mint, an embedded development tool that ass
 
 # mint
 
-mint builds binary flash images (Intel HEX or Motorola S-Record) from a declarative TOML layout file and an optional data source (Excel workbook or JSON). Each layout describes one or more memory blocks — contiguous regions that map to C structs stored at known flash addresses. mint resolves data values, enforces types, computes CRCs, pads to size, and emits the output file.
+mint builds binary flash images (Intel HEX or Motorola S-Record) from a declarative TOML layout file and an optional data source (Excel workbook or JSON). Each layout describes one or more memory blocks — contiguous regions that map to C structs stored at known flash addresses. mint resolves data values, enforces types, computes CRCs, pads to size, and emits the output file. It can also generate matching C headers without a data source.
 
 Install: `cargo install mint-cli` or via nix flake.
 
@@ -41,6 +41,8 @@ checksum = { checksum = "crc32", type = "u32" }
 ```
 
 Multiple blocks can live in one file. Build specific blocks with `layout.toml#blockname`.
+
+Generate C typedefs from the same selectors with `mint header layout.toml -o layout.h` or `mint header layout.toml#blockname -o block.h`. The layout remains the source of truth for nested structs, storage types, arrays, and bitmap macros.
 
 ### Dotted paths mirror C struct nesting
 
@@ -239,6 +241,9 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o firmware.hex
 # Specific blocks
 mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Default -o out.hex
 
+# C header for all blocks (no data source required)
+mint header layout.toml -o layout.h
+
 # JSON data source (file or inline)
 mint build layout.toml --json data.json --variants Debug/Default -o out.hex
 mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1}}' --variants Default -o out.hex
@@ -260,6 +265,8 @@ Run `mint --help` for the full argument list.
 ## Common patterns
 
 **Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
+
+**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, and named bitmap regions receive shift and mask macros. Header generation rejects invalid C identifiers, generated-name collisions, and quoted dotted keys (which build as flat fields no C struct can reproduce).
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
 

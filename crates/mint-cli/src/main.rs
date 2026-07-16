@@ -13,7 +13,7 @@ use std::error::Error;
 use std::process::ExitCode;
 
 use clap::Parser;
-use mint_cli::args::{Args, Cli, Command, SKILL_TEXT};
+use mint_cli::args::{Args, Cli, Command, HeaderArgs, SKILL_TEXT};
 use mint_cli::{commands, data, visuals};
 use mint_core::error::MintError;
 
@@ -31,11 +31,27 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Header(args) => match run_header(&args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("error: {err}");
+                let mut source = err.source();
+                while let Some(cause) = source {
+                    eprintln!("  caused by: {cause}");
+                    source = cause.source();
+                }
+                ExitCode::FAILURE
+            }
+        },
         Command::Skill => {
             print!("{SKILL_TEXT}");
             ExitCode::SUCCESS
         }
     }
+}
+
+fn run_header(args: &HeaderArgs) -> Result<(), MintError> {
+    commands::header(args)
 }
 
 fn run_build(args: &Args) -> Result<(), MintError> {

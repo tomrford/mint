@@ -1,6 +1,6 @@
 # Layout Files
 
-Layout files define memory blocks and their data fields. Layouts are written in TOML. The data in the layout file helps mint understand the structure of the data and how you want to represent it in the output. Each block represents a contiguous region of memory (typically a single struct stored in a known location in flash). For an example of a block, see [`doc/examples/blocks.h`](examples/blocks.h) and compare it to the layout file [`doc/examples/block.toml`](examples/block.toml).
+Layout files define memory blocks and their data fields. Layouts are written in TOML. The data in the layout file helps mint understand the structure of the data and how you want to represent it in the output. Each block represents a contiguous region of memory, typically a single struct stored at a known flash address. The canonical example layout is [`doc/examples/block.toml`](examples/block.toml); `mint header` generates [`doc/examples/blocks.h`](examples/blocks.h) from it.
 
 ## Structure
 
@@ -71,6 +71,21 @@ Data fields are key-value pairs where the key is a dotted path (matching C struc
 Mint lays out dotted paths as naturally aligned C aggregates. Each leaf uses its storage width for size and alignment: integer and fixed-point types align to their exact width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
 
 All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Target ABIs with different alignment rules remain the caller's responsibility.
+
+### C header generation
+
+Generate C11 typedefs directly from the layout:
+
+```bash
+mint header layout.toml -o layout.h
+mint header layout.toml#config layout.toml#data -o blocks.h
+```
+
+Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum and ref fields remain integer members.
+
+Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros.
+
+Block and field names must be valid non-keyword C identifiers. Quoted dotted keys (`"a.b" = ...`) are rejected: they build as flat fields, which no C struct can reproduce — use a nested table instead. Header generation also rejects duplicate typedefs and names that collide when converted to upper snake case. It renders the complete header before writing the output file.
 
 ### Field Attributes
 
