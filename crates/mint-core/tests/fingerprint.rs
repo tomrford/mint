@@ -3,6 +3,9 @@ use mint_core::fingerprint;
 use mint_core::layout;
 use std::path::PathBuf;
 
+#[path = "common/mod.rs"]
+mod common;
+
 fn fingerprint_of(source: &str) -> u64 {
     let config = layout::parse_toml_layout(source).expect("layout parses");
     fingerprint::calculate(&config).expect("fingerprint calculates")[0].value
@@ -213,7 +216,7 @@ fn fingerprint_targets_are_validated_at_parse_time() {
 }
 
 #[test]
-fn blocks_without_fingerprint_fields_build_despite_invalid_siblings() {
+fn selected_blocks_build_despite_invalid_non_target_siblings() {
     let source = r#"
 [mint]
 endianness = "little"
@@ -223,7 +226,15 @@ start_address = 0x1000
 length = 0x20
 
 [good.data]
+schema = { fingerprint = true, type = "u64" }
 value = { value = 7, type = "u16" }
+
+[dependent.header]
+start_address = 0x1800
+length = 0x20
+
+[dependent.data]
+bad_schema = { fingerprint = "bad", type = "u64" }
 
 [bad.header]
 start_address = 0x2000
@@ -247,6 +258,24 @@ pointer = { ref = "missing", type = "u32" }
     })
     .expect("selected block builds without touching the invalid sibling");
     assert_eq!(artifact.ranges.len(), 1);
+
+    let config = layout::parse_toml_layout(source).expect("layout reparses");
+    let error = mint_core::build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("siblings.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("siblings.toml", "dependent")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect_err("selected block fails when the invalid sibling is its fingerprint target");
+    let message = common::error_chain(&error);
+    assert!(
+        message.contains("ref target 'missing' not found in block"),
+        "{message}"
+    );
 }
 
 #[test]

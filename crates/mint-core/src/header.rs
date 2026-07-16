@@ -4,7 +4,7 @@ use crate::layout::block::Entry;
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
-use crate::layout::resolved::ResolvedLayout;
+use crate::layout::resolved::validate_static;
 use crate::layout::scalar_type::ScalarType;
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
@@ -20,11 +20,11 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let fingerprints = layouts
         .iter()
         .map(|(path, layout)| {
-            if fingerprint::uses_fingerprints(layout) {
-                fingerprint::calculate(layout).map(|values| (path.clone(), values))
-            } else {
-                Ok((path.clone(), IndexMap::new()))
-            }
+            let roots = resolved
+                .iter()
+                .filter(|block| &block.layout == path)
+                .map(|block| block.name.as_str());
+            fingerprint::calculate_scoped(layout, roots, false).map(|values| (path.clone(), values))
         })
         .collect::<Result<HashMap<_, _>, LayoutError>>()?;
     let mut rendered = Vec::with_capacity(resolved.len());
@@ -158,7 +158,7 @@ fn render_block(
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
-    ResolvedLayout::new(data)?;
+    validate_static(data, settings)?;
 
     let Entry::Branch(source) = data else {
         return Err(header_error("block data must be a table"));
@@ -170,7 +170,6 @@ fn render_block(
         source,
         block_name,
         &macro_prefix,
-        settings,
         fingerprints,
         names,
         &mut path,
@@ -193,7 +192,6 @@ fn collect_macros(
     fields: &IndexMap<String, Entry>,
     block_name: &str,
     block_prefix: &str,
-    settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
@@ -207,7 +205,6 @@ fn collect_macros(
                     children,
                     block_name,
                     block_prefix,
-                    settings,
                     fingerprints,
                     names,
                     path,
@@ -218,7 +215,6 @@ fn collect_macros(
                 leaf,
                 block_name,
                 block_prefix,
-                settings,
                 fingerprints,
                 names,
                 path,
@@ -235,22 +231,17 @@ fn collect_leaf_macros(
     leaf: &LeafEntry,
     block_name: &str,
     block_prefix: &str,
-    settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,
 ) -> Result<(), LayoutError> {
     let size = leaf.size()?;
-    if let EntrySource::Checksum(name) = &leaf.source {
-        settings.checksum_config(name)?;
-    }
 
     let path_prefix = macro_path(block_prefix, path)?;
     if let Some(size) = size {
         match size {
             SizeSource::OneD(length) => {
-                validate_extent(length, path)?;
                 add_macro(
                     names,
                     output,
@@ -261,8 +252,6 @@ fn collect_leaf_macros(
                 )?;
             }
             SizeSource::TwoD([rows, columns]) => {
-                validate_extent(rows, path)?;
-                validate_extent(columns, path)?;
                 let origin = format!("array '{}#{}'", block_name, path.join("."));
                 add_macro(
                     names,
@@ -336,16 +325,6 @@ fn collect_leaf_macros(
         )?;
     }
 
-    Ok(())
-}
-
-fn validate_extent(extent: usize, path: &[String]) -> Result<(), LayoutError> {
-    if extent == 0 {
-        return Err(header_error(format!(
-            "array '{}' has a zero extent, which is not valid C11",
-            path.join(".")
-        )));
-    }
     Ok(())
 }
 

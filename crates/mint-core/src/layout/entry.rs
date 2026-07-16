@@ -10,6 +10,7 @@ use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
+use std::collections::HashMap;
 
 const LEAF_SOURCE_KEYS: &[&str] = &[
     "name",
@@ -336,7 +337,7 @@ impl LeafEntry {
     pub(crate) fn validate_const<'a>(
         &self,
         name: &str,
-        config: &'a BuildConfig<'a>,
+        consts: &'a HashMap<String, ValueSource>,
         size: Option<&SizeSource>,
     ) -> Result<&'a ValueSource, LayoutError> {
         if name.is_empty() {
@@ -344,8 +345,8 @@ impl LeafEntry {
                 "Const name must not be empty.".into(),
             ));
         }
-        let value = config.consts.get(name).ok_or_else(|| {
-            let available = config.consts.keys().cloned().collect::<Vec<_>>().join(", ");
+        let value = consts.get(name).ok_or_else(|| {
+            let available = consts.keys().cloned().collect::<Vec<_>>().join(", ");
             LayoutError::DataValueExportFailed(format!(
                 "Const '{}' not found in [mint.const]. Available: [{}]",
                 name, available
@@ -353,14 +354,14 @@ impl LeafEntry {
         })?;
         match (size, value) {
             (Some(SizeSource::TwoD(_)), _) => {
-                return Err(LayoutError::DataValueExportFailed(
+                return Err(LayoutError::InvalidLayout(
                     "2D arrays within the layout file are not supported.".to_owned(),
                 ));
             }
             (Some(SizeSource::OneD(_)), ValueSource::Single(DataValue::Str(_))) => {}
             (Some(SizeSource::OneD(_)), ValueSource::Array(_)) => {}
             (Some(SizeSource::OneD(_)), ValueSource::Single(_)) => {
-                return Err(LayoutError::DataValueExportFailed(
+                return Err(LayoutError::InvalidLayout(
                     "size/SIZE keys are forbidden with scalar const.".into(),
                 ));
             }
@@ -533,7 +534,7 @@ impl LeafEntry {
             EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
                 "Single value expected for scalar type.".to_owned(),
             )),
-            EntrySource::Const(name) => match self.validate_const(name, config, None)? {
+            EntrySource::Const(name) => match self.validate_const(name, config.consts, None)? {
                 ValueSource::Single(v) => {
                     let bytes = v.to_bytes(self.scalar_type, config.endianness, config.strict)?;
                     value_sink.record_value(field_path, data_value_to_json(v)?)?;
@@ -619,7 +620,7 @@ impl LeafEntry {
                 value_sink.record_value(field_path, data_value_to_json(v)?)?;
             }
             EntrySource::Const(name) => {
-                match self.validate_const(name, config, Some(&SizeSource::OneD(size)))? {
+                match self.validate_const(name, config.consts, Some(&SizeSource::OneD(size)))? {
                     ValueSource::Array(v) => {
                         for value in v {
                             out.extend(value.to_bytes(
@@ -736,12 +737,12 @@ impl LeafEntry {
 
                 Ok(out)
             }
-            EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
+            EntrySource::Value(_) => Err(LayoutError::InvalidLayout(
                 "2D arrays within the layout file are not supported.".to_owned(),
             )),
             EntrySource::Const(name) => {
-                self.validate_const(name, config, Some(&SizeSource::TwoD(size)))?;
-                Err(LayoutError::DataValueExportFailed(
+                self.validate_const(name, config.consts, Some(&SizeSource::TwoD(size)))?;
+                Err(LayoutError::InvalidLayout(
                     "2D arrays within the layout file are not supported.".to_owned(),
                 ))
             }

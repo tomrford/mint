@@ -49,6 +49,32 @@ value = { value = 1, type = "u64" }
 }
 
 #[test]
+fn zero_extent_arrays_fail_during_block_build() {
+    let layout = common::write_layout_file(
+        "zero_extent_layout",
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+values = { value = [], type = "u8", size = 0 }
+"#,
+    );
+
+    let error = common::build_block(&layout, "block", false, None)
+        .expect_err("zero-extent arrays are invalid layouts");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains("array 'values' has a zero extent"),
+        "{chain}"
+    );
+}
+
+#[test]
 fn lowercase_size_allows_padding() {
     common::ensure_out_dir();
 

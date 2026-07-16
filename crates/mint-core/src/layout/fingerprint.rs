@@ -1,58 +1,67 @@
-use super::block::{Config, Entry};
-use super::entry::{EntrySource, SizeSource};
+use super::block::Config;
+use super::entry::SizeSource;
 use super::error::LayoutError;
 use super::resolved::{ResolvedLayout, ResolvedLeafKind, ResolvedNode, TargetKind};
 use super::scalar_type::ScalarType;
 use super::settings::Endianness;
 use indexmap::IndexMap;
+use std::collections::{HashMap, HashSet};
 
 const HASH_CONTEXT: &str = "mint block ABI fingerprint v1";
 
-/// Whether any block in the layout contains a fingerprint field.
-pub(crate) fn uses_fingerprints(config: &Config) -> bool {
-    fn entry_uses_fingerprints(entry: &Entry) -> bool {
-        match entry {
-            Entry::Leaf(leaf) => matches!(leaf.source, EntrySource::Fingerprint(_)),
-            Entry::Branch(entries) => entries.values().any(entry_uses_fingerprints),
-        }
-    }
-
-    config
-        .blocks
-        .values()
-        .any(|block| entry_uses_fingerprints(&block.data))
+pub(crate) fn calculate(config: &Config) -> Result<IndexMap<String, u64>, LayoutError> {
+    calculate_scoped(config, config.blocks.keys().map(String::as_str), true)
 }
 
-pub(crate) fn calculate(config: &Config) -> Result<IndexMap<String, u64>, LayoutError> {
-    let mut dependencies = IndexMap::with_capacity(config.blocks.len());
-    let mut fingerprints = IndexMap::with_capacity(config.blocks.len());
+pub(crate) fn calculate_scoped<'a>(
+    config: &Config,
+    roots: impl IntoIterator<Item = &'a str>,
+    hash_roots: bool,
+) -> Result<IndexMap<String, u64>, LayoutError> {
+    let available = || config.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
+    let mut resolved_roots = HashMap::new();
+    let mut root_names = HashSet::new();
+    let mut hash_names = HashSet::new();
 
-    for (name, block) in &config.blocks {
+    for root_name in roots {
+        if !root_names.insert(root_name.to_owned()) {
+            continue;
+        }
+        let block = config.blocks.get(root_name).ok_or_else(|| {
+            LayoutError::BlockNotFound(format!("'{root_name}'. Available blocks: {}", available()))
+        })?;
         let resolved = ResolvedLayout::new(&block.data)?;
-        let value = fingerprint(&resolved, config.mint.endianness)?;
-        dependencies.insert(
-            name.clone(),
-            resolved
-                .fingerprint_targets
-                .iter()
-                .map(|target| (*target).clone())
-                .collect::<Vec<_>>(),
-        );
-        fingerprints.insert(name.clone(), value);
-    }
-
-    for (block_name, targets) in dependencies {
-        for target in targets {
-            let target_name = target.block_name(&block_name);
-            if !fingerprints.contains_key(target_name) {
+        for target in &resolved.fingerprint_targets {
+            let target_name = target.block_name(root_name);
+            if !config.blocks.contains_key(target_name) {
                 return Err(LayoutError::BlockNotFound(format!(
-                    "fingerprint target '{target_name}' from block '{block_name}'. Available blocks: {}",
-                    fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
+                    "fingerprint target '{target_name}' from block '{root_name}'. Available blocks: {}",
+                    available()
                 )));
             }
+            hash_names.insert(target_name.to_owned());
         }
+        resolved_roots.insert(root_name.to_owned(), resolved);
     }
 
+    if hash_roots {
+        hash_names.extend(root_names);
+    }
+
+    let mut fingerprints = IndexMap::with_capacity(hash_names.len());
+    for (name, block) in &config.blocks {
+        if !hash_names.contains(name) {
+            continue;
+        }
+        let resolved = match resolved_roots.remove(name) {
+            Some(resolved) => resolved,
+            None => ResolvedLayout::new(&block.data)?,
+        };
+        fingerprints.insert(
+            name.clone(),
+            fingerprint(&resolved, config.mint.endianness)?,
+        );
+    }
     Ok(fingerprints)
 }
 

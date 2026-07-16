@@ -40,6 +40,13 @@ impl LayoutSource {
             Self::String { text } => layout::parse_toml_layout(text).map_err(mint_error),
         }
     }
+
+    fn fingerprint(&self, name: &str) -> PyResult<String> {
+        let config = self.parse_config()?;
+        let fingerprint =
+            mint_core::fingerprint::calculate_block(&config, name).map_err(mint_error)?;
+        Ok(fingerprint.hex())
+    }
 }
 
 #[pymodule]

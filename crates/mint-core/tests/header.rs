@@ -109,8 +109,15 @@ length = 0x100
 schema = { fingerprint = true, type = "u64" }
 version = { value = 1, type = "u16" }
 payload = { value = [1, 2, 3], type = "u8", size = 3 }
+
+[invalid.header]
+start_address = 0x2000
+length = 0x20
+
+[invalid.data]
+pointer = { ref = "missing", type = "u32" }
 "#,
-        |path| vec![BlockSelector::all(path)],
+        |path| vec![BlockSelector::named(path, "block")],
     );
 
     assert!(header.contains("#define BLOCK_SCHEMA_FINGERPRINT UINT64_C(0x636CA69EB274AAFA)"));
@@ -239,6 +246,63 @@ pointer = { ref = "missing", type = "u32" }
         "{missing_ref}"
     );
 
+    let missing_const = error(
+        "header-missing-const",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+nested.value = { const = "missing", type = "u32" }
+"#,
+    );
+    assert!(
+        missing_const.contains("in field 'nested': in field 'value'"),
+        "{missing_const}"
+    );
+    assert!(
+        missing_const.contains("Const 'missing' not found in [mint.const]"),
+        "{missing_const}"
+    );
+
+    let sized_scalar_const = error(
+        "header-sized-scalar-const",
+        r#"
+[mint]
+endianness = "little"
+[mint.const]
+scalar = 1
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+values = { const = "scalar", type = "u32", size = 2 }
+"#,
+    );
+    assert!(
+        sized_scalar_const.contains("size/SIZE keys are forbidden with scalar const"),
+        "{sized_scalar_const}"
+    );
+
+    let two_dimensional_literal = error(
+        "header-2d-literal",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+matrix = { value = [1, 2, 3, 4], type = "u8", size = [2, 2] }
+"#,
+    );
+    assert!(
+        two_dimensional_literal.contains("2D arrays within the layout file are not supported"),
+        "{two_dimensional_literal}"
+    );
+
     let zero_extent = error(
         "header-zero-extent",
         r#"
@@ -252,7 +316,7 @@ values = { value = [], type = "u8", size = 0 }
 "#,
     );
     assert!(
-        zero_extent.contains("array 'values' has a zero extent, which is not valid C11"),
+        zero_extent.contains("array 'values' has a zero extent"),
         "{zero_extent}"
     );
 

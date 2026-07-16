@@ -1,6 +1,7 @@
 use super::block::Entry;
 use super::entry::{EntrySource, FingerprintTarget, LeafEntry, SizeSource};
-use super::error::LayoutError;
+use super::error::{LayoutError, in_field_path};
+use super::settings::MintConfig;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,6 +23,30 @@ pub struct ResolvedLayout<'a> {
     nodes: HashMap<String, ResolvedTarget>,
     total_size: usize,
     pub(crate) fingerprint_targets: Vec<&'a FingerprintTarget>,
+}
+
+pub(crate) fn validate_static<'a>(
+    entry: &'a Entry,
+    settings: &MintConfig,
+) -> Result<ResolvedLayout<'a>, LayoutError> {
+    let resolved = ResolvedLayout::new(entry)?;
+    for (path, _, leaf) in resolved.emission_leaves() {
+        let size = leaf.size().map_err(|error| in_field_path(path, error))?;
+        let result = match &leaf.source {
+            EntrySource::Const(name) => leaf
+                .validate_const(name, &settings.consts, size.as_ref())
+                .map(|_| ()),
+            EntrySource::Value(_) if matches!(size, Some(SizeSource::TwoD(_))) => {
+                Err(LayoutError::InvalidLayout(
+                    "2D arrays within the layout file are not supported.".to_owned(),
+                ))
+            }
+            EntrySource::Checksum(name) => settings.checksum_config(name).map(|_| ()),
+            _ => Ok(()),
+        };
+        result.map_err(|error| in_field_path(path, error))?;
+    }
+    Ok(resolved)
 }
 
 impl<'a> ResolvedLayout<'a> {
@@ -156,6 +181,18 @@ fn collect_entry<'a>(
     match entry {
         Entry::Leaf(leaf) => {
             let dimensions = leaf.size()?;
+            if let Some(dimensions) = &dimensions {
+                let zero = match dimensions {
+                    SizeSource::OneD(length) => *length == 0,
+                    SizeSource::TwoD(extents) => extents.contains(&0),
+                };
+                if zero {
+                    return Err(LayoutError::InvalidLayout(format!(
+                        "array '{}' has a zero extent",
+                        path.join(".")
+                    )));
+                }
+            }
             let size = leaf_size(leaf, dimensions.as_ref())?;
             let kind = match &leaf.source {
                 EntrySource::Bitmap(fields) => {

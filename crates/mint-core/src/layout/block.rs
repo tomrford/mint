@@ -1,5 +1,5 @@
 use super::entry::{EntrySource, LeafEntry};
-use super::error::LayoutError;
+use super::error::{LayoutError, in_field_path};
 use super::header::Header;
 use super::resolved::ResolvedLayout;
 use super::scalar_type::ScalarType;
@@ -304,14 +304,6 @@ impl Block {
         }
         Ok(checksum_values)
     }
-}
-
-fn in_field_path(path: &str, error: LayoutError) -> LayoutError {
-    path.rsplit('.')
-        .fold(error, |source, field| LayoutError::InField {
-            field: field.to_owned(),
-            source: Box::new(source),
-        })
 }
 
 #[cfg(test)]

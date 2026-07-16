@@ -112,6 +112,32 @@ def test_build_block_fingerprint_is_cached(tmp_path):
     assert block.fingerprint == fingerprint
 
 
+def test_build_block_fingerprint_ignores_unrelated_invalid_siblings():
+    layout = mint.Layout.from_string(
+        "fingerprint-scope.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x1000
+        length = 0x20
+
+        [config.data]
+        schema = { fingerprint = true, type = "u64" }
+
+        [invalid.header]
+        start_address = 0x2000
+        length = 0x20
+
+        [invalid.data]
+        pointer = { ref = "missing", type = "u32" }
+        """,
+    )
+
+    assert len(layout.blocks("config")[0].fingerprint) == 16
+
+
 def test_from_string_accepts_varargs_block_names():
     layout = mint.Layout.from_string(
         "generated.toml",

@@ -169,7 +169,7 @@ schema = { fingerprint = true, type = "u64" }
 config_schema = { fingerprint = "config", type = "u64" }
 ```
 
-Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
+Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is validated with its fingerprint targets without resolving unrelated siblings. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
 
 ### Checksums (`checksum`)
 
@@ -287,7 +287,7 @@ Run `mint --help` for the full argument list.
 
 **Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
 
-**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects generated-name collisions.
+**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects statically invalid selected layouts and generated-name collisions.
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
 

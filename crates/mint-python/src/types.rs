@@ -133,20 +133,7 @@ impl PyBuildBlock {
             )
         })?;
         let source = self.source.clone();
-        let fingerprint = py.detach(move || -> PyResult<String> {
-            let config = source.parse_config()?;
-            let available = config.blocks.keys().cloned().collect::<Vec<_>>();
-            let fingerprint = mint_core::fingerprint::calculate(&config)
-                .map_err(mint_error)?
-                .into_iter()
-                .find(|fingerprint| fingerprint.block == name)
-                .ok_or_else(|| {
-                    mint_error(mint_core::layout::error::LayoutError::BlockNotFound(
-                        format!("'{name}'. Available blocks: {}", available.join(", ")),
-                    ))
-                })?;
-            Ok(fingerprint.hex())
-        })?;
+        let fingerprint = py.detach(move || source.fingerprint(&name))?;
         Ok(self.fingerprint_hex.get_or_init(|| fingerprint).clone())
     }
 
