@@ -130,13 +130,20 @@ impl Block {
         value_sink: &mut dyn ValueSink,
     ) -> Result<BuildOutput, LayoutError> {
         let resolved = ResolvedLayout::new(&self.data)?;
+        let total_size = resolved.total_size();
+        if total_size > self.header.length as usize {
+            return Err(LayoutError::DataValueExportFailed(format!(
+                "Block '{block_name}' resolved layout size ({total_size} bytes) exceeds configured block length ({} bytes).",
+                self.header.length
+            )));
+        }
         let config = BuildConfig {
             endianness: &settings.endianness,
             padding: self.header.padding,
             strict,
             consts: &settings.consts,
         };
-        let mut buffer = vec![self.header.padding; resolved.total_size()];
+        let mut buffer = vec![self.header.padding; total_size];
         let mut pending_checksums = Vec::new();
 
         for (path, coordinates, leaf) in resolved.emission_leaves() {
@@ -153,7 +160,7 @@ impl Block {
                         &field_path,
                     ),
                     EntrySource::Checksum(config_name) => {
-                        leaf.validate_checksum(config_name, settings)?;
+                        settings.checksum_config(config_name)?;
                         if coordinates.offset == 0 {
                             return Err(LayoutError::DataValueExportFailed(
                                 "Checksum must follow at least one data byte.".to_owned(),
@@ -281,12 +288,7 @@ impl Block {
     ) -> Result<Vec<u32>, LayoutError> {
         let mut checksum_values = Vec::with_capacity(pending_checksums.len());
         for pending in pending_checksums {
-            let crc_config = settings.checksum.get(&pending.config_name).ok_or_else(|| {
-                LayoutError::DataValueExportFailed(format!(
-                    "Checksum config '{}' not found in [mint.checksum].",
-                    pending.config_name
-                ))
-            })?;
+            let crc_config = settings.checksum_config(&pending.config_name)?;
             let crc_val = checksum::calculate_crc(&buffer[..pending.buffer_position], crc_config);
             let crc_bytes = match config.endianness {
                 Endianness::Big => crc_val.to_be_bytes(),

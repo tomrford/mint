@@ -14,6 +14,34 @@ fn default_excel_source() -> ExcelDataSource {
 }
 
 #[test]
+fn oversized_layout_fails_during_block_build() {
+    let layout = common::write_layout_file(
+        "oversized_layout",
+        r#"
+[mint]
+endianness = "little"
+
+[oversized.header]
+start_address = 0x80000
+length = 4
+
+[oversized.data]
+value = { value = 1, type = "u64" }
+"#,
+    );
+
+    let error = common::build_block(&layout, "oversized", false, None)
+        .expect_err("resolved layout should not exceed the block length");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains(
+            "Block 'oversized' resolved layout size (8 bytes) exceeds configured block length (4 bytes)."
+        ),
+        "{chain}"
+    );
+}
+
+#[test]
 fn lowercase_size_allows_padding() {
     common::ensure_out_dir();
 

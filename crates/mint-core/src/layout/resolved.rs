@@ -166,6 +166,10 @@ fn collect_entry<'a>(
                     leaf.validate_ref(target)?;
                     ResolvedLeafKind::Ref(target)
                 }
+                EntrySource::Checksum(_) => {
+                    leaf.validate_checksum_storage()?;
+                    ResolvedLeafKind::Plain
+                }
                 EntrySource::Fingerprint(target) => {
                     leaf.validate_fingerprint()?;
                     fingerprint_targets.push(target);

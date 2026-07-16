@@ -14,6 +14,7 @@ mod util;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use mint_core::build::{self as core_build, BlockSelector, BuildFromLayoutsRequest, NamedLayout};
 use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
@@ -82,6 +83,7 @@ fn build(
             layout_name: block.layout_name.clone(),
             name: block.name.clone(),
             source: block.source.clone(),
+            fingerprint_hex: OnceLock::new(),
         })
         .collect::<Vec<_>>();
 

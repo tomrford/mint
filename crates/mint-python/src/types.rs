@@ -2,6 +2,7 @@ use mint_core::build::{BlockStat, BuildArtifact, BuildStats};
 use mint_core::output::{DataRange, OutputFormat};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyTuple};
+use std::sync::OnceLock;
 
 use crate::{LayoutSource, mint_error, py_json_loads, value_error};
 
@@ -46,6 +47,7 @@ impl PyLayout {
                 layout_name: self.name.clone(),
                 source: self.source.clone(),
                 name: None,
+                fingerprint_hex: OnceLock::new(),
             }]);
         };
 
@@ -56,6 +58,7 @@ impl PyLayout {
                     layout_name: self.name.clone(),
                     source: self.source.clone(),
                     name: Some(name),
+                    fingerprint_hex: OnceLock::new(),
                 })
             })
             .collect()
@@ -103,6 +106,7 @@ pub(crate) struct PyBuildBlock {
     pub(crate) layout_name: String,
     pub(crate) source: LayoutSource,
     pub(crate) name: Option<String>,
+    pub(crate) fingerprint_hex: OnceLock<String>,
 }
 
 #[pymethods]
@@ -119,13 +123,17 @@ impl PyBuildBlock {
 
     #[getter]
     fn fingerprint(&self, py: Python<'_>) -> PyResult<String> {
+        if let Some(fingerprint) = self.fingerprint_hex.get() {
+            return Ok(fingerprint.clone());
+        }
+
         let name = self.name.clone().ok_or_else(|| {
             value_error(
                 "fingerprint requires a named block selector; pass a block name to Layout.blocks()",
             )
         })?;
         let source = self.source.clone();
-        py.detach(move || {
+        let fingerprint = py.detach(move || -> PyResult<String> {
             let config = source.parse_config()?;
             let available = config.blocks.keys().cloned().collect::<Vec<_>>();
             let fingerprint = mint_core::fingerprint::calculate(&config)
@@ -138,7 +146,8 @@ impl PyBuildBlock {
                     ))
                 })?;
             Ok(fingerprint.hex())
-        })
+        })?;
+        Ok(self.fingerprint_hex.get_or_init(|| fingerprint).clone())
     }
 
     fn __repr__(&self) -> String {

@@ -1,9 +1,10 @@
 use crate::build::{BlockSelector, resolve_blocks};
 use crate::error::MintError;
-use crate::layout::block::{BuildConfig, Entry};
+use crate::layout::block::Entry;
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
+use crate::layout::resolved::ResolvedLayout;
 use crate::layout::scalar_type::ScalarType;
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
@@ -157,15 +158,11 @@ fn render_block(
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
+    ResolvedLayout::new(data)?;
+
     let Entry::Branch(source) = data else {
         return Err(header_error("block data must be a table"));
     };
-    if source.is_empty() {
-        return Err(header_error("root data struct must not be empty"));
-    }
-
-    let mut paths = HashSet::new();
-    collect_paths(source, &mut Vec::new(), &mut paths);
 
     let mut macros = Vec::new();
     let mut path = Vec::new();
@@ -175,7 +172,6 @@ fn render_block(
         &macro_prefix,
         settings,
         fingerprints,
-        &paths,
         names,
         &mut path,
         &mut macros,
@@ -192,21 +188,6 @@ fn render_block(
     })
 }
 
-fn collect_paths(
-    fields: &IndexMap<String, Entry>,
-    path: &mut Vec<String>,
-    paths: &mut HashSet<String>,
-) {
-    for (name, node) in fields {
-        path.push(name.clone());
-        paths.insert(path.join("."));
-        if let Entry::Branch(children) = node {
-            collect_paths(children, path, paths);
-        }
-        path.pop();
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn collect_macros(
     fields: &IndexMap<String, Entry>,
@@ -214,7 +195,6 @@ fn collect_macros(
     block_prefix: &str,
     settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
-    paths: &HashSet<String>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
     output: &mut Vec<MacroDefinition>,
@@ -223,19 +203,12 @@ fn collect_macros(
         path.push(name.clone());
         match node {
             Entry::Branch(children) => {
-                if children.is_empty() {
-                    return Err(header_error(format!(
-                        "field branch '{}' must not be empty",
-                        path.join(".")
-                    )));
-                }
                 collect_macros(
                     children,
                     block_name,
                     block_prefix,
                     settings,
                     fingerprints,
-                    paths,
                     names,
                     path,
                     output,
@@ -247,7 +220,6 @@ fn collect_macros(
                 block_prefix,
                 settings,
                 fingerprints,
-                paths,
                 names,
                 path,
                 output,
@@ -265,13 +237,14 @@ fn collect_leaf_macros(
     block_prefix: &str,
     settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
-    paths: &HashSet<String>,
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,
 ) -> Result<(), LayoutError> {
     let size = leaf.size()?;
-    validate_leaf(leaf, size.as_ref(), settings, paths, path)?;
+    if let EntrySource::Checksum(name) = &leaf.source {
+        settings.checksum_config(name)?;
+    }
 
     let path_prefix = macro_path(block_prefix, path)?;
     if let Some(size) = size {
@@ -363,47 +336,6 @@ fn collect_leaf_macros(
         )?;
     }
 
-    Ok(())
-}
-
-fn validate_leaf(
-    leaf: &LeafEntry,
-    size: Option<&SizeSource>,
-    settings: &MintConfig,
-    paths: &HashSet<String>,
-    path: &[String],
-) -> Result<(), LayoutError> {
-    match &leaf.source {
-        EntrySource::Bitmap(fields) => leaf.validate_bitmap(fields)?,
-        EntrySource::Ref(target) => {
-            leaf.validate_ref(target)?;
-            if !paths.contains(target) {
-                return Err(header_error(format!(
-                    "ref target '{target}' from '{}' does not exist",
-                    path.join(".")
-                )));
-            }
-        }
-        EntrySource::Checksum(name) => leaf.validate_checksum(name, settings)?,
-        EntrySource::Fingerprint(_) => leaf.validate_fingerprint()?,
-        EntrySource::Const(name) => {
-            let config = BuildConfig {
-                endianness: &settings.endianness,
-                padding: 0,
-                strict: false,
-                consts: &settings.consts,
-            };
-            leaf.validate_const(name, &config, size)?;
-        }
-        EntrySource::Name(_) => {}
-        EntrySource::Value(_) => {
-            if matches!(size, Some(SizeSource::TwoD(_))) {
-                return Err(LayoutError::DataValueExportFailed(
-                    "2D arrays within the layout file are not supported.".to_owned(),
-                ));
-            }
-        }
-    }
     Ok(())
 }
 

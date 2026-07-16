@@ -89,6 +89,29 @@ def test_named_build_block_exposes_the_fingerprint_used_in_output():
         _ = layout.blocks()[0].fingerprint
 
 
+def test_build_block_fingerprint_is_cached(tmp_path):
+    layout_path = tmp_path / "fingerprint.toml"
+    layout_path.write_text(
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x1000
+        length = 0x20
+
+        [config.data]
+        value = { value = 7, type = "u16" }
+        """
+    )
+    block = mint.Layout.from_file(str(layout_path)).blocks("config")[0]
+
+    fingerprint = block.fingerprint
+    layout_path.write_text("invalid TOML")
+
+    assert block.fingerprint == fingerprint
+
+
 def test_from_string_accepts_varargs_block_names():
     layout = mint.Layout.from_string(
         "generated.toml",

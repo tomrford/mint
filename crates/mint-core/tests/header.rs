@@ -219,3 +219,81 @@ value = { value = 2, type = "u8" }
     );
     assert!(block_collision.contains("both convert to macro prefix 'FOO_BAR'"));
 }
+
+#[test]
+fn uses_resolved_validation_and_keeps_header_specific_checks() {
+    let missing_ref = error(
+        "header-missing-ref",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+pointer = { ref = "missing", type = "u32" }
+"#,
+    );
+    assert!(
+        missing_ref.contains("ref target 'missing' not found in block"),
+        "{missing_ref}"
+    );
+
+    let zero_extent = error(
+        "header-zero-extent",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+values = { value = [], type = "u8", size = 0 }
+"#,
+    );
+    assert!(
+        zero_extent.contains("array 'values' has a zero extent, which is not valid C11"),
+        "{zero_extent}"
+    );
+
+    let checksum_storage = error(
+        "header-checksum-storage",
+        r#"
+[mint]
+endianness = "little"
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+value = { value = 1, type = "u8" }
+checksum = { checksum = "crc32", type = "u16" }
+"#,
+    );
+    assert!(
+        checksum_storage.contains("Checksum type must be u32"),
+        "{checksum_storage}"
+    );
+
+    let missing_checksum = error(
+        "header-missing-checksum",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+checksum = { checksum = "missing", type = "u32" }
+"#,
+    );
+    assert!(
+        missing_checksum.contains("Checksum config 'missing' not found in [mint.checksum]"),
+        "{missing_checksum}"
+    );
+}

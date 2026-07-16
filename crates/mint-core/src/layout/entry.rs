@@ -2,7 +2,7 @@ use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
 use super::scalar_type::{ScalarType, fixed_point_unsupported_error};
-use super::settings::{Endianness, MintConfig};
+use super::settings::Endianness;
 use super::used_values::{
     ValueSink, array_2d_to_json, array_to_json, data_value_to_json, i128_to_json,
 };
@@ -409,11 +409,7 @@ impl LeafEntry {
     }
 
     /// Validates checksum entry rules.
-    pub fn validate_checksum(
-        &self,
-        config_name: &str,
-        settings: &MintConfig,
-    ) -> Result<(), LayoutError> {
+    pub(crate) fn validate_checksum_storage(&self) -> Result<(), LayoutError> {
         if self.scalar_type.fixed_point().is_some() {
             return Err(fixed_point_unsupported_error("Checksum", self.scalar_type));
         }
@@ -421,23 +417,6 @@ impl LeafEntry {
             return Err(LayoutError::DataValueExportFailed(
                 "size/SIZE keys are forbidden with checksum.".into(),
             ));
-        }
-        if config_name.is_empty() {
-            return Err(LayoutError::DataValueExportFailed(
-                "Checksum config name must not be empty.".into(),
-            ));
-        }
-        if !settings.checksum.contains_key(config_name) {
-            let available = settings
-                .checksum
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(LayoutError::DataValueExportFailed(format!(
-                "Checksum config '{}' not found in [mint.checksum]. Available: [{}]",
-                config_name, available
-            )));
         }
         if !matches!(self.scalar_type, ScalarType::U32) {
             return Err(LayoutError::DataValueExportFailed(format!(
