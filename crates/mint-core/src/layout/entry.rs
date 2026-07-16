@@ -8,18 +8,57 @@ use super::used_values::{
 };
 use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
-use serde::Deserialize;
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer};
+
+const LEAF_SOURCE_KEYS: &[&str] = &["name", "value", "bitmap", "ref", "checksum", "const"];
+const LEAF_KEYS: &[&str] = &[
+    "type", "size", "SIZE", "name", "value", "bitmap", "ref", "checksum", "const",
+];
+const BITMAP_SOURCE_KEYS: &[&str] = &["name", "value"];
+const BITMAP_KEYS: &[&str] = &["bits", "name", "value"];
 
 /// Leaf entry representing an item to add to the flash block.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct LeafEntry {
-    #[serde(rename = "type")]
     pub scalar_type: ScalarType,
+    size_keys: SizeKeys,
+    pub source: EntrySource,
+}
+
+#[derive(Deserialize)]
+struct RawLeafEntry {
+    #[serde(rename = "type")]
+    scalar_type: ScalarType,
     #[serde(flatten, default)]
     size_keys: SizeKeys,
     #[serde(flatten)]
-    pub source: EntrySource,
+    source: EntrySource,
+}
+
+impl<'de> Deserialize<'de> for LeafEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let table = toml::Table::deserialize(deserializer)?;
+        validate_keys::<D::Error>(&table, "leaf", LEAF_KEYS, LEAF_SOURCE_KEYS)?;
+
+        if table.contains_key("size") && table.contains_key("SIZE") {
+            return Err(D::Error::custom(
+                "leaf may contain only one size key; found 'size' and 'SIZE'",
+            ));
+        }
+
+        let raw: RawLeafEntry = toml::Value::Table(table)
+            .try_into()
+            .map_err(D::Error::custom)?;
+        Ok(Self {
+            scalar_type: raw.scalar_type,
+            size_keys: raw.size_keys,
+            source: raw.source,
+        })
+    }
 }
 
 /// Size source enum.
@@ -70,12 +109,84 @@ pub enum EntrySource {
 }
 
 /// Single bitmap field within a bitmap entry.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct BitmapField {
     pub bits: usize,
-    #[serde(flatten)]
     pub source: BitmapFieldSource,
+}
+
+#[derive(Deserialize)]
+struct RawBitmapField {
+    bits: usize,
+    #[serde(flatten)]
+    source: BitmapFieldSource,
+}
+
+impl<'de> Deserialize<'de> for BitmapField {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let table = toml::Table::deserialize(deserializer)?;
+        validate_keys::<D::Error>(&table, "bitmap field", BITMAP_KEYS, BITMAP_SOURCE_KEYS)?;
+        let raw: RawBitmapField = toml::Value::Table(table)
+            .try_into()
+            .map_err(D::Error::custom)?;
+        Ok(Self {
+            bits: raw.bits,
+            source: raw.source,
+        })
+    }
+}
+
+fn validate_keys<E>(
+    table: &toml::Table,
+    kind: &str,
+    valid_keys: &[&str],
+    source_keys: &[&str],
+) -> Result<(), E>
+where
+    E: serde::de::Error,
+{
+    let unknown = table
+        .keys()
+        .filter(|key| !valid_keys.contains(&key.as_str()))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if !unknown.is_empty() {
+        return Err(E::custom(format!(
+            "unknown {kind} key(s) {}; valid keys are {}, with exactly one source key from {}",
+            quoted_list(&unknown),
+            quoted_list(valid_keys),
+            quoted_list(source_keys)
+        )));
+    }
+
+    let sources = table
+        .keys()
+        .filter(|key| source_keys.contains(&key.as_str()))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if sources.len() != 1 {
+        let found = if sources.is_empty() {
+            "none".to_owned()
+        } else {
+            quoted_list(&sources)
+        };
+        return Err(E::custom(format!(
+            "{kind} must contain exactly one source key; found {found}; valid source keys are {}",
+            quoted_list(source_keys)
+        )));
+    }
+    Ok(())
+}
+
+fn quoted_list(values: &[&str]) -> String {
+    values
+        .iter()
+        .map(|value| format!("'{value}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Source for a bitmap field (no arrays allowed).

@@ -66,6 +66,8 @@ padding = 0xFF             # Padding byte value (default: 0xFF)
 
 Data fields are key-value pairs where the key is a dotted path (matching C struct hierarchy) and the value defines the field.
 
+Every block name and data field path segment must be a valid C identifier matching `[_a-zA-Z][_a-zA-Z0-9]*`, and must not be a C11 keyword. Quote other strings only where the layout treats them as values, such as data-source names, bitmap region names, ref targets, const names and checksum config names. Quoted dotted data keys such as `"device.id"` are rejected because they create one flat key; use an unquoted dotted key or nested table instead.
+
 ### Aggregate alignment
 
 Mint lays out dotted paths as naturally aligned C aggregates. Each leaf uses its storage width for size and alignment: integer and fixed-point types align to their exact width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
@@ -85,7 +87,7 @@ Each selected block becomes a `<block>_t` typedef, and dotted paths become inlin
 
 Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros.
 
-Block and field names must be valid non-keyword C identifiers. Quoted dotted keys (`"a.b" = ...`) are rejected: they build as flat fields, which no C struct can reproduce — use a nested table instead. Header generation also rejects duplicate typedefs and names that collide when converted to upper snake case. It renders the complete header before writing the output file.
+The layout parser guarantees valid block and field names. Header generation rejects duplicate typedefs and generated names that collide when converted to upper snake case. It renders the complete header before writing the output file.
 
 ### Field Attributes
 
