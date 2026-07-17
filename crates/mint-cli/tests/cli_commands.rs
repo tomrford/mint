@@ -107,6 +107,75 @@ value = { value = [1, 2], type = "u16", size = 2 }
 }
 
 #[test]
+fn fingerprint_validation_is_scoped_to_the_selected_block() {
+    let layout = common::write_layout_file(
+        "fingerprint-scope",
+        r#"
+[mint]
+endianness = "little"
+
+[good.header]
+start_address = 0x1000
+length = 0x20
+
+[good.data]
+value = { value = 1, type = "u32" }
+
+[bad_ref.header]
+start_address = 0x2000
+length = 0x20
+
+[bad_ref.data]
+pointer = { ref = "missing", type = "u32" }
+
+[bad_const.header]
+start_address = 0x3000
+length = 0x20
+
+[bad_const.data]
+value = { const = "missing", type = "u32" }
+"#,
+    );
+
+    let selected = mint_command()
+        .arg("fingerprint")
+        .arg(format!("{layout}#good"))
+        .output()
+        .expect("selected fingerprint command runs");
+    assert!(
+        selected.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&selected.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(selected.stdout)
+            .expect("stdout is utf8")
+            .trim()
+            .len(),
+        16
+    );
+
+    let whole_file = mint_command()
+        .arg("fingerprint")
+        .arg(&layout)
+        .output()
+        .expect("whole-file fingerprint command runs");
+    assert!(!whole_file.status.success());
+
+    let dangling_const = mint_command()
+        .arg("fingerprint")
+        .arg(format!("{layout}#bad_const"))
+        .output()
+        .expect("dangling-const fingerprint command runs");
+    assert!(!dangling_const.status.success());
+    assert!(
+        String::from_utf8_lossy(&dangling_const.stderr).contains("Const 'missing' not found"),
+        "stderr: {}",
+        String::from_utf8_lossy(&dangling_const.stderr)
+    );
+}
+
+#[test]
 fn missing_command_reports_top_level_usage() {
     let output = mint_command().output().expect("mint should run");
 

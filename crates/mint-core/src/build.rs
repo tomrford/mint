@@ -203,7 +203,7 @@ fn build_resolved(
     strict: bool,
     capture_values: bool,
 ) -> Result<BuildArtifact, MintError> {
-    let fingerprints = calculate_layout_fingerprints(layouts)?;
+    let fingerprints = calculate_layout_fingerprints(layouts, &resolved_blocks)?;
     let mut results = build_bytestreams(
         &resolved_blocks,
         layouts,
@@ -230,14 +230,16 @@ fn build_resolved(
 
 fn calculate_layout_fingerprints(
     layouts: &HashMap<PathBuf, Config>,
+    resolved_blocks: &[ResolvedBlock],
 ) -> Result<HashMap<PathBuf, HashMap<String, u64>>, LayoutError> {
     layouts
         .par_iter()
         .map(|(path, config)| {
-            if !layout::fingerprint::uses_fingerprints(config) {
-                return Ok((path.clone(), HashMap::new()));
-            }
-            layout::fingerprint::calculate(config)
+            let roots = resolved_blocks
+                .iter()
+                .filter(|block| &block.layout == path)
+                .map(|block| block.name.as_str());
+            layout::fingerprint::calculate_scoped(config, roots, false)
                 .map(|values| (path.clone(), values.into_iter().collect()))
         })
         .collect()
@@ -408,7 +410,7 @@ fn build_single_bytestream(
             &mut noop as &mut dyn crate::layout::used_values::ValueSink
         };
 
-        let build_output = block.build_bytestream(
+        let build_output = block.emit(
             &resolved.name,
             fingerprints,
             data_source,

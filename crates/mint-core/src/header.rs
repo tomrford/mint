@@ -1,9 +1,10 @@
 use crate::build::{BlockSelector, resolve_blocks};
 use crate::error::MintError;
-use crate::layout::block::{BuildConfig, Entry};
+use crate::layout::block::{Block, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
+use crate::layout::resolved::validate_static;
 use crate::layout::scalar_type::ScalarType;
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
@@ -19,11 +20,11 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let fingerprints = layouts
         .iter()
         .map(|(path, layout)| {
-            if fingerprint::uses_fingerprints(layout) {
-                fingerprint::calculate(layout).map(|values| (path.clone(), values))
-            } else {
-                Ok((path.clone(), IndexMap::new()))
-            }
+            let roots = resolved
+                .iter()
+                .filter(|block| &block.layout == path)
+                .map(|block| block.name.as_str());
+            fingerprint::calculate_scoped(layout, roots, false).map(|values| (path.clone(), values))
         })
         .collect::<Result<HashMap<_, _>, LayoutError>>()?;
     let mut rendered = Vec::with_capacity(resolved.len());
@@ -53,7 +54,7 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
 
         let result = render_block(
             &selected.name,
-            &block.data,
+            block,
             &layout.mint,
             block_fingerprints,
             &mut names,
@@ -146,7 +147,7 @@ impl NameRegistry {
 
 fn render_block(
     block_name: &str,
-    data: &Entry,
+    block: &Block,
     settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
     names: &mut NameRegistry,
@@ -157,15 +158,11 @@ fn render_block(
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
-    let Entry::Branch(source) = data else {
+    validate_static(block, settings)?;
+
+    let Entry::Branch(source) = &block.data else {
         return Err(header_error("block data must be a table"));
     };
-    if source.is_empty() {
-        return Err(header_error("root data struct must not be empty"));
-    }
-
-    let mut paths = HashSet::new();
-    collect_paths(source, &mut Vec::new(), &mut paths);
 
     let mut macros = Vec::new();
     let mut path = Vec::new();
@@ -173,9 +170,7 @@ fn render_block(
         source,
         block_name,
         &macro_prefix,
-        settings,
         fingerprints,
-        &paths,
         names,
         &mut path,
         &mut macros,
@@ -192,29 +187,12 @@ fn render_block(
     })
 }
 
-fn collect_paths(
-    fields: &IndexMap<String, Entry>,
-    path: &mut Vec<String>,
-    paths: &mut HashSet<String>,
-) {
-    for (name, node) in fields {
-        path.push(name.clone());
-        paths.insert(path.join("."));
-        if let Entry::Branch(children) = node {
-            collect_paths(children, path, paths);
-        }
-        path.pop();
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn collect_macros(
     fields: &IndexMap<String, Entry>,
     block_name: &str,
     block_prefix: &str,
-    settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
-    paths: &HashSet<String>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
     output: &mut Vec<MacroDefinition>,
@@ -223,19 +201,11 @@ fn collect_macros(
         path.push(name.clone());
         match node {
             Entry::Branch(children) => {
-                if children.is_empty() {
-                    return Err(header_error(format!(
-                        "field branch '{}' must not be empty",
-                        path.join(".")
-                    )));
-                }
                 collect_macros(
                     children,
                     block_name,
                     block_prefix,
-                    settings,
                     fingerprints,
-                    paths,
                     names,
                     path,
                     output,
@@ -245,9 +215,7 @@ fn collect_macros(
                 leaf,
                 block_name,
                 block_prefix,
-                settings,
                 fingerprints,
-                paths,
                 names,
                 path,
                 output,
@@ -263,21 +231,17 @@ fn collect_leaf_macros(
     leaf: &LeafEntry,
     block_name: &str,
     block_prefix: &str,
-    settings: &MintConfig,
     fingerprints: &IndexMap<String, u64>,
-    paths: &HashSet<String>,
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,
 ) -> Result<(), LayoutError> {
     let size = leaf.size()?;
-    validate_leaf(leaf, size.as_ref(), settings, paths, path)?;
 
     let path_prefix = macro_path(block_prefix, path)?;
     if let Some(size) = size {
         match size {
             SizeSource::OneD(length) => {
-                validate_extent(length, path)?;
                 add_macro(
                     names,
                     output,
@@ -288,8 +252,6 @@ fn collect_leaf_macros(
                 )?;
             }
             SizeSource::TwoD([rows, columns]) => {
-                validate_extent(rows, path)?;
-                validate_extent(columns, path)?;
                 let origin = format!("array '{}#{}'", block_name, path.join("."));
                 add_macro(
                     names,
@@ -363,57 +325,6 @@ fn collect_leaf_macros(
         )?;
     }
 
-    Ok(())
-}
-
-fn validate_leaf(
-    leaf: &LeafEntry,
-    size: Option<&SizeSource>,
-    settings: &MintConfig,
-    paths: &HashSet<String>,
-    path: &[String],
-) -> Result<(), LayoutError> {
-    match &leaf.source {
-        EntrySource::Bitmap(fields) => leaf.validate_bitmap(fields)?,
-        EntrySource::Ref(target) => {
-            leaf.validate_ref(target)?;
-            if !paths.contains(target) {
-                return Err(header_error(format!(
-                    "ref target '{target}' from '{}' does not exist",
-                    path.join(".")
-                )));
-            }
-        }
-        EntrySource::Checksum(name) => leaf.validate_checksum(name, settings)?,
-        EntrySource::Fingerprint(_) => leaf.validate_fingerprint()?,
-        EntrySource::Const(name) => {
-            let config = BuildConfig {
-                endianness: &settings.endianness,
-                padding: 0,
-                strict: false,
-                consts: &settings.consts,
-            };
-            leaf.validate_const(name, &config, size)?;
-        }
-        EntrySource::Name(_) => {}
-        EntrySource::Value(_) => {
-            if matches!(size, Some(SizeSource::TwoD(_))) {
-                return Err(LayoutError::DataValueExportFailed(
-                    "2D arrays within the layout file are not supported.".to_owned(),
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_extent(extent: usize, path: &[String]) -> Result<(), LayoutError> {
-    if extent == 0 {
-        return Err(header_error(format!(
-            "array '{}' has a zero extent, which is not valid C11",
-            path.join(".")
-        )));
-    }
     Ok(())
 }
 

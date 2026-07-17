@@ -3,6 +3,9 @@ use mint_core::fingerprint;
 use mint_core::layout;
 use std::path::PathBuf;
 
+#[path = "common/mod.rs"]
+mod common;
+
 fn fingerprint_of(source: &str) -> u64 {
     let config = layout::parse_toml_layout(source).expect("layout parses");
     fingerprint::calculate(&config).expect("fingerprint calculates")[0].value
@@ -213,7 +216,7 @@ fn fingerprint_targets_are_validated_at_parse_time() {
 }
 
 #[test]
-fn blocks_without_fingerprint_fields_build_despite_invalid_siblings() {
+fn selected_blocks_build_despite_invalid_non_target_siblings() {
     let source = r#"
 [mint]
 endianness = "little"
@@ -223,7 +226,15 @@ start_address = 0x1000
 length = 0x20
 
 [good.data]
+schema = { fingerprint = true, type = "u64" }
 value = { value = 7, type = "u16" }
+
+[dependent.header]
+start_address = 0x1800
+length = 0x20
+
+[dependent.data]
+bad_schema = { fingerprint = "bad", type = "u64" }
 
 [bad.header]
 start_address = 0x2000
@@ -247,6 +258,161 @@ pointer = { ref = "missing", type = "u32" }
     })
     .expect("selected block builds without touching the invalid sibling");
     assert_eq!(artifact.ranges.len(), 1);
+
+    let config = layout::parse_toml_layout(source).expect("layout reparses");
+    let error = mint_core::build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("siblings.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("siblings.toml", "dependent")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect_err("selected block fails when the invalid sibling is its fingerprint target");
+    let message = common::error_chain(&error);
+    assert!(
+        message.contains("ref target 'missing' not found in block"),
+        "{message}"
+    );
+}
+
+#[test]
+fn fingerprints_reject_blocks_that_exceed_their_configured_length() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 4
+
+[block.data]
+value = { value = 1, type = "u64" }
+"#,
+    )
+    .expect("layout parses");
+
+    let error = fingerprint::calculate_block(&config, "block").expect_err("oversized block fails");
+    assert!(
+        error
+            .to_string()
+            .contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+        "{error}"
+    );
+}
+
+#[test]
+fn fingerprints_reject_selector_static_invalidity() {
+    let checksum_at_zero = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+checksum = { checksum = "crc32", type = "u32" }
+"#,
+    )
+    .expect("layout parses");
+    let error = fingerprint::calculate_block(&checksum_at_zero, "block")
+        .expect_err("checksum at zero fails static validation");
+    let message = common::error_chain(&error);
+    assert!(
+        message.contains("Checksum must follow at least one data byte"),
+        "{message}"
+    );
+
+    let ref_overflow = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0x10000
+length = 16
+[block.data]
+target = { value = 1, type = "u32" }
+pointer = { ref = "target", type = "u16" }
+"#,
+    )
+    .expect("layout parses");
+    let error = fingerprint::calculate_block(&ref_overflow, "block")
+        .expect_err("ref address overflow fails static validation");
+    let message = common::error_chain(&error);
+    assert!(
+        message.contains("ref 'pointer' target 'target'")
+            && message.contains("does not fit storage type u16"),
+        "{message}"
+    );
+
+    let range_overflow = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0xFFFFFFFF
+length = 8
+[block.data]
+value = { value = 1, type = "u64" }
+"#,
+    )
+    .expect("layout parses");
+    let error = fingerprint::calculate_block(&range_overflow, "block")
+        .expect_err("emitted range overflow fails static validation");
+    assert!(
+        error
+            .to_string()
+            .contains("exceeds the 32-bit address space"),
+        "{error}"
+    );
+
+    let allocated_overflow = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0xFFFFF000
+length = 0x2000
+[block.data]
+value = { value = 1, type = "u8" }
+"#,
+    )
+    .expect("layout parses");
+    let error = fingerprint::calculate_block(&allocated_overflow, "block")
+        .expect_err("allocated range overflow fails static validation like the build output stage");
+    assert!(
+        error
+            .to_string()
+            .contains("exceeds the 32-bit address space"),
+        "{error}"
+    );
+}
+
+#[test]
+fn fingerprint_static_range_accepts_the_last_address() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0xFFFFFFFF
+length = 1
+[block.data]
+value = { value = 1, type = "u8" }
+"#,
+    )
+    .expect("layout parses");
+
+    fingerprint::calculate_block(&config, "block").expect("last address is valid");
 }
 
 #[test]

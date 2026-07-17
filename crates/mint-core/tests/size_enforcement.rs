@@ -1,6 +1,8 @@
 use std::io::Write;
 
 use mint_core::data::{ExcelDataSource, ExcelDataSourceOptions};
+use mint_core::error::MintError;
+use mint_core::layout::error::LayoutError;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -11,6 +13,89 @@ fn default_excel_source() -> ExcelDataSource {
         ExcelDataSourceOptions::new(vec!["Default".to_owned()]),
     )
     .expect("datasource loads")
+}
+
+#[test]
+fn oversized_layout_fails_during_block_build() {
+    let layout = common::write_layout_file(
+        "oversized_layout",
+        r#"
+[mint]
+endianness = "little"
+
+[oversized.header]
+start_address = 0x80000
+length = 4
+
+[oversized.data]
+value = { value = 1, type = "u64" }
+"#,
+    );
+
+    let error = common::build_block(&layout, "oversized", false, None)
+        .expect_err("resolved layout should not exceed the block length");
+    let chain = common::error_chain(&error);
+    assert!(matches!(
+        &error,
+        MintError::InBlock { source, .. }
+            if matches!(source.as_ref(), MintError::Layout(LayoutError::InvalidLayout(_)))
+    ));
+    assert!(
+        chain.contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+        "{chain}"
+    );
+}
+
+#[test]
+fn zero_extent_arrays_fail_during_block_build() {
+    let layout = common::write_layout_file(
+        "zero_extent_layout",
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+values = { value = [], type = "u8", size = 0 }
+"#,
+    );
+
+    let error = common::build_block(&layout, "block", false, None)
+        .expect_err("zero-extent arrays are invalid layouts");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains("array 'values' has a zero extent"),
+        "{chain}"
+    );
+}
+
+#[test]
+fn two_dimensional_literals_fail_during_block_build() {
+    let layout = common::write_layout_file(
+        "two_dimensional_literal",
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+matrix = { value = [1, 2, 3, 4], type = "u8", size = [2, 2] }
+"#,
+    );
+
+    let error = common::build_block(&layout, "block", false, None)
+        .expect_err("two-dimensional literals are invalid layouts");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains("2D arrays within the layout file are not supported"),
+        "{chain}"
+    );
 }
 
 #[test]
@@ -34,10 +119,7 @@ short_array = { value = [1, 2, 3], type = "u16", size = 10 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let (bytes, _padding) = common::build_block(block, &cfg.mint, false, None)
+    let bytes = common::build_block(&path, "block", false, None)
         .expect("lowercase size should allow padding");
 
     assert!(bytes.len() >= 20);
@@ -64,12 +146,15 @@ short_array = { value = [1, 2, 3], type = "u16", SIZE = 10 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let res = common::build_block(block, &cfg.mint, false, None);
-    assert!(res.is_err(), "SIZE should reject underfilled array");
-    let err_msg = format!("{:?}", res.unwrap_err());
+    let error = common::build_block(&path, "block", false, None)
+        .expect_err("SIZE should reject underfilled array");
+    assert!(matches!(
+        &error,
+        MintError::InBlock { source, .. }
+            if matches!(source.as_ref(), MintError::Layout(LayoutError::InField { source, .. })
+                if matches!(source.as_ref(), LayoutError::DataValueExportFailed(_)))
+    ));
+    let err_msg = format!("{error:?}");
     assert!(err_msg.contains("smaller than defined size"));
 }
 
@@ -94,12 +179,9 @@ matrix = { name = "CalibrationMatrix", type = "i16", SIZE = [5, 3] }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
     let ds = default_excel_source();
 
-    let res = common::build_block(block, &cfg.mint, false, Some(&ds));
+    let res = common::build_block(&path, "block", false, Some(&ds));
     assert!(res.is_err(), "SIZE should reject underfilled 2D array");
     let err_msg = format!("{:?}", res.unwrap_err());
     assert!(err_msg.contains("smaller than defined size"));
@@ -156,11 +238,8 @@ exact_array = { value = [1, 2, 3, 4, 5], type = "u16", SIZE = 5 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let cfg = mint_core::layout::load_layout(path.to_str().unwrap()).expect("parse layout");
-    let block = cfg.blocks.get("block").expect("block present");
-
-    let (bytes, _padding) =
-        common::build_block(block, &cfg.mint, false, None).expect("SIZE should accept exact match");
+    let bytes =
+        common::build_block(&path, "block", false, None).expect("SIZE should accept exact match");
 
     assert!(bytes.len() >= 10);
 }

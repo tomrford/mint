@@ -1,9 +1,12 @@
 use mint_core::build::{self, BlockSelector, BuildFromLayoutsRequest, NamedLayout};
 use mint_core::layout;
-use mint_core::layout::block::BuildOutput;
-use mint_core::layout::used_values::NoopValueSink;
 use mint_core::output::checksum::calculate_crc;
 use std::path::PathBuf;
+
+struct BuildOutput {
+    bytestream: Vec<u8>,
+    checksum_values: Vec<u32>,
+}
 
 fn layout(data: &str) -> String {
     format!(
@@ -31,22 +34,21 @@ padding = 0xEE
 
 fn build_output(data: &str) -> BuildOutput {
     let config = layout::parse_toml_layout(&layout(data)).expect("layout parses");
-    let fingerprints = mint_core::fingerprint::calculate(&config)
-        .expect("fingerprints calculate")
-        .into_iter()
-        .map(|fingerprint| (fingerprint.block, fingerprint.value))
-        .collect();
-    let mut value_sink = NoopValueSink;
-    config.blocks["block"]
-        .build_bytestream(
-            "block",
-            &fingerprints,
-            None,
-            &config.mint,
-            false,
-            &mut value_sink,
-        )
-        .expect("block builds")
+    let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("aggregate.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("aggregate.toml", "block")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect("block builds");
+    BuildOutput {
+        bytestream: artifact.ranges[0].bytestream.clone(),
+        checksum_values: artifact.stats.block_stats[0].checksum_values.clone(),
+    }
 }
 
 #[test]
@@ -67,7 +69,6 @@ after = { value = 0x33, type = "u8" }
             0xEE, 0xEE,
         ]
     );
-    assert_eq!(output.padding_count, 9);
 }
 
 #[test]
@@ -121,31 +122,15 @@ leaf_ref = { ref = "group.word", type = "u32" }
 
 #[test]
 fn checksum_includes_aggregate_alignment_padding() {
-    let source = layout(
-        r#"
+    let data = r#"
 prefix = { value = 0x11, type = "u8" }
 group.word = { value = 0x44332211, type = "u32" }
 group.small = { value = 0x22, type = "u8" }
 checksum = { checksum = "crc32", type = "u32" }
-"#,
-    );
+"#;
+    let source = layout(data);
+    let output = build_output(data);
     let config = layout::parse_toml_layout(&source).expect("layout parses");
-    let fingerprints = mint_core::fingerprint::calculate(&config)
-        .expect("fingerprints calculate")
-        .into_iter()
-        .map(|fingerprint| (fingerprint.block, fingerprint.value))
-        .collect();
-    let mut value_sink = NoopValueSink;
-    let output = config.blocks["block"]
-        .build_bytestream(
-            "block",
-            &fingerprints,
-            None,
-            &config.mint,
-            false,
-            &mut value_sink,
-        )
-        .expect("block builds");
     let checksum = calculate_crc(&output.bytestream[..12], &config.mint.checksum["crc32"]);
 
     assert_eq!(

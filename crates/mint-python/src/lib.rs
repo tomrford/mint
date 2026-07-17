@@ -14,6 +14,7 @@ mod util;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use mint_core::build::{self as core_build, BlockSelector, BuildFromLayoutsRequest, NamedLayout};
 use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
@@ -38,6 +39,13 @@ impl LayoutSource {
             Self::File { path } => layout::load_layout(path).map_err(mint_error),
             Self::String { text } => layout::parse_toml_layout(text).map_err(mint_error),
         }
+    }
+
+    fn fingerprint(&self, name: &str) -> PyResult<String> {
+        let config = self.parse_config()?;
+        let fingerprint =
+            mint_core::fingerprint::calculate_block(&config, name).map_err(mint_error)?;
+        Ok(fingerprint.hex())
     }
 }
 
@@ -82,6 +90,7 @@ fn build(
             layout_name: block.layout_name.clone(),
             name: block.name.clone(),
             source: block.source.clone(),
+            fingerprint_hex: OnceLock::new(),
         })
         .collect::<Vec<_>>();
 

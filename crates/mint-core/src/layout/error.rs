@@ -8,6 +8,9 @@ pub enum LayoutError {
     #[error("block not found: {0}")]
     BlockNotFound(String),
 
+    #[error("invalid layout: {0}")]
+    InvalidLayout(String),
+
     #[error("data value export failed: {0}")]
     DataValueExportFailed(String),
 
@@ -43,4 +46,12 @@ pub enum LayoutError {
 
     #[error(transparent)]
     Data(#[from] crate::data::error::DataError),
+}
+
+pub(crate) fn in_field_path(path: &str, error: LayoutError) -> LayoutError {
+    path.rsplit('.')
+        .fold(error, |source, field| LayoutError::InField {
+            field: field.to_owned(),
+            source: Box::new(source),
+        })
 }

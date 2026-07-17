@@ -214,7 +214,7 @@ fn parse_fixed_point_type(value: &str) -> Result<FixedPointType, String> {
 }
 
 pub fn fixed_point_unsupported_error(kind: &str, scalar_type: ScalarType) -> LayoutError {
-    LayoutError::DataValueExportFailed(format!(
+    LayoutError::InvalidLayout(format!(
         "{kind} does not support fixed-point storage type '{}'.",
         scalar_type
     ))

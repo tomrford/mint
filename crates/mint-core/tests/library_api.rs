@@ -105,7 +105,7 @@ value = { value = 1, type = "u8" }
 
     let message = common::error_chain(&error);
     assert!(
-        message.contains("overflow.toml#oversized")
+        message.contains("block 'oversized' from 'overflow.toml'")
             && message.contains("exceeds the 32-bit address space"),
         "unexpected error: {message}"
     );

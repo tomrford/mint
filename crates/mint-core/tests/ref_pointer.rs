@@ -27,28 +27,22 @@ fn ref_layout_with_endian(start_address: u32, endianness: &str, data_content: &s
     layout(start_address, endianness, data_content)
 }
 
-fn load_and_build(name: &str, toml_str: &str) -> (Vec<u8>, u32) {
+fn load_and_build(name: &str, toml_str: &str) -> Vec<u8> {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
-    let config = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = &config.blocks["block"];
-    common::build_block(block, &config.mint, false, None).expect("build succeeds")
+    common::build_block(&path, "block", false, None).expect("build succeeds")
 }
 
-fn load_and_build_with_values(name: &str, toml_str: &str) -> ((Vec<u8>, u32), serde_json::Value) {
+fn load_and_build_with_values(name: &str, toml_str: &str) -> (Vec<u8>, serde_json::Value) {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
-    let config = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = &config.blocks["block"];
-    common::build_block_with_values(block, &config.mint).expect("build succeeds")
+    common::build_block_with_values(&path, "block").expect("build succeeds")
 }
 
 fn load_and_fail(name: &str, toml_str: &str) -> String {
     common::ensure_out_dir();
     let path = common::write_layout_file(name, toml_str);
-    let config = mint_core::layout::load_layout(&path).expect("layout loads");
-    let block = &config.blocks["block"];
-    let err = common::build_block(block, &config.mint, false, None).unwrap_err();
+    let err = common::build_block(&path, "block", false, None).unwrap_err();
     common::error_chain(&err)
 }
 
@@ -64,7 +58,7 @@ target = { value = 0xDEADBEEF, type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_forward", &toml);
+    let bytes = load_and_build("ref_forward", &toml);
     assert_eq!(bytes.len(), 8);
     assert_eq!(&bytes[0..4], &0x8004u32.to_le_bytes());
     assert_eq!(&bytes[4..8], &0xDEADBEEFu32.to_le_bytes());
@@ -80,7 +74,7 @@ ptr = { ref = "target", type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_backward", &toml);
+    let bytes = load_and_build("ref_backward", &toml);
     assert_eq!(bytes.len(), 8);
     assert_eq!(&bytes[0..4], &0x42u32.to_le_bytes());
     assert_eq!(&bytes[4..8], &0x1000u32.to_le_bytes());
@@ -97,7 +91,7 @@ ptr = { ref = "field_b", type = "u16" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_u16", &toml);
+    let bytes = load_and_build("ref_u16", &toml);
     assert_eq!(bytes.len(), 6);
     assert_eq!(&bytes[4..6], &0x102u16.to_le_bytes());
 }
@@ -114,8 +108,30 @@ ptr = { ref = "target", type = "u16" }
 
     let err = load_and_fail("ref_u16_overflow", &toml);
     assert!(
-        err.contains("out of range for u16"),
-        "expected u16 range error, got: {err}"
+        err.contains("invalid layout")
+            && err.contains("ref 'ptr' target 'target'")
+            && err.contains("does not fit storage type u16"),
+        "expected static u16 range error, got: {err}"
+    );
+}
+
+#[test]
+fn ref_u16_rejects_target_offset_that_pushes_address_out_of_range() {
+    let toml = ref_layout(
+        0xFFFC,
+        r#"
+prefix = { value = 0x42, type = "u32" }
+target = { value = 0x24, type = "u32" }
+ptr = { ref = "target", type = "u16" }
+"#,
+    );
+
+    let err = load_and_fail("ref_u16_offset_overflow", &toml);
+    assert!(
+        err.contains("invalid layout")
+            && err.contains("ref 'ptr' target 'target'")
+            && err.contains("does not fit storage type u16"),
+        "expected static u16 range error, got: {err}"
     );
 }
 
@@ -129,7 +145,7 @@ target = { value = 0xFF, type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_u64", &toml);
+    let bytes = load_and_build("ref_u64", &toml);
     // ptr: 8 bytes at offset 0, target: at offset 8, root tail padding to 16
     assert_eq!(bytes.len(), 16);
     let expected_addr: u64 = 0x2000 + 8;
@@ -148,7 +164,7 @@ target = { value = 0xAB, type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_big_endian", &toml);
+    let bytes = load_and_build("ref_big_endian", &toml);
     assert_eq!(bytes.len(), 8);
     assert_eq!(&bytes[0..4], &0x4004u32.to_be_bytes());
     assert_eq!(&bytes[4..8], &0xABu32.to_be_bytes());
@@ -171,7 +187,7 @@ ptr = { ref = "nested", type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_branch", &toml);
+    let bytes = load_and_build("ref_branch", &toml);
     assert_eq!(bytes.len(), 12);
     assert_eq!(&bytes[8..12], &0x4u32.to_le_bytes());
 }
@@ -190,7 +206,7 @@ ptr = { ref = "group.y", type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_nested_leaf", &toml);
+    let bytes = load_and_build("ref_nested_leaf", &toml);
     assert_eq!(bytes.len(), 8);
     assert_eq!(&bytes[4..8], &0x102u32.to_le_bytes());
 }
@@ -207,7 +223,7 @@ ptr_b = { ref = "field_b", type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_multi", &toml);
+    let bytes = load_and_build("ref_multi", &toml);
     assert_eq!(bytes.len(), 12);
     assert_eq!(&bytes[4..8], &0x0u32.to_le_bytes());
     assert_eq!(&bytes[8..12], &0x2u32.to_le_bytes());
@@ -224,7 +240,7 @@ ptr2 = { ref = "target", type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_same_target", &toml);
+    let bytes = load_and_build("ref_same_target", &toml);
     assert_eq!(bytes.len(), 12);
     assert_eq!(&bytes[4..8], &0x0u32.to_le_bytes());
     assert_eq!(&bytes[8..12], &0x0u32.to_le_bytes());
@@ -240,7 +256,7 @@ ptr = { ref = "target", type = "u32" }
 "#,
     );
 
-    let ((bytes, _), values) = load_and_build_with_values("ref_json_export", &toml);
+    let (bytes, values) = load_and_build_with_values("ref_json_export", &toml);
     assert_eq!(&bytes[4..8], &0x1000u32.to_le_bytes());
     assert_eq!(&values["ptr"], &serde_json::json!(0x1000u64));
     assert_eq!(&values["target"], &serde_json::json!(0x42u64));
@@ -258,9 +274,9 @@ ptr = { ref = "target", type = "u32" }
 "#,
     );
 
-    let (bytes, padding) = load_and_build("ref_align", &toml);
+    let bytes = load_and_build("ref_align", &toml);
     assert_eq!(bytes.len(), 12);
-    assert_eq!(padding, 3);
+    assert_eq!(&bytes[1..4], &[0xFF; 3]);
     assert_eq!(&bytes[8..12], &0x4u32.to_le_bytes());
 }
 
@@ -332,7 +348,7 @@ field = { value = 0x42, type = "u32" }
 [block.data.empty]
 "#,
             ),
-            "Empty branch",
+            "empty branch",
         ),
     ];
 
@@ -358,7 +374,7 @@ field_b = { value = 0xBBBB, type = "u16" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_no_refs", &toml);
+    let bytes = load_and_build("ref_no_refs", &toml);
     assert_eq!(bytes.len(), 4);
     assert_eq!(&bytes[0..2], &0xAAAAu16.to_le_bytes());
     assert_eq!(&bytes[2..4], &0xBBBBu16.to_le_bytes());
@@ -382,7 +398,7 @@ ptr = { ref = "nested", type = "u32" }
 "#,
     );
 
-    let (bytes, _) = load_and_build("ref_branch_align", &toml);
+    let bytes = load_and_build("ref_branch_align", &toml);
     // small(1) + pad(3) + nested.big(4) + ptr(4) = 12
     assert_eq!(bytes.len(), 12);
     // ptr at offset 8 should point to nested at offset 4 (after alignment), NOT offset 1

@@ -1,6 +1,7 @@
 use super::entry::{EntrySource, LeafEntry};
-use super::error::LayoutError;
+use super::error::{LayoutError, in_field_path};
 use super::header::Header;
+use super::resolved::{ResolvedLayout, validate_static};
 use super::scalar_type::ScalarType;
 use super::settings::{Endianness, MintConfig};
 use super::used_values::ValueSink;
@@ -14,62 +15,50 @@ use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
 
-/// A ref that needs to be resolved after the main traversal pass.
-struct PendingRef {
-    /// Position in the output buffer where placeholder bytes were written.
-    buffer_position: usize,
-    /// The dotted field path of the target being referenced.
-    target_path: String,
-    /// Scalar type for encoding the resolved address.
-    scalar_type: ScalarType,
-    /// Field path of the ref entry itself (for value_sink and error messages).
-    field_path: Vec<String>,
-}
-
-/// A checksum that needs to be resolved after the main traversal pass.
 struct PendingChecksum {
-    /// Position in the output buffer where placeholder bytes were written.
+    leaf_index: usize,
     buffer_position: usize,
-    /// Scalar type for encoding the checksum value.
     scalar_type: ScalarType,
-    /// Name of the checksum config in `[mint.checksum]`.
     config_name: String,
-    /// Field path of the checksum entry (for value_sink and error messages).
     field_path: Vec<String>,
 }
 
-/// Mutable state tracked during recursive bytestream building
-struct BuildState {
-    buffer: Vec<u8>,
-    padding_count: u32,
-    /// Maps dotted field paths to their byte offsets within the block data.
-    known_offsets: HashMap<String, usize>,
-    /// Refs whose targets may not yet be known; resolved after traversal.
-    pending_refs: Vec<PendingRef>,
-    /// Checksums to compute after the bytestream is fully built.
-    pending_checksums: Vec<PendingChecksum>,
-    /// Resolved checksum values in field-order for stats/visualization.
-    resolved_checksum_values: Vec<u32>,
+struct PendingValueRecord {
+    leaf_index: usize,
+    path: Vec<String>,
+    value: serde_json::Value,
 }
 
-/// Immutable configuration for bytestream building
-pub struct BuildConfig<'a> {
-    pub endianness: &'a Endianness,
-    pub padding: u8,
-    pub strict: bool,
-    pub consts: &'a HashMap<String, ValueSource>,
+struct StagingValueSink<'a> {
+    leaf_index: usize,
+    records: &'a mut Vec<PendingValueRecord>,
 }
 
-struct BuildContext<'a> {
-    config: BuildConfig<'a>,
-    block_name: &'a str,
-    fingerprints: &'a HashMap<String, u64>,
+impl ValueSink for StagingValueSink<'_> {
+    fn record_value(
+        &mut self,
+        path: &[String],
+        value: serde_json::Value,
+    ) -> Result<(), LayoutError> {
+        self.records.push(PendingValueRecord {
+            leaf_index: self.leaf_index,
+            path: path.to_vec(),
+            value,
+        });
+        Ok(())
+    }
 }
 
-pub struct BuildOutput {
-    pub bytestream: Vec<u8>,
-    pub padding_count: u32,
-    pub checksum_values: Vec<u32>,
+pub(crate) struct BuildConfig<'a> {
+    pub(crate) endianness: &'a Endianness,
+    pub(crate) padding: u8,
+    pub(crate) strict: bool,
+    pub(crate) consts: &'a HashMap<String, ValueSource>,
+}
+
+pub(crate) struct BuildOutput {
+    pub(crate) bytestream: Vec<u8>,
+    pub(crate) checksum_values: Vec<u32>,
 }
 
 #[derive(Debug)]
@@ -120,7 +109,6 @@ impl<'de> Deserialize<'de> for Config {
     }
 }
 
-/// Flash block.
 #[derive(Debug, Deserialize)]
 pub struct Block {
     pub header: Header,
@@ -158,17 +146,8 @@ impl<'de> Deserialize<'de> for Entry {
     }
 }
 
-impl Entry {
-    fn alignment(&self) -> usize {
-        match self {
-            Entry::Leaf(leaf) => leaf.get_alignment(),
-            Entry::Branch(branch) => branch.values().map(Self::alignment).max().unwrap_or(1),
-        }
-    }
-}
-
 impl Block {
-    pub fn build_bytestream(
+    pub(crate) fn emit(
         &self,
         block_name: &str,
         fingerprints: &HashMap<String, u64>,
@@ -177,274 +156,285 @@ impl Block {
         strict: bool,
         value_sink: &mut dyn ValueSink,
     ) -> Result<BuildOutput, LayoutError> {
-        let mut state = BuildState {
-            buffer: Vec::with_capacity((self.header.length as usize).min(64 * 1024)),
-            padding_count: 0,
-            known_offsets: HashMap::new(),
-            pending_refs: Vec::new(),
-            pending_checksums: Vec::new(),
-            resolved_checksum_values: Vec::new(),
+        let resolved = validate_static(self, settings)?;
+        let total_size = resolved.total_size();
+        let config = BuildConfig {
+            endianness: &settings.endianness,
+            padding: self.header.padding,
+            strict,
+            consts: &settings.consts,
         };
-        let context = BuildContext {
-            config: BuildConfig {
-                endianness: &settings.endianness,
-                padding: self.header.padding,
-                strict,
-                consts: &settings.consts,
-            },
-            block_name,
-            fingerprints,
-        };
+        let mut buffer = vec![self.header.padding; total_size];
+        let mut pending_checksums = Vec::new();
+        let mut pending_values = Vec::new();
 
-        let mut field_path = Vec::new();
-        let _ = Self::build_bytestream_inner(
-            &self.data,
-            data_source,
-            settings,
-            &mut state,
-            &context,
-            value_sink,
-            &mut field_path,
-        )?;
+        for (leaf_index, (path, coordinates, leaf)) in resolved.emission_leaves().enumerate() {
+            let field_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
+            let mut staging_sink = StagingValueSink {
+                leaf_index,
+                records: &mut pending_values,
+            };
+            let bytes = (|| -> Result<Vec<u8>, LayoutError> {
+                match &leaf.source {
+                    EntrySource::Ref(target) => Self::emit_ref(
+                        leaf,
+                        target,
+                        &resolved,
+                        &self.header,
+                        &config,
+                        &mut staging_sink,
+                        &field_path,
+                    ),
+                    EntrySource::Checksum(config_name) => {
+                        settings.checksum_config(config_name)?;
+                        pending_checksums.push(PendingChecksum {
+                            leaf_index,
+                            buffer_position: coordinates.offset,
+                            scalar_type: leaf.scalar_type,
+                            config_name: config_name.clone(),
+                            field_path: field_path.clone(),
+                        });
+                        Ok(vec![0; leaf.scalar_type.size_bytes()])
+                    }
+                    EntrySource::Fingerprint(target) => {
+                        let target_name = target.block_name(block_name);
+                        let value = fingerprints.get(target_name).ok_or_else(|| {
+                            LayoutError::BlockNotFound(format!(
+                                "fingerprint target '{target_name}' from block '{block_name}'. Available blocks: {}",
+                                fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
+                            ))
+                        })?;
+                        let bytes = DataValue::U64(*value).to_bytes(
+                            leaf.scalar_type,
+                            config.endianness,
+                            true,
+                        )?;
+                        staging_sink.record_value(
+                            &field_path,
+                            serde_json::Value::Number(serde_json::Number::from(*value)),
+                        )?;
+                        Ok(bytes)
+                    }
+                    _ => leaf.emit_bytes(data_source, &config, &mut staging_sink, &field_path),
+                }
+            })()
+            .map_err(|error| in_field_path(path, error))?;
 
-        // Resolve pending refs now that all offsets are known.
-        if !state.pending_refs.is_empty() {
-            Self::resolve_pending_refs(&mut state, &context.config, &self.header, value_sink)?;
+            if bytes.len() != coordinates.size {
+                return Err(in_field_path(
+                    path,
+                    LayoutError::DataValueExportFailed(format!(
+                        "emitted {} bytes but resolved size is {} bytes",
+                        bytes.len(),
+                        coordinates.size
+                    )),
+                ));
+            }
+            let end = coordinates
+                .offset
+                .checked_add(coordinates.size)
+                .ok_or_else(|| {
+                    in_field_path(
+                        path,
+                        LayoutError::DataValueExportFailed(
+                            "resolved leaf range overflow during emission".to_owned(),
+                        ),
+                    )
+                })?;
+            let slot = buffer.get_mut(coordinates.offset..end).ok_or_else(|| {
+                in_field_path(
+                    path,
+                    LayoutError::DataValueExportFailed(
+                        "resolved leaf range exceeds output buffer".to_owned(),
+                    ),
+                )
+            })?;
+            slot.copy_from_slice(&bytes);
         }
 
-        // Resolve pending checksums now that the bytestream is complete.
-        if !state.pending_checksums.is_empty() {
-            Self::resolve_pending_checksums(&mut state, settings, &context.config, value_sink)?;
+        let checksum_values = Self::resolve_checksums(
+            &mut buffer,
+            &pending_checksums,
+            settings,
+            &config,
+            &mut pending_values,
+        )?;
+
+        pending_values.sort_by_key(|record| record.leaf_index);
+        for record in pending_values {
+            value_sink.record_value(&record.path, record.value)?;
         }
 
         Ok(BuildOutput {
-            bytestream: state.buffer,
-            padding_count: state.padding_count,
-            checksum_values: state.resolved_checksum_values,
+            bytestream: buffer,
+            checksum_values,
         })
     }
 
-    /// Recursively builds the bytestream. Returns the aligned byte offset of
-    /// the entry. The branch caller records each child's path in
-    /// `known_offsets` on exit from recursion.
-    fn build_bytestream_inner(
-        table: &Entry,
-        data_source: Option<&dyn DataSource>,
-        settings: &MintConfig,
-        state: &mut BuildState,
-        context: &BuildContext,
-        value_sink: &mut dyn ValueSink,
-        field_path: &mut Vec<String>,
-    ) -> Result<usize, LayoutError> {
-        match table {
-            Entry::Leaf(leaf) => {
-                let alignment = leaf.get_alignment();
-                pad_to_alignment(state, context.config.padding, alignment);
-
-                let leaf_offset = state.buffer.len();
-
-                if let EntrySource::Ref(target) = &leaf.source {
-                    leaf.validate_ref(target)?;
-                    let size = leaf.scalar_type.size_bytes();
-                    state.pending_refs.push(PendingRef {
-                        buffer_position: state.buffer.len(),
-                        target_path: target.clone(),
-                        scalar_type: leaf.scalar_type,
-                        field_path: field_path.clone(),
-                    });
-                    state.buffer.extend(std::iter::repeat_n(0u8, size));
-                    return Ok(leaf_offset);
-                }
-
-                if let EntrySource::Checksum(config_name) = &leaf.source {
-                    leaf.validate_checksum(config_name, settings)?;
-                    if state.buffer.is_empty() {
-                        return Err(LayoutError::DataValueExportFailed(
-                            "Checksum must follow at least one data byte.".to_owned(),
-                        ));
-                    }
-                    let size = leaf.scalar_type.size_bytes();
-                    state.pending_checksums.push(PendingChecksum {
-                        buffer_position: state.buffer.len(),
-                        scalar_type: leaf.scalar_type,
-                        config_name: config_name.clone(),
-                        field_path: field_path.clone(),
-                    });
-                    state.buffer.extend(std::iter::repeat_n(0u8, size));
-                    return Ok(leaf_offset);
-                }
-
-                if let EntrySource::Fingerprint(target) = &leaf.source {
-                    leaf.validate_fingerprint()?;
-                    let target_name = target.block_name(context.block_name);
-                    let value = context.fingerprints.get(target_name).ok_or_else(|| {
-                        LayoutError::BlockNotFound(format!(
-                            "fingerprint target '{target_name}' from block '{}'. Available blocks: {}",
-                            context.block_name,
-                            context.fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
-                        ))
-                    })?;
-                    let bytes = DataValue::U64(*value).to_bytes(
-                        leaf.scalar_type,
-                        context.config.endianness,
-                        true,
-                    )?;
-                    value_sink.record_value(
-                        field_path,
-                        serde_json::Value::Number(serde_json::Number::from(*value)),
-                    )?;
-                    state.buffer.extend(bytes);
-                    return Ok(leaf_offset);
-                }
-
-                let bytes =
-                    leaf.emit_bytes(data_source, &context.config, value_sink, field_path)?;
-                state.buffer.extend(bytes);
-                Ok(leaf_offset)
-            }
-            Entry::Branch(branch) => {
-                if branch.is_empty() {
-                    let branch_path = if field_path.is_empty() {
-                        "<root>".to_owned()
-                    } else {
-                        field_path.join(".")
-                    };
-                    return Err(LayoutError::DataValueExportFailed(format!(
-                        "Empty branch '{}' is invalid.",
-                        branch_path
-                    )));
-                }
-
-                let alignment = table.alignment();
-                pad_to_alignment(state, context.config.padding, alignment);
-                let branch_offset = state.buffer.len();
-
-                for (field_name, v) in branch.iter() {
-                    let path_len = field_path.len();
-                    field_path.push(field_name.clone());
-
-                    let offset = Self::build_bytestream_inner(
-                        v,
-                        data_source,
-                        settings,
-                        state,
-                        context,
-                        value_sink,
-                        field_path,
-                    );
-
-                    if let Ok(o) = offset {
-                        let joined = field_path.join(".");
-                        state.known_offsets.insert(joined, o);
-                    }
-
-                    field_path.truncate(path_len);
-                    offset.map_err(|e| LayoutError::InField {
-                        field: field_name.clone(),
-                        source: Box::new(e),
-                    })?;
-                }
-
-                pad_to_alignment(state, context.config.padding, alignment);
-                Ok(branch_offset)
-            }
-        }
-    }
-
-    /// Resolves all pending refs by looking up target offsets and patching the buffer.
-    fn resolve_pending_refs(
-        state: &mut BuildState,
-        config: &BuildConfig,
+    fn emit_ref(
+        leaf: &LeafEntry,
+        target: &str,
+        resolved: &ResolvedLayout<'_>,
         header: &Header,
+        config: &BuildConfig<'_>,
         value_sink: &mut dyn ValueSink,
-    ) -> Result<(), LayoutError> {
-        for pending in &state.pending_refs {
-            let target_offset = state
-                .known_offsets
-                .get(&pending.target_path)
-                .ok_or_else(|| {
-                    LayoutError::DataValueExportFailed(format!(
-                        "Ref target '{}' not found in block. Available fields: [{}]",
-                        pending.target_path,
-                        state
-                            .known_offsets
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ))
-                })?;
-
-            let address = header
-                .start_address
-                .checked_add(*target_offset as u32)
-                .ok_or_else(|| {
-                    LayoutError::DataValueExportFailed(format!(
-                        "Address overflow resolving ref to '{}'.",
-                        pending.target_path
-                    ))
-                })?;
-
-            let address_value = DataValue::U64(address as u64);
-            let bytes = address_value.to_bytes(pending.scalar_type, config.endianness, true)?;
-
-            // Patch the placeholder bytes in the buffer.
-            let pos = pending.buffer_position;
-            state.buffer[pos..pos + bytes.len()].copy_from_slice(&bytes);
-
-            // Record the resolved address in value_sink.
-            value_sink.record_value(
-                &pending.field_path,
-                serde_json::Value::Number(serde_json::Number::from(address as u64)),
-            )?;
-        }
-        Ok(())
-    }
-
-    /// Resolves all pending checksums by computing CRC over the buffer and patching in the result.
-    fn resolve_pending_checksums(
-        state: &mut BuildState,
-        settings: &MintConfig,
-        config: &BuildConfig,
-        value_sink: &mut dyn ValueSink,
-    ) -> Result<(), LayoutError> {
-        for pending in &state.pending_checksums {
-            let crc_config = settings.checksum.get(&pending.config_name).ok_or_else(|| {
+        field_path: &[String],
+    ) -> Result<Vec<u8>, LayoutError> {
+        let target_offset = resolved.coordinates(target).ok_or_else(|| {
+            LayoutError::DataValueExportFailed(format!(
+                "Ref target '{target}' not found in resolved layout."
+            ))
+        })?;
+        let target_offset = u64::try_from(target_offset.offset).map_err(|_| {
+            LayoutError::DataValueExportFailed(format!(
+                "Address overflow resolving ref to '{target}'."
+            ))
+        })?;
+        let address = u64::from(header.start_address)
+            .checked_add(target_offset)
+            .ok_or_else(|| {
                 LayoutError::DataValueExportFailed(format!(
-                    "Checksum config '{}' not found in [mint.checksum].",
-                    pending.config_name
+                    "Address overflow resolving ref to '{target}'."
                 ))
             })?;
+        let bytes = DataValue::U64(address).to_bytes(leaf.scalar_type, config.endianness, true)?;
+        value_sink.record_value(
+            field_path,
+            serde_json::Value::Number(serde_json::Number::from(address)),
+        )?;
+        Ok(bytes)
+    }
 
-            let crc_val =
-                checksum::calculate_crc(&state.buffer[..pending.buffer_position], crc_config);
-
-            // Convert CRC to bytes with proper endianness.
+    fn resolve_checksums(
+        buffer: &mut [u8],
+        pending_checksums: &[PendingChecksum],
+        settings: &MintConfig,
+        config: &BuildConfig<'_>,
+        pending_values: &mut Vec<PendingValueRecord>,
+    ) -> Result<Vec<u32>, LayoutError> {
+        let mut checksum_values = Vec::with_capacity(pending_checksums.len());
+        for pending in pending_checksums {
+            let crc_config = settings.checksum_config(&pending.config_name)?;
+            let crc_val = checksum::calculate_crc(&buffer[..pending.buffer_position], crc_config);
             let crc_bytes = match config.endianness {
                 Endianness::Big => crc_val.to_be_bytes(),
                 Endianness::Little => crc_val.to_le_bytes(),
             };
-
-            // Patch the placeholder bytes in the buffer.
             let size = pending.scalar_type.size_bytes();
-            state.buffer[pending.buffer_position..pending.buffer_position + size]
+            buffer[pending.buffer_position..pending.buffer_position + size]
                 .copy_from_slice(&crc_bytes[..size]);
-
-            // Record the resolved value in value_sink.
-            value_sink.record_value(
-                &pending.field_path,
-                serde_json::Value::Number(serde_json::Number::from(crc_val as u64)),
-            )?;
-            state.resolved_checksum_values.push(crc_val);
+            pending_values.push(PendingValueRecord {
+                leaf_index: pending.leaf_index,
+                path: pending.field_path.clone(),
+                value: serde_json::Value::Number(serde_json::Number::from(crc_val as u64)),
+            });
+            checksum_values.push(crc_val);
         }
-        Ok(())
+        Ok(checksum_values)
     }
 }
 
-fn pad_to_alignment(state: &mut BuildState, padding: u8, alignment: usize) {
-    let padding_len = state.buffer.len().next_multiple_of(alignment) - state.buffer.len();
-    state
-        .buffer
-        .extend(std::iter::repeat_n(padding, padding_len));
-    state.padding_count += padding_len as u32;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    #[derive(Default)]
+    struct RecordingSink {
+        paths: Vec<String>,
+    }
+
+    impl ValueSink for RecordingSink {
+        fn record_value(&mut self, path: &[String], _value: Value) -> Result<(), LayoutError> {
+            self.paths.push(path.join("."));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn value_sink_records_values_in_declaration_order() {
+        let config = crate::layout::parse_toml_layout(
+            r#"
+[mint]
+endianness = "little"
+
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF
+xor_out = 0xFFFFFFFF
+ref_in = true
+ref_out = true
+
+[block.header]
+start_address = 0x1000
+length = 0x40
+
+[block.data]
+first = { value = 1, type = "u16" }
+pointer = { ref = "first", type = "u16" }
+fingerprint = { fingerprint = true, type = "u64" }
+checksum_one = { checksum = "crc32", type = "u32" }
+after_checksum = { value = 2, type = "u32" }
+checksum_two = { checksum = "crc32", type = "u32" }
+"#,
+        )
+        .expect("layout parses");
+        let mut fingerprints = HashMap::new();
+        fingerprints.insert("block".to_owned(), 0x636c_a69e_b274_aafa);
+        let mut sink = RecordingSink::default();
+
+        let output = config.blocks["block"]
+            .emit("block", &fingerprints, None, &config.mint, false, &mut sink)
+            .expect("block emits");
+
+        assert_eq!(
+            sink.paths,
+            [
+                "first",
+                "pointer",
+                "fingerprint",
+                "checksum_one",
+                "after_checksum",
+                "checksum_two",
+            ]
+        );
+        assert_eq!(output.checksum_values.len(), 2);
+    }
+
+    #[test]
+    fn short_fixed_size_leaves_pad_internally_with_the_padding_byte() {
+        let config = crate::layout::parse_toml_layout(
+            r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+padding = 0xFF
+
+[block.data]
+text = { value = "A", type = "u8", size = 4 }
+word = { value = 1, type = "u32" }
+"#,
+        )
+        .expect("layout parses");
+        let mut sink = super::super::used_values::NoopValueSink;
+
+        let output = config.blocks["block"]
+            .emit(
+                "block",
+                &HashMap::new(),
+                None,
+                &config.mint,
+                false,
+                &mut sink,
+            )
+            .expect("block emits");
+
+        assert_eq!(
+            output.bytestream,
+            [b'A', 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00]
+        );
+    }
 }

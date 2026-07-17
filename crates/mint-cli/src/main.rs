@@ -13,48 +13,15 @@ use std::error::Error;
 use std::process::ExitCode;
 
 use clap::Parser;
-use mint_cli::args::{Args, Cli, Command, FingerprintArgs, HeaderArgs, SKILL_TEXT};
+use mint_cli::args::{Args, Cli, Command, SKILL_TEXT};
 use mint_cli::{commands, data, visuals};
 use mint_core::error::MintError;
 
 fn main() -> ExitCode {
     match Cli::parse().command {
-        Command::Build(args) => match run_build(&args) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("error: {err}");
-                let mut source = err.source();
-                while let Some(cause) = source {
-                    eprintln!("  caused by: {cause}");
-                    source = cause.source();
-                }
-                ExitCode::FAILURE
-            }
-        },
-        Command::Header(args) => match run_header(&args) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("error: {err}");
-                let mut source = err.source();
-                while let Some(cause) = source {
-                    eprintln!("  caused by: {cause}");
-                    source = cause.source();
-                }
-                ExitCode::FAILURE
-            }
-        },
-        Command::Fingerprint(args) => match run_fingerprint(&args) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("error: {err}");
-                let mut source = err.source();
-                while let Some(cause) = source {
-                    eprintln!("  caused by: {cause}");
-                    source = cause.source();
-                }
-                ExitCode::FAILURE
-            }
-        },
+        Command::Build(args) => run_command(|| run_build(&args)),
+        Command::Header(args) => run_command(|| commands::header(&args)),
+        Command::Fingerprint(args) => run_command(|| commands::fingerprint(&args)),
         Command::Skill => {
             print!("{SKILL_TEXT}");
             ExitCode::SUCCESS
@@ -62,12 +29,19 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_fingerprint(args: &FingerprintArgs) -> Result<(), MintError> {
-    commands::fingerprint(args)
-}
-
-fn run_header(args: &HeaderArgs) -> Result<(), MintError> {
-    commands::header(args)
+fn run_command(command: impl FnOnce() -> Result<(), MintError>) -> ExitCode {
+    match command() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("error: {err}");
+            let mut source = err.source();
+            while let Some(cause) = source {
+                eprintln!("  caused by: {cause}");
+                source = cause.source();
+            }
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn run_build(args: &Args) -> Result<(), MintError> {

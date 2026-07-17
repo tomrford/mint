@@ -109,8 +109,15 @@ length = 0x100
 schema = { fingerprint = true, type = "u64" }
 version = { value = 1, type = "u16" }
 payload = { value = [1, 2, 3], type = "u8", size = 3 }
+
+[invalid.header]
+start_address = 0x2000
+length = 0x20
+
+[invalid.data]
+pointer = { ref = "missing", type = "u32" }
 "#,
-        |path| vec![BlockSelector::all(path)],
+        |path| vec![BlockSelector::named(path, "block")],
     );
 
     assert!(header.contains("#define BLOCK_SCHEMA_FINGERPRINT UINT64_C(0x636CA69EB274AAFA)"));
@@ -218,4 +225,46 @@ value = { value = 2, type = "u8" }
 "#,
     );
     assert!(block_collision.contains("both convert to macro prefix 'FOO_BAR'"));
+}
+
+#[test]
+fn delegates_dangling_const_and_oversized_block_validation() {
+    let oversized = error(
+        "header-oversized",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 4
+[block.data]
+value = { value = 1, type = "u64" }
+"#,
+    );
+    assert!(
+        oversized
+            .contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+        "{oversized}"
+    );
+
+    let missing_const = error(
+        "header-missing-const",
+        r#"
+[mint]
+endianness = "little"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+nested.value = { const = "missing", type = "u32" }
+"#,
+    );
+    assert!(
+        missing_const.contains("in field 'nested': in field 'value'"),
+        "{missing_const}"
+    );
+    assert!(
+        missing_const.contains("Const 'missing' not found in [mint.const]"),
+        "{missing_const}"
+    );
 }

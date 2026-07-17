@@ -60,6 +60,8 @@ length = 0x1000            # Block size in bytes
 padding = 0xFF             # Padding byte value (default: 0xFF)
 ```
 
+The resolved data aggregate must fit within `length`. Mint rejects an oversized layout before emitting any field values.
+
 ---
 
 ## Block Data
@@ -87,7 +89,7 @@ Each selected block becomes a `<block>_t` typedef, and dotted paths become inlin
 
 Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
 
-The layout parser guarantees valid block and field names. Header generation rejects duplicate typedefs and generated names that collide when converted to upper snake case. It renders the complete header before writing the output file.
+The layout parser guarantees valid block and field names. Header generation runs the build's static validation for selected blocks, including resolved shape, const, checksum, ref and address-range rules. It also rejects duplicate typedefs and generated names that collide when converted to upper snake case. It renders the complete header before writing the output file.
 
 ### Field Attributes
 
@@ -101,7 +103,7 @@ The layout parser guarantees valid block and field names. Header generation reje
 | `ref`         | Pointer to another field in the same block (see below)                                |
 | `checksum`    | Inline checksum referencing a named config (see below)                                |
 | `fingerprint` | `true` for this block or another block name in the same file (see below)              |
-| `size`/`SIZE` | Array size; `size` pads if data is shorter, `SIZE` errors if data is shorter.         |
+| `size`/`SIZE` | Array size (minimum 1 per dimension); `size` pads if data is shorter, `SIZE` errors if data is shorter. |
 
 ---
 
@@ -238,6 +240,8 @@ count_ptr = { ref = "table.count", type = "u32" }
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
 - The resolved address is `start_address + target_offset`
+- The target path is validated from the resolved layout before field values are emitted
+- The resolved address must fit the ref's `u16`, `u32` or `u64` storage type
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
 
 ### ABI fingerprints
@@ -253,7 +257,7 @@ config_schema = { fingerprint = "config", type = "u64" }
 manifest_schema = { fingerprint = true, type = "u64" }
 ```
 
-Mint calculates every block fingerprint once after parsing the layout, then uses that map for build injection, cross-block references, header macros and the `mint fingerprint` command. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
+Build and header generation fully validate selected blocks and calculate fingerprints only for the blocks referenced by their fingerprint fields. Fingerprint target blocks have their ABIs resolved and shape-checked, but are not otherwise fully validated unless they are also selected. A named `mint fingerprint layout.toml#block` selector fully validates and fingerprints that block, resolves the ABI shape of its fingerprint targets and does not resolve unrelated siblings. `mint fingerprint layout.toml` fully validates and fingerprints every block in declaration order. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
 
 The fingerprint covers endianness and the resolved, nameless ABI: aggregate shape, offsets, sizes, alignments, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved offset and target kind rather than their name. Block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
 
@@ -285,7 +289,7 @@ version = { name = "Version", type = "u16" }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
-The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Checksums are resolved after data and refs are filled; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
+The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Checksums are resolved after all non-checksum fields are emitted; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
 
 **Checksum rules:**
 

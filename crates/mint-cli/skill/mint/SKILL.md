@@ -30,8 +30,8 @@ fw_name = "BootloaderV2"
 
 [myblock.header]          # Per-block memory region
 start_address = 0x8000    # Required — base address in flash
-length = 0x1000           # Required — allocated size in bytes
-padding = 0xFF            # Fill byte for unused space (default: 0xFF)
+length = 0x1000           # Required — allocated size; resolved data must fit
+padding = 0xFF            # Array, alignment, and tail fill byte (default: 0xFF)
 
 [myblock.data]            # Field definitions (dotted paths = nested structs)
 schema = { fingerprint = true, type = "u64" }
@@ -155,7 +155,7 @@ table_ptr = { ref = "table", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
 ```
 
-The ref target is a dotted path rooted at the block's data section. Refs resolve to `start_address + field_offset`. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
+The ref target is a dotted path rooted at the block's data section and is validated before field values are emitted. Refs resolve to `start_address + field_offset`, which must fit the selected storage type. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
 
 ### ABI fingerprints (`fingerprint`)
 
@@ -169,7 +169,7 @@ schema = { fingerprint = true, type = "u64" }
 config_schema = { fingerprint = "config", type = "u64" }
 ```
 
-Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
+Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
 
 ### Checksums (`checksum`)
 
@@ -287,7 +287,7 @@ Run `mint --help` for the full argument list.
 
 **Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
 
-**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects generated-name collisions.
+**Generated C header**: Run `mint header layout.toml -o layout.h`. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects statically invalid selected layouts and generated-name collisions.
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
 
