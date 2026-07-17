@@ -169,7 +169,7 @@ schema = { fingerprint = true, type = "u64" }
 config_schema = { fingerprint = "config", type = "u64" }
 ```
 
-Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is validated with its fingerprint targets without resolving unrelated siblings. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
+Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
 
 ### Checksums (`checksum`)
 

@@ -41,7 +41,7 @@ fn bitmap_u8_literal_values() {
         .write_all(layout.as_bytes())
         .unwrap();
 
-    let (bytes, _) = common::build_block(&path, "block", false, None).expect("build");
+    let bytes = common::build_block(&path, "block", false, None).expect("build");
 
     assert_eq!(bytes[0], 0xAF, "u8 bitmap packing: got {:#04x}", bytes[0]);
 }
@@ -65,7 +65,7 @@ fn bitmap_u16_little_endian() {
         .write_all(layout.as_bytes())
         .unwrap();
 
-    let (bytes, _) = common::build_block(&path, "block", false, None).expect("build");
+    let bytes = common::build_block(&path, "block", false, None).expect("build");
 
     assert_eq!(&bytes[0..2], &[0xAB, 0xCD], "u16 LE bitmap");
 }
@@ -93,7 +93,7 @@ fn bitmap_i16_signed_negative_values() {
         .write_all(layout.as_bytes())
         .unwrap();
 
-    let (bytes, _) = common::build_block(&path, "block", false, None).expect("build");
+    let bytes = common::build_block(&path, "block", false, None).expect("build");
 
     // -1 in 4 bits = 0xF, -8 in 4 bits = 0x8
     // Combined: 0x8F in low byte, 0x00 in high byte
@@ -115,7 +115,7 @@ fn bitmap_signed_storage_preserves_high_bit_patterns() {
 ] }"#,
     );
     let i8_path = common::write_layout_file("bitmap_i8_high_bit", &i8_layout);
-    let (i8_bytes, _) = common::build_block(&i8_path, "block", false, None).expect("build");
+    let i8_bytes = common::build_block(&i8_path, "block", false, None).expect("build");
     assert_eq!(&i8_bytes[0..1], &[0xFF]);
 
     let i16_layout = bitmap_layout(
@@ -124,7 +124,7 @@ fn bitmap_signed_storage_preserves_high_bit_patterns() {
 ] }"#,
     );
     let i16_path = common::write_layout_file("bitmap_i16_high_bit", &i16_layout);
-    let (i16_bytes, _) = common::build_block(&i16_path, "block", false, None).expect("build");
+    let i16_bytes = common::build_block(&i16_path, "block", false, None).expect("build");
     assert_eq!(&i16_bytes[0..2], &[0x00, 0x80]);
 }
 
@@ -148,7 +148,7 @@ fn bitmap_u32_mixed_fields() {
         .write_all(layout.as_bytes())
         .unwrap();
 
-    let (bytes, _) = common::build_block(&path, "block", false, None).expect("build");
+    let bytes = common::build_block(&path, "block", false, None).expect("build");
 
     assert_eq!(
         &bytes[0..4],
@@ -176,7 +176,7 @@ fn bitmap_saturation_non_strict() {
         .write_all(layout.as_bytes())
         .unwrap();
 
-    let (bytes, _) = common::build_block(&path, "block", false, None)
+    let bytes = common::build_block(&path, "block", false, None)
         .expect("saturation should succeed in non-strict");
 
     assert_eq!(bytes[0], 7, "3-bit field saturates 10 to 7");

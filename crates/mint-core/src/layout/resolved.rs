@@ -1,28 +1,22 @@
 use super::block::{Block, Entry};
-use super::entry::{EntrySource, FingerprintTarget, LeafEntry, SizeSource};
+use super::entry::{EntrySource, LeafEntry, SizeSource};
 use super::error::{LayoutError, in_field_path};
+use super::scalar_type::ScalarType;
 use super::settings::MintConfig;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ResolvedCoordinates {
-    pub offset: usize,
-    pub size: usize,
-    pub alignment: usize,
+pub(crate) struct ResolvedCoordinates {
+    pub(crate) offset: usize,
+    pub(crate) size: usize,
+    pub(crate) alignment: usize,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ResolvedLeaf<'a> {
-    pub path: &'a str,
-    pub coordinates: ResolvedCoordinates,
-}
-
-pub struct ResolvedLayout<'a> {
+pub(crate) struct ResolvedLayout<'a> {
     pub(crate) root: ResolvedNode<'a>,
     leaves: Vec<ResolvedLeafEntry<'a>>,
     nodes: HashMap<String, ResolvedTarget>,
     total_size: usize,
-    pub(crate) fingerprint_targets: Vec<&'a FingerprintTarget>,
 }
 
 pub(crate) fn validate_static<'a>(
@@ -37,7 +31,15 @@ pub(crate) fn validate_static<'a>(
             block.header.length
         )));
     }
-    for (path, _, leaf) in resolved.emission_leaves() {
+    let end_address = u64::from(block.header.start_address) + u64::from(block.header.length);
+    if end_address > u64::from(u32::MAX) + 1 {
+        return Err(LayoutError::InvalidLayout(format!(
+            "block address range 0x{:08X}-0x{:08X} exceeds the 32-bit address space",
+            block.header.start_address,
+            end_address.saturating_sub(1)
+        )));
+    }
+    for (path, coordinates, leaf) in resolved.emission_leaves() {
         let size = leaf.size().map_err(|error| in_field_path(path, error))?;
         let result = match &leaf.source {
             EntrySource::Const(name) => leaf
@@ -48,7 +50,13 @@ pub(crate) fn validate_static<'a>(
                     "2D arrays within the layout file are not supported.".to_owned(),
                 ))
             }
+            EntrySource::Checksum(_) if coordinates.offset == 0 => Err(LayoutError::InvalidLayout(
+                "Checksum must follow at least one data byte.".to_owned(),
+            )),
             EntrySource::Checksum(name) => settings.checksum_config(name).map(|_| ()),
+            EntrySource::Ref(target) => {
+                validate_ref_address(path, target, leaf, &resolved, block.header.start_address)
+            }
             _ => Ok(()),
         };
         result.map_err(|error| in_field_path(path, error))?;
@@ -57,9 +65,8 @@ pub(crate) fn validate_static<'a>(
 }
 
 impl<'a> ResolvedLayout<'a> {
-    pub fn new(entry: &'a Entry) -> Result<Self, LayoutError> {
-        let mut fingerprint_targets = Vec::new();
-        let mut root = collect_entry(entry, &mut Vec::new(), &mut fingerprint_targets)?;
+    pub(crate) fn new(entry: &'a Entry) -> Result<Self, LayoutError> {
+        let mut root = collect_entry(entry, &mut Vec::new())?;
         let mut cursor = 0usize;
         let mut leaves = Vec::new();
         let mut nodes = HashMap::new();
@@ -87,23 +94,15 @@ impl<'a> ResolvedLayout<'a> {
             leaves,
             nodes,
             total_size: cursor,
-            fingerprint_targets,
         })
     }
 
-    pub fn coordinates(&self, path: &str) -> Option<ResolvedCoordinates> {
+    pub(crate) fn coordinates(&self, path: &str) -> Option<ResolvedCoordinates> {
         self.nodes.get(path).map(|target| target.coordinates)
     }
 
-    pub fn total_size(&self) -> usize {
+    pub(crate) fn total_size(&self) -> usize {
         self.total_size
-    }
-
-    pub fn leaves(&self) -> impl ExactSizeIterator<Item = ResolvedLeaf<'_>> {
-        self.leaves.iter().map(|leaf| ResolvedLeaf {
-            path: &leaf.path,
-            coordinates: leaf.coordinates,
-        })
     }
 
     pub(crate) fn emission_leaves(
@@ -128,7 +127,6 @@ pub(crate) enum ResolvedNode<'a> {
         coordinates: ResolvedCoordinates,
         leaf: &'a LeafEntry,
         dimensions: Option<SizeSource>,
-        kind: ResolvedLeafKind<'a>,
     },
 }
 
@@ -156,12 +154,6 @@ impl ResolvedNode<'_> {
     }
 }
 
-pub(crate) enum ResolvedLeafKind<'a> {
-    Plain,
-    Bitmap(Vec<usize>),
-    Ref(&'a str),
-}
-
 struct ResolvedLeafEntry<'a> {
     path: String,
     coordinates: ResolvedCoordinates,
@@ -183,7 +175,6 @@ pub(crate) enum TargetKind {
 fn collect_entry<'a>(
     entry: &'a Entry,
     path: &mut Vec<String>,
-    fingerprint_targets: &mut Vec<&'a FingerprintTarget>,
 ) -> Result<ResolvedNode<'a>, LayoutError> {
     match entry {
         Entry::Leaf(leaf) => {
@@ -201,26 +192,21 @@ fn collect_entry<'a>(
                 }
             }
             let size = leaf_size(leaf, dimensions.as_ref())?;
-            let kind = match &leaf.source {
+            match &leaf.source {
                 EntrySource::Bitmap(fields) => {
                     leaf.validate_bitmap(fields)?;
-                    ResolvedLeafKind::Bitmap(fields.iter().map(|field| field.bits).collect())
                 }
                 EntrySource::Ref(target) => {
                     leaf.validate_ref(target)?;
-                    ResolvedLeafKind::Ref(target)
                 }
                 EntrySource::Checksum(_) => {
                     leaf.validate_checksum_storage()?;
-                    ResolvedLeafKind::Plain
                 }
-                EntrySource::Fingerprint(target) => {
+                EntrySource::Fingerprint(_) => {
                     leaf.validate_fingerprint()?;
-                    fingerprint_targets.push(target);
-                    ResolvedLeafKind::Plain
                 }
-                _ => ResolvedLeafKind::Plain,
-            };
+                _ => {}
+            }
             Ok(ResolvedNode::Leaf {
                 coordinates: ResolvedCoordinates {
                     offset: 0,
@@ -229,7 +215,6 @@ fn collect_entry<'a>(
                 },
                 leaf,
                 dimensions,
-                kind,
             })
         }
         Entry::Branch(entries) => {
@@ -247,7 +232,7 @@ fn collect_entry<'a>(
             let mut children = Vec::with_capacity(entries.len());
             for (name, child) in entries {
                 path.push(name.clone());
-                let child = collect_entry(child, path, fingerprint_targets)?;
+                let child = collect_entry(child, path)?;
                 path.pop();
                 children.push((name.clone(), child));
             }
@@ -266,6 +251,43 @@ fn collect_entry<'a>(
             })
         }
     }
+}
+
+fn validate_ref_address(
+    path: &str,
+    target: &str,
+    leaf: &LeafEntry,
+    resolved: &ResolvedLayout<'_>,
+    start_address: u32,
+) -> Result<(), LayoutError> {
+    let target_offset = resolved.coordinates(target).ok_or_else(|| {
+        LayoutError::InvalidLayout(format!(
+            "ref '{path}' target '{target}' disappeared after resolution"
+        ))
+    })?;
+    let target_offset = u64::try_from(target_offset.offset).map_err(|_| {
+        LayoutError::InvalidLayout(format!("ref '{path}' target '{target}' offset exceeds u64"))
+    })?;
+    let address = u64::from(start_address)
+        .checked_add(target_offset)
+        .ok_or_else(|| {
+            LayoutError::InvalidLayout(format!(
+                "address overflow resolving ref '{path}' to target '{target}'"
+            ))
+        })?;
+    let maximum = match leaf.scalar_type {
+        ScalarType::U16 => u64::from(u16::MAX),
+        ScalarType::U32 => u64::from(u32::MAX),
+        ScalarType::U64 => u64::MAX,
+        _ => unreachable!("ref storage was validated during resolution"),
+    };
+    if address > maximum {
+        return Err(LayoutError::InvalidLayout(format!(
+            "ref '{path}' target '{target}' resolves to address 0x{address:X}, which does not fit storage type {}",
+            leaf.scalar_type
+        )));
+    }
+    Ok(())
 }
 
 fn layout_node<'a>(

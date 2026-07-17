@@ -89,7 +89,7 @@ Each selected block becomes a `<block>_t` typedef, and dotted paths become inlin
 
 Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
 
-The layout parser guarantees valid block and field names. Header generation rejects selected layouts that cannot build, including dangling const names, scalar consts with array sizes and two-dimensional literals. It also rejects duplicate typedefs and generated names that collide when converted to upper snake case. It renders the complete header before writing the output file.
+The layout parser guarantees valid block and field names. Header generation runs the build's static validation for selected blocks, including resolved shape, const, checksum, ref and address-range rules. It also rejects duplicate typedefs and generated names that collide when converted to upper snake case. It renders the complete header before writing the output file.
 
 ### Field Attributes
 
@@ -257,7 +257,7 @@ config_schema = { fingerprint = "config", type = "u64" }
 manifest_schema = { fingerprint = true, type = "u64" }
 ```
 
-Build and header generation resolve the selected blocks and calculate fingerprints only for the blocks referenced by their fingerprint fields. A named `mint fingerprint layout.toml#block` selector validates and fingerprints that block plus its fingerprint targets, without resolving unrelated siblings. `mint fingerprint layout.toml` validates and fingerprints every block in declaration order. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
+Build and header generation fully validate selected blocks and calculate fingerprints only for the blocks referenced by their fingerprint fields. Fingerprint target blocks have their ABIs resolved and shape-checked, but are not otherwise fully validated unless they are also selected. A named `mint fingerprint layout.toml#block` selector fully validates and fingerprints that block, resolves the ABI shape of its fingerprint targets and does not resolve unrelated siblings. `mint fingerprint layout.toml` fully validates and fingerprints every block in declaration order. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
 
 The fingerprint covers endianness and the resolved, nameless ABI: aggregate shape, offsets, sizes, alignments, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved offset and target kind rather than their name. Block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
 

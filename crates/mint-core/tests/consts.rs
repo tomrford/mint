@@ -3,8 +3,7 @@ mod common;
 
 fn build_block(name: &str, toml: &str) -> Vec<u8> {
     let path = common::write_layout_file(name, toml);
-    let (bytes, _) = common::build_block(&path, "block", false, None).expect("build succeeds");
-    bytes
+    common::build_block(&path, "block", false, None).expect("build succeeds")
 }
 
 fn const_layout(data: &str) -> String {

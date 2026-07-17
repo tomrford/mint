@@ -1,12 +1,10 @@
 use mint_core::build::{self, BlockSelector, BuildFromLayoutsRequest, NamedLayout};
 use mint_core::layout;
-use mint_core::layout::resolved::ResolvedLayout;
 use mint_core::output::checksum::calculate_crc;
 use std::path::PathBuf;
 
 struct BuildOutput {
     bytestream: Vec<u8>,
-    padding_count: u32,
     checksum_values: Vec<u32>,
 }
 
@@ -36,12 +34,6 @@ padding = 0xEE
 
 fn build_output(data: &str) -> BuildOutput {
     let config = layout::parse_toml_layout(&layout(data)).expect("layout parses");
-    let resolved = ResolvedLayout::new(&config.blocks["block"].data).expect("layout resolves");
-    let leaf_size = resolved
-        .leaves()
-        .map(|leaf| leaf.coordinates.size)
-        .sum::<usize>();
-    let padding_count = u32::try_from(resolved.total_size() - leaf_size).expect("padding fits");
     let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
         layouts: vec![NamedLayout {
             name: PathBuf::from("aggregate.toml"),
@@ -55,7 +47,6 @@ fn build_output(data: &str) -> BuildOutput {
     .expect("block builds");
     BuildOutput {
         bytestream: artifact.ranges[0].bytestream.clone(),
-        padding_count,
         checksum_values: artifact.stats.block_stats[0].checksum_values.clone(),
     }
 }
@@ -78,7 +69,6 @@ after = { value = 0x33, type = "u8" }
             0xEE, 0xEE,
         ]
     );
-    assert_eq!(output.padding_count, 9);
 }
 
 #[test]

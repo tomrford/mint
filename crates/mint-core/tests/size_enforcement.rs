@@ -73,6 +73,32 @@ values = { value = [], type = "u8", size = 0 }
 }
 
 #[test]
+fn two_dimensional_literals_fail_during_block_build() {
+    let layout = common::write_layout_file(
+        "two_dimensional_literal",
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+matrix = { value = [1, 2, 3, 4], type = "u8", size = [2, 2] }
+"#,
+    );
+
+    let error = common::build_block(&layout, "block", false, None)
+        .expect_err("two-dimensional literals are invalid layouts");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains("2D arrays within the layout file are not supported"),
+        "{chain}"
+    );
+}
+
+#[test]
 fn lowercase_size_allows_padding() {
     common::ensure_out_dir();
 
@@ -93,7 +119,7 @@ short_array = { value = [1, 2, 3], type = "u16", size = 10 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let (bytes, _padding) = common::build_block(&path, "block", false, None)
+    let bytes = common::build_block(&path, "block", false, None)
         .expect("lowercase size should allow padding");
 
     assert!(bytes.len() >= 20);
@@ -212,7 +238,7 @@ exact_array = { value = [1, 2, 3, 4, 5], type = "u16", SIZE = 5 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let (bytes, _padding) =
+    let bytes =
         common::build_block(&path, "block", false, None).expect("SIZE should accept exact match");
 
     assert!(bytes.len() >= 10);

@@ -31,8 +31,8 @@ pub fn calculate(config: &Config) -> Result<Vec<BlockFingerprint>, LayoutError> 
         .collect())
 }
 
-/// Calculate one block's fingerprint, validating only that block and its
-/// fingerprint targets.
+/// Calculate one block's fingerprint, fully validating that block and resolving
+/// the ABIs of its fingerprint targets.
 pub fn calculate_block(config: &Config, name: &str) -> Result<BlockFingerprint, LayoutError> {
     let block = config.blocks.get(name).ok_or_else(|| {
         LayoutError::BlockNotFound(format!(

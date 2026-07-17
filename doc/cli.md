@@ -54,7 +54,7 @@ mint header layout.toml#config layout.toml#data -o blocks.h
 
 The command renders and validates the complete header before writing it. Each block becomes a `<block>_t` typedef. Dotted paths become inline nested structs, array dimensions use generated macros, and named bitmap regions receive `_SHIFT` and `_MASK` macros. The output contains storage types and shape only; it does not contain data values, block addresses, packing directives, or explicit padding members.
 
-Header generation rejects selected layouts that can never build, including dangling const names, scalar consts with array sizes and two-dimensional literals. Zero-extent arrays are also rejected because they are not valid C11.
+Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including dangling const names, scalar consts with array sizes, two-dimensional literals, zero-extent arrays, invalid checksum placement, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space.
 
 Generated structs use Mint's natural aggregate alignment contract. The target ABI must align exact-width integers to their width, `float` to 4 bytes, and `double` to 8 bytes.
 
@@ -62,7 +62,7 @@ Generated structs use Mint's natural aggregate alignment contract. The target AB
 
 ## ABI fingerprints
 
-`mint fingerprint` calculates fingerprints without a data source or block build. Selecting one block validates that block and its fingerprint targets without resolving unrelated siblings, then prints exactly its 16-character lowercase hexadecimal value:
+`mint fingerprint` calculates fingerprints without a data source or block build. Selecting one block fully validates that block and resolves the ABI shape of its fingerprint targets without fully validating those targets or resolving unrelated siblings. It then prints exactly the selected block's 16-character lowercase hexadecimal value:
 
 ```bash
 mint fingerprint layout.toml#config
@@ -72,7 +72,7 @@ mint fingerprint layout.toml#config
 3e02a8698c5e7d0e
 ```
 
-Selecting a file validates the whole layout and prints every block in declaration order as `<block> <fingerprint>`:
+Selecting a file fully validates every block and prints them in declaration order as `<block> <fingerprint>`:
 
 ```bash
 mint fingerprint layout.toml

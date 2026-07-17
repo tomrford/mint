@@ -16,10 +16,37 @@ use std::collections::HashMap;
 use std::fmt;
 
 struct PendingChecksum {
+    leaf_index: usize,
     buffer_position: usize,
     scalar_type: ScalarType,
     config_name: String,
     field_path: Vec<String>,
+}
+
+struct PendingValueRecord {
+    leaf_index: usize,
+    path: Vec<String>,
+    value: serde_json::Value,
+}
+
+struct StagingValueSink<'a> {
+    leaf_index: usize,
+    records: &'a mut Vec<PendingValueRecord>,
+}
+
+impl ValueSink for StagingValueSink<'_> {
+    fn record_value(
+        &mut self,
+        path: &[String],
+        value: serde_json::Value,
+    ) -> Result<(), LayoutError> {
+        self.records.push(PendingValueRecord {
+            leaf_index: self.leaf_index,
+            path: path.to_vec(),
+            value,
+        });
+        Ok(())
+    }
 }
 
 pub(crate) struct BuildConfig<'a> {
@@ -139,9 +166,14 @@ impl Block {
         };
         let mut buffer = vec![self.header.padding; total_size];
         let mut pending_checksums = Vec::new();
+        let mut pending_values = Vec::new();
 
-        for (path, coordinates, leaf) in resolved.emission_leaves() {
+        for (leaf_index, (path, coordinates, leaf)) in resolved.emission_leaves().enumerate() {
             let field_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
+            let mut staging_sink = StagingValueSink {
+                leaf_index,
+                records: &mut pending_values,
+            };
             let bytes = (|| -> Result<Vec<u8>, LayoutError> {
                 match &leaf.source {
                     EntrySource::Ref(target) => Self::emit_ref(
@@ -150,17 +182,13 @@ impl Block {
                         &resolved,
                         &self.header,
                         &config,
-                        value_sink,
+                        &mut staging_sink,
                         &field_path,
                     ),
                     EntrySource::Checksum(config_name) => {
                         settings.checksum_config(config_name)?;
-                        if coordinates.offset == 0 {
-                            return Err(LayoutError::DataValueExportFailed(
-                                "Checksum must follow at least one data byte.".to_owned(),
-                            ));
-                        }
                         pending_checksums.push(PendingChecksum {
+                            leaf_index,
                             buffer_position: coordinates.offset,
                             scalar_type: leaf.scalar_type,
                             config_name: config_name.clone(),
@@ -181,13 +209,13 @@ impl Block {
                             config.endianness,
                             true,
                         )?;
-                        value_sink.record_value(
+                        staging_sink.record_value(
                             &field_path,
                             serde_json::Value::Number(serde_json::Number::from(*value)),
                         )?;
                         Ok(bytes)
                     }
-                    _ => leaf.emit_bytes(data_source, &config, value_sink, &field_path),
+                    _ => leaf.emit_bytes(data_source, &config, &mut staging_sink, &field_path),
                 }
             })()
             .map_err(|error| in_field_path(path, error))?;
@@ -229,8 +257,13 @@ impl Block {
             &pending_checksums,
             settings,
             &config,
-            value_sink,
+            &mut pending_values,
         )?;
+
+        pending_values.sort_by_key(|record| record.leaf_index);
+        for record in pending_values {
+            value_sink.record_value(&record.path, record.value)?;
+        }
 
         Ok(BuildOutput {
             bytestream: buffer,
@@ -277,7 +310,7 @@ impl Block {
         pending_checksums: &[PendingChecksum],
         settings: &MintConfig,
         config: &BuildConfig<'_>,
-        value_sink: &mut dyn ValueSink,
+        pending_values: &mut Vec<PendingValueRecord>,
     ) -> Result<Vec<u32>, LayoutError> {
         let mut checksum_values = Vec::with_capacity(pending_checksums.len());
         for pending in pending_checksums {
@@ -290,10 +323,11 @@ impl Block {
             let size = pending.scalar_type.size_bytes();
             buffer[pending.buffer_position..pending.buffer_position + size]
                 .copy_from_slice(&crc_bytes[..size]);
-            value_sink.record_value(
-                &pending.field_path,
-                serde_json::Value::Number(serde_json::Number::from(crc_val as u64)),
-            )?;
+            pending_values.push(PendingValueRecord {
+                leaf_index: pending.leaf_index,
+                path: pending.field_path.clone(),
+                value: serde_json::Value::Number(serde_json::Number::from(crc_val as u64)),
+            });
             checksum_values.push(crc_val);
         }
         Ok(checksum_values)
@@ -318,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn value_sink_records_non_checksums_in_declaration_order_then_checksums() {
+    fn value_sink_records_values_in_declaration_order() {
         let config = crate::layout::parse_toml_layout(
             r#"
 [mint]
@@ -359,8 +393,8 @@ checksum_two = { checksum = "crc32", type = "u32" }
                 "first",
                 "pointer",
                 "fingerprint",
-                "after_checksum",
                 "checksum_one",
+                "after_checksum",
                 "checksum_two",
             ]
         );

@@ -228,24 +228,7 @@ value = { value = 2, type = "u8" }
 }
 
 #[test]
-fn uses_resolved_validation_and_keeps_header_specific_checks() {
-    let missing_ref = error(
-        "header-missing-ref",
-        r#"
-[mint]
-endianness = "little"
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-pointer = { ref = "missing", type = "u32" }
-"#,
-    );
-    assert!(
-        missing_ref.contains("ref target 'missing' not found in block"),
-        "{missing_ref}"
-    );
-
+fn delegates_dangling_const_and_oversized_block_validation() {
     let oversized = error(
         "header-oversized",
         r#"
@@ -283,99 +266,5 @@ nested.value = { const = "missing", type = "u32" }
     assert!(
         missing_const.contains("Const 'missing' not found in [mint.const]"),
         "{missing_const}"
-    );
-
-    let sized_scalar_const = error(
-        "header-sized-scalar-const",
-        r#"
-[mint]
-endianness = "little"
-[mint.const]
-scalar = 1
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-values = { const = "scalar", type = "u32", size = 2 }
-"#,
-    );
-    assert!(
-        sized_scalar_const.contains("size/SIZE keys are forbidden with scalar const"),
-        "{sized_scalar_const}"
-    );
-
-    let two_dimensional_literal = error(
-        "header-2d-literal",
-        r#"
-[mint]
-endianness = "little"
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-matrix = { value = [1, 2, 3, 4], type = "u8", size = [2, 2] }
-"#,
-    );
-    assert!(
-        two_dimensional_literal.contains("2D arrays within the layout file are not supported"),
-        "{two_dimensional_literal}"
-    );
-
-    let zero_extent = error(
-        "header-zero-extent",
-        r#"
-[mint]
-endianness = "little"
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-values = { value = [], type = "u8", size = 0 }
-"#,
-    );
-    assert!(
-        zero_extent.contains("array 'values' has a zero extent"),
-        "{zero_extent}"
-    );
-
-    let checksum_storage = error(
-        "header-checksum-storage",
-        r#"
-[mint]
-endianness = "little"
-[mint.checksum.crc32]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-value = { value = 1, type = "u8" }
-checksum = { checksum = "crc32", type = "u16" }
-"#,
-    );
-    assert!(
-        checksum_storage.contains("Checksum type must be u32"),
-        "{checksum_storage}"
-    );
-
-    let missing_checksum = error(
-        "header-missing-checksum",
-        r#"
-[mint]
-endianness = "little"
-[block.header]
-start_address = 0
-length = 16
-[block.data]
-checksum = { checksum = "missing", type = "u32" }
-"#,
-    );
-    assert!(
-        missing_checksum.contains("Checksum config 'missing' not found in [mint.checksum]"),
-        "{missing_checksum}"
     );
 }

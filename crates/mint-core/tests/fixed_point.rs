@@ -24,7 +24,7 @@ samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
 "#;
 
     let path = common::write_layout_file("fixed-point-literals", layout);
-    let (bytes, _) = common::build_block(&path, "block", true, None).expect("build succeeds");
+    let bytes = common::build_block(&path, "block", true, None).expect("build succeeds");
     assert_eq!(
         bytes,
         vec![0x80, 0x01, 0x02, 0x00, 0x02, 0x00, 0x80, 0x00, 0x00, 0x01]
@@ -48,7 +48,7 @@ unit = { value = 1.0, type = "uq8.8" }
 "#;
 
     let path = common::write_layout_file("fixed-point-big-endian", layout);
-    let (bytes, _) = common::build_block(&path, "block", true, None).expect("build succeeds");
+    let bytes = common::build_block(&path, "block", true, None).expect("build succeeds");
     assert_eq!(bytes, vec![0xFE, 0xC0, 0x01, 0x00]);
 }
 
@@ -76,7 +76,7 @@ grid = { name = "Grid", type = "uq8.8", size = [2, 2] }
     )
     .expect("datasource loads");
 
-    let (bytes, _) = common::build_block(&path, "block", true, Some(&ds)).expect("build succeeds");
+    let bytes = common::build_block(&path, "block", true, Some(&ds)).expect("build succeeds");
     assert_eq!(
         bytes,
         vec![0x00, 0x40, 0x80, 0x00, 0x00, 0x01, 0x80, 0x01, 0x00, 0x02]
@@ -100,7 +100,7 @@ samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
 "#;
 
     let path = common::write_layout_file("fixed-point-values", layout);
-    let ((_, _), values) = common::build_block_with_values(&path, "block").expect("build succeeds");
+    let (_, values) = common::build_block_with_values(&path, "block").expect("build succeeds");
     assert_eq!(values["gain"].as_f64(), Some(1.5));
     assert_eq!(values["samples"][0].as_f64(), Some(0.5));
     assert_eq!(values["samples"][1].as_f64(), Some(1.0));
@@ -129,7 +129,7 @@ gain = { value = 300.5, type = "uq8.8" }
         "unexpected error: {message}"
     );
 
-    let (bytes, _) =
+    let bytes =
         common::build_block(&path, "block", false, None).expect("non-strict overflow should clamp");
     assert_eq!(bytes, vec![0xFF, 0xFF]);
 }
@@ -157,7 +157,7 @@ signed_limit = { value = 9223372036854775808.0, type = "q63.0" }
         "unexpected strict error: {err}"
     );
 
-    let (bytes, _) =
+    let bytes =
         common::build_block(&path, "block", false, None).expect("non-strict overflow should clamp");
     assert_eq!(
         bytes,

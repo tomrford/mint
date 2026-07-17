@@ -1,7 +1,7 @@
 use super::block::Config;
-use super::entry::SizeSource;
+use super::entry::{EntrySource, SizeSource};
 use super::error::LayoutError;
-use super::resolved::{ResolvedLayout, ResolvedLeafKind, ResolvedNode, TargetKind};
+use super::resolved::{ResolvedLayout, ResolvedNode, TargetKind};
 use super::scalar_type::ScalarType;
 use super::settings::Endianness;
 use indexmap::IndexMap;
@@ -31,7 +31,10 @@ pub(crate) fn calculate_scoped<'a>(
             LayoutError::BlockNotFound(format!("'{root_name}'. Available blocks: {}", available()))
         })?;
         let resolved = ResolvedLayout::new(&block.data)?;
-        for target in &resolved.fingerprint_targets {
+        for (_, _, leaf) in resolved.emission_leaves() {
+            let EntrySource::Fingerprint(target) = &leaf.source else {
+                continue;
+            };
             let target_name = target.block_name(root_name);
             if !config.blocks.contains_key(target_name) {
                 return Err(LayoutError::BlockNotFound(format!(
@@ -102,7 +105,6 @@ fn hash_node(
             coordinates,
             leaf,
             dimensions,
-            kind,
         } => {
             hasher.update(&[1]);
             hash_usize(coordinates.offset, hasher)?;
@@ -110,18 +112,15 @@ fn hash_node(
             hash_usize(coordinates.alignment, hasher)?;
             hash_scalar(leaf.scalar_type, hasher);
             hash_dimensions(dimensions.as_ref(), hasher)?;
-            match kind {
-                ResolvedLeafKind::Plain => {
-                    hasher.update(&[0]);
-                }
-                ResolvedLeafKind::Bitmap(widths) => {
+            match &leaf.source {
+                EntrySource::Bitmap(fields) => {
                     hasher.update(&[1]);
-                    hash_usize(widths.len(), hasher)?;
-                    for width in widths {
-                        hash_usize(*width, hasher)?;
+                    hash_usize(fields.len(), hasher)?;
+                    for field in fields {
+                        hash_usize(field.bits, hasher)?;
                     }
                 }
-                ResolvedLeafKind::Ref(path) => {
+                EntrySource::Ref(path) => {
                     hasher.update(&[2]);
                     let target = resolved.target(path).ok_or_else(|| {
                         layout_size_error(format!(
@@ -135,6 +134,9 @@ fn hash_node(
                     hash_usize(target.coordinates.offset, hasher)?;
                     hash_usize(target.coordinates.size, hasher)?;
                     hash_usize(target.coordinates.alignment, hasher)?;
+                }
+                _ => {
+                    hasher.update(&[0]);
                 }
             }
         }

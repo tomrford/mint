@@ -39,7 +39,7 @@ overflow.u8_float_high = { value = 300.0, type = "u8" }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let (bytes, _) = common::build_block(&path, "block", false, None).expect("non-strict converts");
+    let bytes = common::build_block(&path, "block", false, None).expect("non-strict converts");
     assert_eq!(
         &bytes[..6],
         &[0xff, 0x00, 0x7f, 0x80, 0x01, 0xff],
@@ -71,7 +71,7 @@ ok.int_exact_to_f32   = { value = 16777216, type = "f32" }
 
     let ds = default_excel_source();
 
-    let (bytes, _) = common::build_block(&path, "block", true, Some(&ds))
+    let bytes = common::build_block(&path, "block", true, Some(&ds))
         .expect("strict conversions should succeed");
     assert!(!bytes.is_empty());
 }
@@ -226,8 +226,7 @@ bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(layout_toml.as_bytes()).unwrap();
 
-    let (bytes, _) =
-        common::build_block(&path, "block", true, None).expect("bool literals convert");
+    let bytes = common::build_block(&path, "block", true, None).expect("bool literals convert");
     assert!(
         bytes.starts_with(&[1, 0, 1, 0, 1]),
         "bool values should map to 0/1, got {:?}",

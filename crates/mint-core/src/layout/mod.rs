@@ -4,11 +4,10 @@ pub(crate) mod entry;
 pub mod error;
 pub(crate) mod fingerprint;
 pub mod header;
-#[doc(hidden)]
-pub mod resolved;
+pub(crate) mod resolved;
 pub mod scalar_type;
 pub mod settings;
-pub mod used_values;
+pub(crate) mod used_values;
 pub mod value;
 
 use block::Config;
