@@ -398,7 +398,20 @@ def test_main_sheet_requires_xlsx_path():
 
 
 def test_python_data_rejects_reference_cycles_before_build():
-    layout = mint.Layout.from_string("unused.toml", "")
+    layout = mint.Layout.from_string(
+        "data.toml",
+        """
+        [mint]
+        endianness = "little"
+
+        [config.header]
+        start_address = 0x2000
+        length = 0x10
+
+        [config.data]
+        value = { name = "Value", type = "u8" }
+        """,
+    )
     cycle = []
     cycle.append(cycle)
 

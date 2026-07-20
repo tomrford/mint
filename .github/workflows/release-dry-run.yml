@@ -134,7 +134,6 @@ jobs:
           tar -xzf "target/package/mint-cli-${RELEASE_VERSION}.crate" -C "$STAGE"
           cargo check \
             --manifest-path "$STAGE/mint-cli-${RELEASE_VERSION}/Cargo.toml" \
-            --offline \
             --config "patch.crates-io.mint-core.path='$STAGE/mint-core-${RELEASE_VERSION}'"
 
       - name: Upload crate packages
