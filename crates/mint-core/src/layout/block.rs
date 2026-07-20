@@ -110,6 +110,7 @@ impl<'de> Deserialize<'de> for Config {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Block {
     pub header: Header,
     pub data: Entry,
@@ -164,7 +165,13 @@ impl Block {
             strict,
             consts: &settings.consts,
         };
-        let mut buffer = vec![self.header.padding; total_size];
+        let mut buffer = Vec::new();
+        buffer.try_reserve_exact(total_size).map_err(|error| {
+            LayoutError::DataValueExportFailed(format!(
+                "failed to allocate {total_size}-byte block buffer: {error}"
+            ))
+        })?;
+        buffer.resize(total_size, self.header.padding);
         let mut pending_checksums = Vec::new();
         let mut pending_values = Vec::new();
 

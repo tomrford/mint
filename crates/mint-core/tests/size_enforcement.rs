@@ -47,6 +47,35 @@ value = { value = 1, type = "u64" }
 }
 
 #[test]
+fn materialized_block_limit_fails_before_allocation() {
+    let size = mint_core::layout::MAX_RESOLVED_BLOCK_SIZE + 1;
+    let layout = common::write_layout_file(
+        "materialized_block_limit",
+        &format!(
+            r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0
+length = {size}
+
+[block.data]
+value = {{ value = "", type = "u8", size = {size} }}
+"#
+        ),
+    );
+
+    let error = common::build_block(&layout, "block", false, None)
+        .expect_err("oversized materialized block should be rejected before allocation");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains("exceeds Mint's materialized block limit"),
+        "{chain}"
+    );
+}
+
+#[test]
 fn zero_extent_arrays_fail_during_block_build() {
     let layout = common::write_layout_file(
         "zero_extent_layout",

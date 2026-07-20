@@ -568,7 +568,12 @@ impl LeafEntry {
             .ok_or(LayoutError::DataValueExportFailed(
                 "Array size overflow".into(),
             ))?;
-        let mut out = Vec::with_capacity(total_bytes);
+        let mut out = Vec::new();
+        out.try_reserve_exact(total_bytes).map_err(|error| {
+            LayoutError::DataValueExportFailed(format!(
+                "failed to allocate {total_bytes}-byte field buffer: {error}"
+            ))
+        })?;
 
         match &self.source {
             EntrySource::Name(name) => {
@@ -719,7 +724,12 @@ impl LeafEntry {
                     ));
                 }
 
-                let mut out = Vec::with_capacity(total_bytes);
+                let mut out = Vec::new();
+                out.try_reserve_exact(total_bytes).map_err(|error| {
+                    LayoutError::DataValueExportFailed(format!(
+                        "failed to allocate {total_bytes}-byte field buffer: {error}"
+                    ))
+                })?;
                 for row in &data {
                     for v in row {
                         out.extend(v.to_bytes(

@@ -60,7 +60,7 @@ length = 0x1000            # Block size in bytes
 padding = 0xFF             # Padding byte value (default: 0xFF)
 ```
 
-The resolved data aggregate must fit within `length`. Mint rejects an oversized layout before emitting any field values.
+The resolved data aggregate must fit within `length` and cannot exceed 256 MiB. Mint materializes block payloads in memory and rejects larger layouts before allocation.
 
 ---
 
@@ -68,7 +68,7 @@ The resolved data aggregate must fit within `length`. Mint rejects an oversized 
 
 Data fields are key-value pairs where the key is a dotted path (matching C struct hierarchy) and the value defines the field.
 
-Every block name and data field path segment must be a valid C identifier matching `[_a-zA-Z][_a-zA-Z0-9]*`, and must not be a C11 keyword. Quote other strings only where the layout treats them as values, such as data-source names, bitmap region names, ref targets, const names and checksum config names. Quoted dotted data keys such as `"device.id"` are rejected because they create one flat key; use an unquoted dotted key or nested table instead.
+Every block name and data field path segment must be a valid C identifier matching `[_a-zA-Z][_a-zA-Z0-9]*`, must not be a C11 keyword and must not use an implementation-reserved underscore form. Block names cannot start with `_`; field names cannot start with `__` or an underscore followed by an uppercase letter. Quote other strings only where the layout treats them as values, such as data-source names, bitmap region names, ref targets, const names and checksum config names. Quoted dotted data keys such as `"device.id"` are rejected because they create one flat key; use an unquoted dotted key or nested table instead.
 
 ### Aggregate alignment
 

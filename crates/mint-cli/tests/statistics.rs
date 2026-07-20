@@ -61,15 +61,15 @@ fn test_build_stats_aggregation() {
     assert!(stats.total_reserved <= stats.total_allocated);
     assert_eq!(stats.block_stats.len(), block_inputs.len());
 
-    let manual_total_allocated: usize = stats
+    let manual_total_allocated: u64 = stats
         .block_stats
         .iter()
-        .map(|b| b.allocated_size as usize)
+        .map(|b| u64::from(b.allocated_size))
         .sum();
-    let manual_total_reserved: usize = stats
+    let manual_total_reserved: u64 = stats
         .block_stats
         .iter()
-        .map(|b| b.reserved_size as usize)
+        .map(|b| u64::from(b.reserved_size))
         .sum();
 
     assert_eq!(stats.total_allocated, manual_total_allocated);

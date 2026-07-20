@@ -1,3 +1,4 @@
+use super::MAX_RESOLVED_BLOCK_SIZE;
 use super::block::{Block, Entry};
 use super::entry::{EntrySource, LeafEntry, SizeSource};
 use super::error::{LayoutError, in_field_path};
@@ -25,6 +26,11 @@ pub(crate) fn validate_static<'a>(
 ) -> Result<ResolvedLayout<'a>, LayoutError> {
     let resolved = ResolvedLayout::new(&block.data)?;
     let total_size = resolved.total_size();
+    if total_size > MAX_RESOLVED_BLOCK_SIZE {
+        return Err(LayoutError::InvalidLayout(format!(
+            "resolved layout size ({total_size} bytes) exceeds Mint's materialized block limit ({MAX_RESOLVED_BLOCK_SIZE} bytes)"
+        )));
+    }
     if total_size > block.header.length as usize {
         return Err(LayoutError::InvalidLayout(format!(
             "resolved layout size ({total_size} bytes) exceeds configured block length ({} bytes)",

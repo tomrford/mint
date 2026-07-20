@@ -123,7 +123,8 @@ impl PyBuildBlock {
 
     #[getter]
     fn fingerprint(&self, py: Python<'_>) -> PyResult<String> {
-        if let Some(fingerprint) = self.fingerprint_hex.get() {
+        let cache_result = matches!(&self.source, LayoutSource::String { .. });
+        if cache_result && let Some(fingerprint) = self.fingerprint_hex.get() {
             return Ok(fingerprint.clone());
         }
 
@@ -134,7 +135,11 @@ impl PyBuildBlock {
         })?;
         let source = self.source.clone();
         let fingerprint = py.detach(move || source.fingerprint(&name))?;
-        Ok(self.fingerprint_hex.get_or_init(|| fingerprint).clone())
+        if cache_result {
+            Ok(self.fingerprint_hex.get_or_init(|| fingerprint).clone())
+        } else {
+            Ok(fingerprint)
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -231,8 +236,8 @@ impl PyBlockStat {
 #[derive(Clone)]
 pub(crate) struct PyBuildStats {
     blocks_processed: usize,
-    total_allocated: usize,
-    total_reserved: usize,
+    total_allocated: u64,
+    total_reserved: u64,
     total_duration_ms: f64,
     block_stats: Vec<PyBlockStat>,
     space_reserved_pct: f64,
@@ -264,12 +269,12 @@ impl PyBuildStats {
     }
 
     #[getter]
-    fn total_allocated(&self) -> usize {
+    fn total_allocated(&self) -> u64 {
         self.total_allocated
     }
 
     #[getter]
-    fn total_reserved(&self) -> usize {
+    fn total_reserved(&self) -> u64 {
         self.total_reserved
     }
 

@@ -31,8 +31,8 @@ impl BlockStat {
 #[derive(Debug)]
 pub struct BuildStats {
     pub blocks_processed: usize,
-    pub total_allocated: usize,
-    pub total_reserved: usize,
+    pub total_allocated: u64,
+    pub total_reserved: u64,
     pub total_duration: Duration,
     pub block_stats: Vec<BlockStat>,
 }
@@ -56,8 +56,8 @@ impl BuildStats {
 
     pub fn add_block(&mut self, stat: BlockStat) {
         self.blocks_processed += 1;
-        self.total_allocated += stat.allocated_size as usize;
-        self.total_reserved += stat.reserved_size as usize;
+        self.total_allocated += u64::from(stat.allocated_size);
+        self.total_reserved += u64::from(stat.reserved_size);
         self.block_stats.push(stat);
     }
 
@@ -549,4 +549,34 @@ fn take_used_values_report(
         blocks.insert(block_name.to_owned(), value);
     }
     Ok(serde_json::Value::Object(report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn range(start_address: u32, allocated_size: u32) -> DataRange {
+        DataRange {
+            start_address,
+            bytestream: vec![0],
+            reserved_size: 1,
+            allocated_size,
+        }
+    }
+
+    #[test]
+    fn allocated_ranges_reject_overlap_but_allow_adjacency() {
+        let adjacent = vec![
+            ("first".to_owned(), range(0x1000, 0x10)),
+            ("second".to_owned(), range(0x1010, 0x10)),
+        ];
+        check_overlaps(&adjacent).expect("adjacent ranges do not overlap");
+
+        let overlapping = vec![
+            ("first".to_owned(), range(0x1000, 0x11)),
+            ("second".to_owned(), range(0x1010, 0x10)),
+        ];
+        let error = check_overlaps(&overlapping).expect_err("overlap should be rejected");
+        assert!(error.to_string().contains("overlaps"), "{error}");
+    }
 }

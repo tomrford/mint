@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-pub fn format_bytes(bytes: usize) -> String {
+pub fn format_bytes(bytes: u64) -> String {
     let s = bytes.to_string();
     let mut result = String::new();
     for (i, c) in s.chars().rev().enumerate() {

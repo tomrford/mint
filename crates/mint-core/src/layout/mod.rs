@@ -15,6 +15,9 @@ use error::LayoutError;
 use std::collections::hash_map::Entry;
 use std::path::Path;
 
+/// Largest resolved block payload Mint materializes in memory.
+pub const MAX_RESOLVED_BLOCK_SIZE: usize = 256 * 1024 * 1024;
+
 pub fn load_layout(filename: impl AsRef<Path>) -> Result<Config, LayoutError> {
     let filename = filename.as_ref();
     let text = std::fs::read_to_string(filename).map_err(|_| {
@@ -63,6 +66,17 @@ pub(crate) fn validate_c_identifier(name: &str, kind: &str) -> Result<(), String
     }
     if C_KEYWORDS.contains(&name) {
         return Err(format!("{kind} name '{name}' is a C keyword"));
+    }
+    let reserved_underscore = name.starts_with("__")
+        || name.strip_prefix('_').is_some_and(|suffix| {
+            suffix
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_uppercase())
+        })
+        || (kind == "block" && name.starts_with('_'));
+    if reserved_underscore {
+        return Err(format!("{kind} name '{name}' is reserved by C"));
     }
     Ok(())
 }
