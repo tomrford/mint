@@ -25,11 +25,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
 
-      - name: Install Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: "3.11"
-
       - name: Validate release tag
         id: release
         shell: bash
@@ -70,22 +65,15 @@ jobs:
           VERSION="${TAG#v}"
           CORE_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-core") | .version')"
           CLI_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .version')"
-          PY_CRATE_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-python") | .version')"
           CLI_CORE_REQ="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-cli") | .dependencies[] | select(.name == "mint-core") | .req')"
-          PY_CORE_REQ="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-python") | .dependencies[] | select(.name == "mint-core") | .req')"
-          PY_VERSION_IS_DYNAMIC="$(python -c 'import tomllib; project = tomllib.load(open("crates/mint-python/pyproject.toml", "rb"))["project"]; print(str("version" in project.get("dynamic", [])).lower())')"
 
-          if [[ "$CORE_VERSION" != "$VERSION" || "$CLI_VERSION" != "$VERSION" || "$PY_CRATE_VERSION" != "$VERSION" ]]; then
-            echo "Tag $TAG must match mint-core $CORE_VERSION, mint-cli $CLI_VERSION, and mint-python $PY_CRATE_VERSION." >&2
+          if [[ "$CORE_VERSION" != "$VERSION" || "$CLI_VERSION" != "$VERSION" ]]; then
+            echo "Tag $TAG must match mint-core $CORE_VERSION and mint-cli $CLI_VERSION." >&2
             exit 1
           fi
-          if [[ "$CLI_CORE_REQ" != "^$VERSION" || "$PY_CORE_REQ" != "^$VERSION" ]]; then
+          if [[ "$CLI_CORE_REQ" != "^$VERSION" ]]; then
             echo "Internal mint-core dependency versions must match ^$VERSION." >&2
-            echo "mint-cli requires $CLI_CORE_REQ; mint-python requires $PY_CORE_REQ." >&2
-            exit 1
-          fi
-          if [[ "$PY_VERSION_IS_DYNAMIC" != "true" ]]; then
-            echo "mint-python must declare version as dynamic in pyproject.toml; Cargo metadata is the release version source." >&2
+            echo "mint-cli requires $CLI_CORE_REQ." >&2
             exit 1
           fi
 
@@ -211,26 +199,3 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --locked -p mint-cli
-
-  publish-pypi:
-    name: Publish PyPI package
-    runs-on: ubuntu-latest
-    needs: [build-artifacts, publish-release-assets, publish-crates]
-    environment: pypi
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - name: Download Python distributions
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          pattern: python-dist-*
-          path: dist
-          merge-multiple: true
-
-      - name: Publish Python distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
-        with:
-          packages-dir: dist/
-          skip-existing: true
