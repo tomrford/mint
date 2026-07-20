@@ -4,7 +4,7 @@ use crate::args::{AbiArgs, AbiCommand, Args, FingerprintArgs, HeaderArgs};
 use mint_core::build::{self, BuildRequest, BuildStats};
 use mint_core::data::DataSource;
 use mint_core::error::MintError;
-use mint_core::layout::abi::{Abi, AbiSpec};
+use mint_core::layout::abi::Abi;
 use mint_core::output::{self, OutputFile};
 use writer::{write_output, write_text};
 
@@ -42,9 +42,7 @@ pub fn abi(args: &AbiArgs) {
             println!("byte order: {}", abi.endianness());
             println!("addressable unit: {} bits", abi.address_unit_bits());
             println!("supported scalars: {}", abi.supported_scalar_types());
-            println!("aggregate alignment: maximum member alignment");
-            println!("aggregate tail padding: aggregate alignment");
-            println!("output formats: hex, mot (selected independently)");
+            println!("aggregate rules: {}", abi.family().aggregate_rules());
         }
     }
 }

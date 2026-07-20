@@ -100,7 +100,7 @@ value = { value = 1, type = "u16" }
         .expect_err("layout should be rejected")
         .to_string();
     assert!(
-        error.contains("unknown variant") && error.contains("generic-le"),
+        error.contains("unknown ABI") && error.contains("generic-le"),
         "{error}"
     );
 }

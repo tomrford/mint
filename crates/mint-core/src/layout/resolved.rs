@@ -1,5 +1,5 @@
 use super::MAX_RESOLVED_BLOCK_SIZE;
-use super::abi::{Abi, AbiSpec, ScalarAbi};
+use super::abi::{Abi, ScalarAbi};
 use super::block::{Block, Entry};
 use super::entry::{EntrySource, LeafEntry, SizeSource};
 use super::error::{LayoutError, in_field_path};

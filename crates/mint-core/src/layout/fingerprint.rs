@@ -1,4 +1,4 @@
-use super::abi::{AbiSpec, Endianness};
+use super::abi::Endianness;
 use super::block::Config;
 use super::entry::{EntrySource, SizeSource};
 use super::error::LayoutError;
@@ -137,7 +137,7 @@ fn hash_node(
                     let target_offset = resolved
                         .abi()
                         .offset_to_address_units(target.coordinates.offset)?;
-                    hasher.update(&target_offset.to_be_bytes());
+                    hash_u64(target_offset, hasher);
                     hash_usize(target.coordinates.size, hasher)?;
                     hash_usize(target.coordinates.alignment, hasher)?;
                 }
@@ -217,8 +217,12 @@ fn hash_dimensions(
 
 fn hash_usize(value: usize, hasher: &mut blake3::Hasher) -> Result<(), LayoutError> {
     let value = u64::try_from(value).map_err(|_| layout_size_error("layout value exceeds u64"))?;
-    hasher.update(&value.to_le_bytes());
+    hash_u64(value, hasher);
     Ok(())
+}
+
+fn hash_u64(value: u64, hasher: &mut blake3::Hasher) {
+    hasher.update(&value.to_le_bytes());
 }
 
 fn layout_size_error(message: impl Into<String>) -> LayoutError {

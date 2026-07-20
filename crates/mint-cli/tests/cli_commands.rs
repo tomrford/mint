@@ -61,7 +61,7 @@ fn abi_list_prints_supported_profiles() {
 }
 
 #[test]
-fn abi_show_describes_layout_rules_without_selecting_an_output_format() {
+fn abi_show_describes_layout_rules() {
     let output = mint_command()
         .args(["abi", "show", "generic-le"])
         .output()
@@ -73,7 +73,7 @@ fn abi_show_describes_layout_rules_without_selecting_an_output_format() {
     assert!(stdout.contains("family: generic-natural"));
     assert!(stdout.contains("byte order: little"));
     assert!(stdout.contains("addressable unit: 8 bits"));
-    assert!(stdout.contains("output formats: hex, mot (selected independently)"));
+    assert!(stdout.contains("aggregate rules:"));
     assert!(output.stderr.is_empty());
 }
 

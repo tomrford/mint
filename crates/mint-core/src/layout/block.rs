@@ -1,4 +1,4 @@
-use super::abi::{Abi, AbiSpec, Endianness, ScalarAbi};
+use super::abi::{Abi, Endianness, ScalarAbi};
 use super::entry::{EntrySource, LeafEntry};
 use super::error::{LayoutError, in_field_path};
 use super::header::Header;
@@ -300,14 +300,7 @@ impl Block {
                 "Ref target '{target}' not found in resolved layout."
             ))
         })?;
-        let target_offset = config
-            .abi
-            .offset_to_address_units(target_offset.offset)
-            .map_err(|_| {
-                LayoutError::DataValueExportFailed(format!(
-                    "Address overflow resolving ref to '{target}'."
-                ))
-            })?;
+        let target_offset = config.abi.offset_to_address_units(target_offset.offset)?;
         let address = u64::from(header.start_address)
             .checked_add(target_offset)
             .ok_or_else(|| {

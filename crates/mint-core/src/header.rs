@@ -1,6 +1,6 @@
 use crate::build::{BlockSelector, resolve_blocks};
 use crate::error::MintError;
-use crate::layout::abi::{Abi, AbiSpec};
+use crate::layout::abi::Abi;
 use crate::layout::block::{Block, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;

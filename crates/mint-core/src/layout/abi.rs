@@ -8,7 +8,7 @@ use super::scalar_type::ScalarType;
 
 /// Named ABI profile selected by a layout's `[mint].abi` setting.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "kebab-case")]
+#[serde(try_from = "String")]
 pub enum Abi {
     GenericLe,
     GenericBe,
@@ -58,39 +58,39 @@ pub struct ScalarAbi {
     pub c_type: &'static str,
 }
 
-/// Effective rules provided by a named ABI profile.
-pub trait AbiSpec: Copy {
-    fn name(self) -> &'static str;
-    fn family(self) -> AbiFamily;
-    fn description(self) -> &'static str;
-    fn endianness(self) -> Endianness;
-    fn address_unit_bits(self) -> usize;
-    fn scalar(self, scalar: ScalarType) -> Result<ScalarAbi, LayoutError>;
-
-    fn offset_to_address_units(self, offset: usize) -> Result<u64, LayoutError> {
-        let address_unit_bits = self.address_unit_bits();
-        if address_unit_bits == 0 || !address_unit_bits.is_multiple_of(8) {
-            return Err(LayoutError::InvalidLayout(format!(
-                "ABI '{}' has an invalid {address_unit_bits}-bit addressable unit",
-                self.name()
-            )));
-        }
-        let unit_octets = address_unit_bits / 8;
-        if !offset.is_multiple_of(unit_octets) {
-            return Err(LayoutError::InvalidLayout(format!(
-                "offset {offset} bytes cannot be represented in ABI '{}' with {}-bit addressable units",
-                self.name(),
-                address_unit_bits
-            )));
-        }
-        u64::try_from(offset / unit_octets)
-            .map_err(|_| LayoutError::InvalidLayout("address offset exceeds u64".to_owned()))
-    }
-}
-
 impl Abi {
     /// Profiles accepted by layout parsing and the CLI.
     pub const ALL: [Self; 2] = [Self::GenericLe, Self::GenericBe];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::GenericLe => "generic-le",
+            Self::GenericBe => "generic-be",
+        }
+    }
+
+    pub fn family(self) -> AbiFamily {
+        AbiFamily::GenericNatural
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::GenericLe => "Natural-width, byte-addressed C layout with little-endian values",
+            Self::GenericBe => "Natural-width, byte-addressed C layout with big-endian values",
+        }
+    }
+
+    pub fn endianness(self) -> Endianness {
+        match self {
+            Self::GenericLe => Endianness::Little,
+            Self::GenericBe => Endianness::Big,
+        }
+    }
+
+    /// Width of one addressable unit; always a positive multiple of 8 bits.
+    pub fn address_unit_bits(self) -> usize {
+        8
+    }
 
     /// Human-readable scalar types accepted by this profile.
     pub fn supported_scalar_types(self) -> &'static str {
@@ -100,40 +100,27 @@ impl Abi {
             }
         }
     }
-}
 
-impl AbiSpec for Abi {
-    fn name(self) -> &'static str {
-        match self {
-            Self::GenericLe => "generic-le",
-            Self::GenericBe => "generic-be",
-        }
-    }
-
-    fn family(self) -> AbiFamily {
-        AbiFamily::GenericNatural
-    }
-
-    fn description(self) -> &'static str {
-        match self {
-            Self::GenericLe => "Natural-width, byte-addressed C layout with little-endian values",
-            Self::GenericBe => "Natural-width, byte-addressed C layout with big-endian values",
-        }
-    }
-
-    fn endianness(self) -> Endianness {
-        match self {
-            Self::GenericLe => Endianness::Little,
-            Self::GenericBe => Endianness::Big,
-        }
-    }
-
-    fn address_unit_bits(self) -> usize {
-        8
-    }
-
-    fn scalar(self, scalar: ScalarType) -> Result<ScalarAbi, LayoutError> {
+    pub fn scalar(self, scalar: ScalarType) -> Result<ScalarAbi, LayoutError> {
         Ok(self.family().scalar(scalar))
+    }
+
+    /// Converts an octet offset into this profile's addressable units.
+    pub fn offset_to_address_units(self, offset: usize) -> Result<u64, LayoutError> {
+        let unit_octets = self.address_unit_bits() / 8;
+        debug_assert!(
+            unit_octets > 0 && self.address_unit_bits().is_multiple_of(8),
+            "ABI addressable units must be a positive multiple of 8 bits"
+        );
+        if !offset.is_multiple_of(unit_octets) {
+            return Err(LayoutError::InvalidLayout(format!(
+                "offset {offset} bytes cannot be represented in ABI '{}' with {}-bit addressable units",
+                self.name(),
+                self.address_unit_bits()
+            )));
+        }
+        u64::try_from(offset / unit_octets)
+            .map_err(|_| LayoutError::InvalidLayout("address offset exceeds u64".to_owned()))
     }
 }
 
@@ -141,6 +128,15 @@ impl AbiFamily {
     pub const fn name(self) -> &'static str {
         match self {
             Self::GenericNatural => "generic-natural",
+        }
+    }
+
+    /// Human-readable aggregate alignment and tail-padding rules.
+    pub const fn aggregate_rules(self) -> &'static str {
+        match self {
+            Self::GenericNatural => {
+                "aggregates align to their maximum member alignment and pad tails to that alignment"
+            }
         }
     }
 
@@ -192,6 +188,14 @@ impl FromStr for Abi {
     }
 }
 
+impl TryFrom<String> for Abi {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
 fn natural_scalar(scalar: ScalarType) -> ScalarAbi {
     let (storage_size, c_type) = match scalar {
         ScalarType::U8 => (1, "uint8_t"),
@@ -229,7 +233,7 @@ fn natural_scalar(scalar: ScalarType) -> ScalarAbi {
 
 #[cfg(test)]
 mod tests {
-    use super::{Abi, AbiSpec, Endianness};
+    use super::{Abi, Endianness};
     use crate::layout::scalar_type::ScalarType;
 
     #[test]

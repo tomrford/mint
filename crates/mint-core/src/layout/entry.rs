@@ -1,4 +1,4 @@
-use super::abi::{AbiSpec, Endianness, ScalarAbi};
+use super::abi::{Endianness, ScalarAbi};
 use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
@@ -617,7 +617,7 @@ impl LeafEntry {
                                 "Strings should have type u8.".to_owned(),
                             ));
                         }
-                        append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding)?;
+                        append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding);
                         value_sink.record_value(field_path, data_value_to_json(&v)?)?;
                     }
                     ValueSource::Array(v) => {
@@ -631,7 +631,7 @@ impl LeafEntry {
                                 )?,
                                 scalar_abi,
                                 config.padding,
-                            )?;
+                            );
                         }
                         value_sink.record_value(field_path, array_to_json(&v)?)?;
                     }
@@ -648,7 +648,7 @@ impl LeafEntry {
                         )?,
                         scalar_abi,
                         config.padding,
-                    )?;
+                    );
                 }
                 value_sink.record_value(field_path, array_to_json(v)?)?;
             }
@@ -658,7 +658,7 @@ impl LeafEntry {
                         "Strings should have type u8.".to_owned(),
                     ));
                 }
-                append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding)?;
+                append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding);
                 value_sink.record_value(field_path, data_value_to_json(v)?)?;
             }
             EntrySource::Const(name) => {
@@ -674,7 +674,7 @@ impl LeafEntry {
                                 )?,
                                 scalar_abi,
                                 config.padding,
-                            )?;
+                            );
                         }
                         value_sink.record_value(field_path, array_to_json(v)?)?;
                     }
@@ -684,7 +684,7 @@ impl LeafEntry {
                                 "Strings should have type u8.".to_owned(),
                             ));
                         }
-                        append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding)?;
+                        append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding);
                         value_sink.record_value(field_path, data_value_to_json(v)?)?;
                     }
                 }
@@ -780,7 +780,7 @@ impl LeafEntry {
                             &v.to_bytes(self.scalar_type, config.abi.endianness(), config.strict)?,
                             scalar_abi,
                             config.padding,
-                        )?;
+                        );
                     }
                 }
                 value_sink.record_value(field_path, array_2d_to_json(&data)?)?;
@@ -816,35 +816,22 @@ struct ArrayEncoding {
     scalar_abi: ScalarAbi,
 }
 
-fn append_string(
-    output: &mut Vec<u8>,
-    bytes: Vec<u8>,
-    scalar_abi: ScalarAbi,
-    padding: u8,
-) -> Result<(), LayoutError> {
+fn append_string(output: &mut Vec<u8>, bytes: Vec<u8>, scalar_abi: ScalarAbi, padding: u8) {
     for byte in bytes {
-        append_array_element(output, &[byte], scalar_abi, padding)?;
+        append_array_element(output, &[byte], scalar_abi, padding);
     }
-    Ok(())
 }
 
-fn append_array_element(
-    output: &mut Vec<u8>,
-    bytes: &[u8],
-    scalar_abi: ScalarAbi,
-    padding: u8,
-) -> Result<(), LayoutError> {
-    if bytes.len() != scalar_abi.storage_size || scalar_abi.array_stride < bytes.len() {
-        return Err(LayoutError::InvalidLayout(
-            "ABI scalar storage and array stride are inconsistent with its encoder".to_owned(),
-        ));
-    }
+fn append_array_element(output: &mut Vec<u8>, bytes: &[u8], scalar_abi: ScalarAbi, padding: u8) {
+    debug_assert!(
+        bytes.len() == scalar_abi.storage_size && scalar_abi.array_stride >= bytes.len(),
+        "encoded scalar width must match its ABI storage size and fit the array stride"
+    );
     output.extend_from_slice(bytes);
     output.resize(
         output.len() + scalar_abi.array_stride - scalar_abi.storage_size,
         padding,
     );
-    Ok(())
 }
 
 fn encode_bitmap_storage(
@@ -888,8 +875,8 @@ mod tests {
         };
         let mut output = Vec::new();
 
-        append_array_element(&mut output, &[0x12, 0x34], scalar_abi, 0xFF).unwrap();
-        append_array_element(&mut output, &[0x56, 0x78], scalar_abi, 0xFF).unwrap();
+        append_array_element(&mut output, &[0x12, 0x34], scalar_abi, 0xFF);
+        append_array_element(&mut output, &[0x56, 0x78], scalar_abi, 0xFF);
 
         assert_eq!(output, [0x12, 0x34, 0xFF, 0xFF, 0x56, 0x78, 0xFF, 0xFF]);
     }
