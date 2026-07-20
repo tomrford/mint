@@ -2,9 +2,8 @@
 
 Python bindings for `mint-core`.
 
-```bash
-pip install mint-python
-```
+This package is not published to PyPI and is not part of the release
+pipeline; build it from a checkout with maturin.
 
 For local development:
 

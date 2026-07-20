@@ -6,7 +6,7 @@ mint is available as:
 
 - `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output, C header rendering, ABI fingerprints, and in-memory build APIs.
 - `mint-cli` - Implements the `mint` command-line tool for building flash files and generating C headers and ABI fingerprints.
-- `mint-python` - Python bindings for `mint-core`.
+- `mint-python` - Python bindings for `mint-core` (in-repo only; not published to PyPI).
 
 ![img](https://raw.githubusercontent.com/tomrford/mint/main/doc/img.png)
 
@@ -15,7 +15,6 @@ mint is available as:
 ```bash
 cargo add mint-core
 cargo install mint-cli
-pip install mint-python
 ```
 
 From a checkout, install the CLI with:

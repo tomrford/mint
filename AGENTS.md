@@ -53,4 +53,4 @@ mint is a Cargo workspace with three crates:
 
 - Release archives build the `mint-cli` package and ship the `mint` binary.
 - crates.io publishing is ordered by dependency: publish `mint-core` first, then `mint-cli`.
-- PyPI publishing builds and tests `mint-python` wheels and a source distribution.
+- `mint-python` is not released: no PyPI publishing and no release wheels. The crate stays in the workspace and is built and tested in CI only.

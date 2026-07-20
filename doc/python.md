@@ -2,13 +2,9 @@
 
 `mint-python` exposes the `mint-core` build engine to Python. It is for scripts, notebooks, tests, and other programs that need mint output in memory. Use the CLI when the job is file-in/file-out and terminal output is the desired interface.
 
-Install the package with:
-
-```bash
-pip install mint-python
-```
-
-From a checkout, build the extension and run the binding tests with:
+The bindings are not published to PyPI; releases cover the Rust crates and
+the `mint` binary only. From a checkout, build the extension and run the
+binding tests with:
 
 ```bash
 nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml

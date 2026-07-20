@@ -10,6 +10,9 @@ requires-python = ">=3.10"
 license = "MIT"
 readme = "README.md"
 classifiers = [
+  # PyPI rejects uploads carrying this classifier; the bindings are
+  # deliberately unreleased and installed from a checkout via maturin.
+  "Private :: Do Not Upload",
   "Programming Language :: Python :: 3",
   "Programming Language :: Rust",
   "Topic :: Software Development :: Embedded Systems",
