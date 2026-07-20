@@ -15,7 +15,7 @@ fn layout_with(data: &str) -> String {
     format!(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
@@ -32,7 +32,7 @@ fn names_values_and_producer_sources_do_not_change_the_abi_fingerprint() {
     let first = fingerprint_of(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [first.header]
 start_address = 0x1000
@@ -51,7 +51,7 @@ schema = { fingerprint = true, type = "u64" }
     let second = fingerprint_of(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [renamed.header]
 start_address = 0x9000
@@ -78,7 +78,7 @@ compatibility = { fingerprint = true, type = "u64" }
 }
 
 #[test]
-fn type_shape_endianness_and_ref_topology_change_the_fingerprint() {
+fn type_shape_abi_and_ref_topology_change_the_fingerprint() {
     let scalar = fingerprint_of(&layout_with("value = { value = 1, type = \"u32\" }"));
     let floating = fingerprint_of(&layout_with("value = { value = 1, type = \"f32\" }"));
     let array = fingerprint_of(&layout_with(
@@ -86,7 +86,7 @@ fn type_shape_endianness_and_ref_topology_change_the_fingerprint() {
     ));
     let big_endian = fingerprint_of(
         &layout_with("value = { value = 1, type = \"u32\" }")
-            .replace("endianness = \"little\"", "endianness = \"big\""),
+            .replace("abi = \"generic-le\"", "abi = \"generic-be\""),
     );
     let left_ref = fingerprint_of(&layout_with(
         r#"
@@ -115,7 +115,7 @@ pointer = { ref = "right", type = "u32" }
 fn self_and_cross_block_fingerprints_are_injected_from_one_intrinsic_map() {
     let source = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [config.header]
 start_address = 0x1000
@@ -178,7 +178,7 @@ manifest_schema = { fingerprint = true, type = "u64" }
 }
 
 #[test]
-fn fingerprint_has_a_stable_v1_golden_value() {
+fn fingerprint_has_a_stable_v2_golden_value() {
     let value = fingerprint_of(&layout_with(
         r#"
 schema = { fingerprint = true, type = "u64" }
@@ -187,7 +187,7 @@ payload = { value = [1, 2, 3], type = "u8", size = 3 }
 "#,
     ));
 
-    assert_eq!(format!("{value:016x}"), "636ca69eb274aafa");
+    assert_eq!(format!("{value:016x}"), "9f2050e2faa654d7");
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn fingerprint_targets_are_validated_at_parse_time() {
 fn selected_blocks_build_despite_invalid_non_target_siblings() {
     let source = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [good.header]
 start_address = 0x1000
@@ -283,7 +283,7 @@ fn fingerprints_reject_blocks_that_exceed_their_configured_length() {
     let config = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
@@ -309,7 +309,7 @@ fn fingerprints_reject_selector_static_invalidity() {
     let checksum_at_zero = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
@@ -335,7 +335,7 @@ checksum = { checksum = "crc32", type = "u32" }
     let ref_overflow = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0x10000
 length = 16
@@ -357,7 +357,7 @@ pointer = { ref = "target", type = "u16" }
     let range_overflow = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0xFFFFFFFF
 length = 8
@@ -378,7 +378,7 @@ value = { value = 1, type = "u64" }
     let allocated_overflow = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0xFFFFF000
 length = 0x2000
@@ -402,7 +402,7 @@ fn fingerprint_static_range_accepts_the_last_address() {
     let config = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0xFFFFFFFF
 length = 1

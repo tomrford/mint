@@ -19,7 +19,7 @@ fn non_strict_integer_conversions_saturate() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -53,7 +53,7 @@ fn strict_conversions_success() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -82,7 +82,7 @@ fn strict_conversions_reject_lossy_f64_to_f32() {
         "test_strict_lossy_f64_to_f32",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -108,7 +108,7 @@ fn strict_conversions_fail_fractional_float_to_int() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -138,7 +138,7 @@ fn strict_conversions_fail_large_int_to_f64_lossy() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -173,7 +173,7 @@ fn strict_conversions_reject_float_integer_boundaries() {
         let layout_toml = format!(
             r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -203,7 +203,7 @@ fn strict_conversions_reject_lossy_u64_to_float() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -235,7 +235,7 @@ fn strict_conversions_accept_bool_literals() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000

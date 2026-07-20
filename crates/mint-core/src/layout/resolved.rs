@@ -1,4 +1,5 @@
 use super::MAX_RESOLVED_BLOCK_SIZE;
+use super::abi::{Abi, AbiSpec, ScalarAbi};
 use super::block::{Block, Entry};
 use super::entry::{EntrySource, LeafEntry, SizeSource};
 use super::error::{LayoutError, in_field_path};
@@ -18,13 +19,14 @@ pub(crate) struct ResolvedLayout<'a> {
     leaves: Vec<ResolvedLeafEntry<'a>>,
     nodes: HashMap<String, ResolvedTarget>,
     total_size: usize,
+    abi: Abi,
 }
 
 pub(crate) fn validate_static<'a>(
     block: &'a Block,
     settings: &MintConfig,
 ) -> Result<ResolvedLayout<'a>, LayoutError> {
-    let resolved = ResolvedLayout::new(&block.data)?;
+    let resolved = ResolvedLayout::new(&block.data, settings.abi)?;
     let total_size = resolved.total_size();
     if total_size > MAX_RESOLVED_BLOCK_SIZE {
         return Err(LayoutError::InvalidLayout(format!(
@@ -45,7 +47,7 @@ pub(crate) fn validate_static<'a>(
             end_address.saturating_sub(1)
         )));
     }
-    for (path, coordinates, leaf) in resolved.emission_leaves() {
+    for (path, coordinates, _, leaf) in resolved.emission_leaves() {
         let size = leaf.size().map_err(|error| in_field_path(path, error))?;
         let result = match &leaf.source {
             EntrySource::Const(name) => leaf
@@ -71,8 +73,8 @@ pub(crate) fn validate_static<'a>(
 }
 
 impl<'a> ResolvedLayout<'a> {
-    pub(crate) fn new(entry: &'a Entry) -> Result<Self, LayoutError> {
-        let mut root = collect_entry(entry, &mut Vec::new())?;
+    pub(crate) fn new(entry: &'a Entry, abi: Abi) -> Result<Self, LayoutError> {
+        let mut root = collect_entry(entry, abi, &mut Vec::new())?;
         let mut cursor = 0usize;
         let mut leaves = Vec::new();
         let mut nodes = HashMap::new();
@@ -100,6 +102,7 @@ impl<'a> ResolvedLayout<'a> {
             leaves,
             nodes,
             total_size: cursor,
+            abi,
         })
     }
 
@@ -113,14 +116,23 @@ impl<'a> ResolvedLayout<'a> {
 
     pub(crate) fn emission_leaves(
         &self,
-    ) -> impl ExactSizeIterator<Item = (&str, ResolvedCoordinates, &LeafEntry)> {
-        self.leaves
-            .iter()
-            .map(|leaf| (leaf.path.as_str(), leaf.coordinates, leaf.leaf))
+    ) -> impl ExactSizeIterator<Item = (&str, ResolvedCoordinates, ScalarAbi, &LeafEntry)> {
+        self.leaves.iter().map(|leaf| {
+            (
+                leaf.path.as_str(),
+                leaf.coordinates,
+                leaf.scalar_abi,
+                leaf.leaf,
+            )
+        })
     }
 
     pub(crate) fn target(&self, path: &str) -> Option<ResolvedTarget> {
         self.nodes.get(path).copied()
+    }
+
+    pub(crate) fn abi(&self) -> Abi {
+        self.abi
     }
 }
 
@@ -131,6 +143,7 @@ pub(crate) enum ResolvedNode<'a> {
     },
     Leaf {
         coordinates: ResolvedCoordinates,
+        scalar_abi: ScalarAbi,
         leaf: &'a LeafEntry,
         dimensions: Option<SizeSource>,
     },
@@ -163,6 +176,7 @@ impl ResolvedNode<'_> {
 struct ResolvedLeafEntry<'a> {
     path: String,
     coordinates: ResolvedCoordinates,
+    scalar_abi: ScalarAbi,
     leaf: &'a LeafEntry,
 }
 
@@ -180,10 +194,12 @@ pub(crate) enum TargetKind {
 
 fn collect_entry<'a>(
     entry: &'a Entry,
+    abi: Abi,
     path: &mut Vec<String>,
 ) -> Result<ResolvedNode<'a>, LayoutError> {
     match entry {
         Entry::Leaf(leaf) => {
+            let scalar_abi = abi.scalar(leaf.scalar_type)?;
             let dimensions = leaf.size()?;
             if let Some(dimensions) = &dimensions {
                 let zero = match dimensions {
@@ -197,10 +213,10 @@ fn collect_entry<'a>(
                     )));
                 }
             }
-            let size = leaf_size(leaf, dimensions.as_ref())?;
+            let size = leaf_size(scalar_abi, dimensions.as_ref())?;
             match &leaf.source {
                 EntrySource::Bitmap(fields) => {
-                    leaf.validate_bitmap(fields)?;
+                    leaf.validate_bitmap(fields, scalar_abi)?;
                 }
                 EntrySource::Ref(target) => {
                     leaf.validate_ref(target)?;
@@ -217,8 +233,9 @@ fn collect_entry<'a>(
                 coordinates: ResolvedCoordinates {
                     offset: 0,
                     size,
-                    alignment: leaf.get_alignment(),
+                    alignment: leaf.get_alignment(scalar_abi),
                 },
+                scalar_abi,
                 leaf,
                 dimensions,
             })
@@ -238,7 +255,7 @@ fn collect_entry<'a>(
             let mut children = Vec::with_capacity(entries.len());
             for (name, child) in entries {
                 path.push(name.clone());
-                let child = collect_entry(child, path)?;
+                let child = collect_entry(child, abi, path)?;
                 path.pop();
                 children.push((name.clone(), child));
             }
@@ -271,9 +288,9 @@ fn validate_ref_address(
             "ref '{path}' target '{target}' disappeared after resolution"
         ))
     })?;
-    let target_offset = u64::try_from(target_offset.offset).map_err(|_| {
-        LayoutError::InvalidLayout(format!("ref '{path}' target '{target}' offset exceeds u64"))
-    })?;
+    let target_offset = resolved
+        .abi()
+        .offset_to_address_units(target_offset.offset)?;
     let address = u64::from(start_address)
         .checked_add(target_offset)
         .ok_or_else(|| {
@@ -309,7 +326,10 @@ fn layout_node<'a>(
 
     match node {
         ResolvedNode::Leaf {
-            coordinates, leaf, ..
+            coordinates,
+            scalar_abi,
+            leaf,
+            ..
         } => {
             *cursor = cursor
                 .checked_add(coordinates.size)
@@ -317,6 +337,7 @@ fn layout_node<'a>(
             leaves.push(ResolvedLeafEntry {
                 path: path.join("."),
                 coordinates: *coordinates,
+                scalar_abi: *scalar_abi,
                 leaf,
             });
         }
@@ -337,7 +358,7 @@ fn layout_node<'a>(
     Ok(())
 }
 
-fn leaf_size(leaf: &LeafEntry, dimensions: Option<&SizeSource>) -> Result<usize, LayoutError> {
+fn leaf_size(scalar_abi: ScalarAbi, dimensions: Option<&SizeSource>) -> Result<usize, LayoutError> {
     let elements = match dimensions {
         None => 1,
         Some(SizeSource::OneD(length)) => *length,
@@ -345,8 +366,13 @@ fn leaf_size(leaf: &LeafEntry, dimensions: Option<&SizeSource>) -> Result<usize,
             .checked_mul(*columns)
             .ok_or_else(|| layout_size_error("array element count overflow"))?,
     };
+    let element_size = if dimensions.is_some() {
+        scalar_abi.array_stride
+    } else {
+        scalar_abi.storage_size
+    };
     elements
-        .checked_mul(leaf.scalar_type.size_bytes())
+        .checked_mul(element_size)
         .ok_or_else(|| layout_size_error("array byte count overflow"))
 }
 

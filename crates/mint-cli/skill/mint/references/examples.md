@@ -8,9 +8,9 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 
 ### `[mint]` — global configuration (required)
 
-| Key              | Type                  | Default      | Description                                           |
-| ---------------- | --------------------- | ------------ | ----------------------------------------------------- |
-| `endianness`     | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values                  |
+| Key   | Type                                | Default      | Description                                      |
+| ----- | ----------------------------------- | ------------ | ------------------------------------------------ |
+| `abi` | `"generic-le"` \| `"generic-be"` | — (required) | Target layout profile; run `mint abi list` to discover accepted names |
 
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 
@@ -104,7 +104,7 @@ Define the memory shape in the layout file:
 
 ```toml
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -299,7 +299,7 @@ When creating a mint layout for a new project:
 
 1. **Identify the structs** — find the C headers defining flash-resident data structures.
 2. **Get the memory map** — `start_address` and `length` for each block from the linker script or flash layout docs.
-3. **Determine endianness** — match the target MCU's byte order.
+3. **Select the ABI profile** — match the target's byte order and layout rules; inspect choices with `mint abi list` and `mint abi show ABI`.
 4. **Check for CRC requirements** — get the polynomial, initial value, XOR-out, and reflection settings from the firmware's CRC validation code.
 5. **Choose padding byte** — usually `0xFF` (erased NOR flash) or `0x00`. Check what the firmware/bootloader expects in unused regions.
 6. **Map each struct field** to a TOML entry, choosing `value` for constants or `name` for data-source-driven values.

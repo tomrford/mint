@@ -12,7 +12,7 @@ fn layout(data: &str) -> String {
     format!(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7

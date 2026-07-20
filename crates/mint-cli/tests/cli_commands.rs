@@ -40,7 +40,54 @@ fn top_level_help_lists_commands() {
     assert!(stdout.contains("build"));
     assert!(stdout.contains("header"));
     assert!(stdout.contains("fingerprint"));
+    assert!(stdout.contains("abi"));
     assert!(stdout.contains("skill"));
+}
+
+#[test]
+fn abi_list_prints_supported_profiles() {
+    let output = mint_command()
+        .args(["abi", "list"])
+        .output()
+        .expect("mint abi list should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    assert!(stdout.contains("generic-le"));
+    assert!(stdout.contains("generic-be"));
+    assert!(stdout.contains("little-endian"));
+    assert!(stdout.contains("big-endian"));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn abi_show_describes_layout_rules_without_selecting_an_output_format() {
+    let output = mint_command()
+        .args(["abi", "show", "generic-le"])
+        .output()
+        .expect("mint abi show should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    assert!(stdout.contains("name: generic-le"));
+    assert!(stdout.contains("family: generic-natural"));
+    assert!(stdout.contains("byte order: little"));
+    assert!(stdout.contains("addressable unit: 8 bits"));
+    assert!(stdout.contains("output formats: hex, mot (selected independently)"));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn abi_show_rejects_unknown_profiles_with_supported_names() {
+    let output = mint_command()
+        .args(["abi", "show", "unknown"])
+        .output()
+        .expect("mint abi show should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr is utf8");
+    assert!(stderr.contains("unknown ABI 'unknown'"));
+    assert!(stderr.contains("generic-le, generic-be"));
 }
 
 #[test]
@@ -49,7 +96,7 @@ fn fingerprint_prints_only_hex_for_one_block_and_named_lines_for_a_file() {
         "fingerprint-output",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [config.header]
 start_address = 0x1000
@@ -112,7 +159,7 @@ fn fingerprint_validation_is_scoped_to_the_selected_block() {
         "fingerprint-scope",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [good.header]
 start_address = 0x1000

@@ -1,9 +1,10 @@
 mod writer;
 
-use crate::args::{Args, FingerprintArgs, HeaderArgs};
+use crate::args::{AbiArgs, AbiCommand, Args, FingerprintArgs, HeaderArgs};
 use mint_core::build::{self, BuildRequest, BuildStats};
 use mint_core::data::DataSource;
 use mint_core::error::MintError;
+use mint_core::layout::abi::{Abi, AbiSpec};
 use mint_core::output::{self, OutputFile};
 use writer::{write_output, write_text};
 
@@ -25,6 +26,27 @@ pub fn fingerprint(args: &FingerprintArgs) -> Result<(), MintError> {
         }
     }
     Ok(())
+}
+
+pub fn abi(args: &AbiArgs) {
+    match args.command {
+        AbiCommand::List => {
+            for abi in Abi::ALL {
+                println!("{:<12} {}", abi.name(), abi.description());
+            }
+        }
+        AbiCommand::Show { abi } => {
+            println!("name: {}", abi.name());
+            println!("family: {}", abi.family());
+            println!("description: {}", abi.description());
+            println!("byte order: {}", abi.endianness());
+            println!("addressable unit: {} bits", abi.address_unit_bits());
+            println!("supported scalars: {}", abi.supported_scalar_types());
+            println!("aggregate alignment: maximum member alignment");
+            println!("aggregate tail padding: aggregate alignment");
+            println!("output formats: hex, mot (selected independently)");
+        }
+    }
 }
 
 pub fn build(args: &Args, data_source: Option<&dyn DataSource>) -> Result<BuildStats, MintError> {

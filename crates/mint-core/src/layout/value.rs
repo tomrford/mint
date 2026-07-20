@@ -1,7 +1,7 @@
+use super::abi::Endianness;
 use super::conversions::convert_value_to_bytes;
 use super::error::LayoutError;
 use super::scalar_type::ScalarType;
-use super::settings::Endianness;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -25,7 +25,7 @@ impl DataValue {
     pub fn to_bytes(
         &self,
         scalar_type: ScalarType,
-        endianness: &Endianness,
+        endianness: Endianness,
         strict: bool,
     ) -> Result<Vec<u8>, LayoutError> {
         convert_value_to_bytes(self, scalar_type, endianness, strict)

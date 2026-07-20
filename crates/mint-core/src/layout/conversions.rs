@@ -1,6 +1,6 @@
+use super::abi::{EndianBytes, Endianness};
 use super::error::LayoutError;
 use super::scalar_type::{FixedPointType, ScalarType};
-use super::settings::{EndianBytes, Endianness};
 use super::value::DataValue;
 use std::fmt;
 
@@ -330,7 +330,7 @@ fn fixed_point_non_finite_error(fixed: FixedPointType, value: &DataValue) -> Lay
 fn encode_fixed_point_bytes(
     value: &DataValue,
     fixed: FixedPointType,
-    endianness: &Endianness,
+    endianness: Endianness,
     strict: bool,
 ) -> Result<Vec<u8>, LayoutError> {
     let encoded = encode_fixed_point_value(value, fixed, strict)?;
@@ -440,7 +440,7 @@ fn clamp_fixed_point_float(
 fn encode_integer_bytes(
     encoded: i128,
     fixed: FixedPointType,
-    endianness: &Endianness,
+    endianness: Endianness,
 ) -> Result<Vec<u8>, LayoutError> {
     match (fixed.signed, fixed.total_bits) {
         (false, 8) => Ok((encoded as u8).to_endian_bytes(endianness)),
@@ -475,7 +475,7 @@ fn encode_integer_bytes(
 pub fn convert_value_to_bytes(
     value: &DataValue,
     scalar_type: ScalarType,
-    endianness: &Endianness,
+    endianness: Endianness,
     strict: bool,
 ) -> Result<Vec<u8>, LayoutError> {
     macro_rules! to_bytes {

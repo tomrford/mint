@@ -2,7 +2,7 @@
 # Regenerate blocks.h with: mint header block.toml -o blocks.h
 
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7

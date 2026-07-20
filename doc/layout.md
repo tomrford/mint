@@ -23,7 +23,7 @@ Global configuration applies to all blocks. The `[mint.checksum]` section define
 
 ```toml
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]      # Named checksum config (can define multiple)
 polynomial = 0x04C11DB7    # CRC polynomial
@@ -46,6 +46,17 @@ ip_octets = [192, 168, 1, 10]
 ```
 
 Each block also exposes `<block_name>.start_address` and `<block_name>.length` as consts. These promoted values use the block header values.
+
+### ABI profiles
+
+The required `abi` setting selects the layout rules used for every block in the file. The currently supported profiles are:
+
+| ABI | Family | Byte order | Addressable unit |
+| --- | --- | --- | --- |
+| `generic-le` | natural-width C layout | little-endian | 8 bits |
+| `generic-be` | natural-width C layout | big-endian | 8 bits |
+
+The profiles share one layout family rather than duplicating the scalar and aggregate rules for each byte order. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective rules. The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices.
 
 ---
 
@@ -72,9 +83,9 @@ Every block name and data field path segment must be a valid C identifier matchi
 
 ### Aggregate alignment
 
-Mint lays out dotted paths as naturally aligned C aggregates. Each leaf uses its storage width for size and alignment: integer and fixed-point types align to their exact width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
+The generic ABI family lays out dotted paths as naturally aligned C aggregates. Each leaf uses its storage width for size, alignment and array stride: integer and fixed-point types align to their exact width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
 
-All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Target ABIs with different alignment rules remain the caller's responsibility.
+All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Use `mint abi show` to inspect the selected profile before matching a generated header to a compiler target.
 
 ### C header generation
 
@@ -259,7 +270,7 @@ manifest_schema = { fingerprint = true, type = "u64" }
 
 Build and header generation fully validate selected blocks and calculate fingerprints only for the blocks referenced by their fingerprint fields. Fingerprint target blocks have their ABIs resolved and shape-checked, but are not otherwise fully validated unless they are also selected. A named `mint fingerprint layout.toml#block` selector fully validates and fingerprints that block, resolves the ABI shape of its fingerprint targets and does not resolve unrelated siblings. `mint fingerprint layout.toml` fully validates and fingerprints every block in declaration order. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
 
-The fingerprint covers endianness and the resolved, nameless ABI: aggregate shape, offsets, sizes, alignments, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved offset and target kind rather than their name. Block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
+The fingerprint covers the effective, nameless ABI: byte order, address-unit width, aggregate shape, offsets, scalar storage sizes, alignments, array strides, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved address-unit offset and target kind rather than their name. The ABI profile name, block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
 
 Fingerprint fields require `type = "u64"` and cannot use `size` or `SIZE`. The marker and referenced fingerprint value are not inputs to the containing block's own fingerprint; the field contributes as a normal `u64` at its resolved position. This keeps self-fingerprints non-recursive and prevents cross-block dependency cycles.
 
@@ -309,7 +320,7 @@ A single layout file can define multiple blocks, each with its own checksum conf
 
 ```toml
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7

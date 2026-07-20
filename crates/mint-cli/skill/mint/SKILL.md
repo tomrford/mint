@@ -15,7 +15,7 @@ A layout file has three levels: global config, per-block headers, and per-block 
 
 ```toml
 [mint]                    # Global config (required)
-endianness = "little"     # Required: "little" or "big"
+abi = "generic-le"       # Required; discover profiles with `mint abi list`
 
 [mint.checksum.crc32]     # Named CRC config (define as many as needed)
 polynomial = 0x04C11DB7
@@ -57,7 +57,7 @@ When setting up mint for a project, these parameters need to be established. If 
 
 **From the hardware/firmware side:**
 
-- **Endianness** — little or big. Check target MCU architecture or existing byte-swap calls.
+- **ABI profile** — select the target's byte order and layout rules. Run `mint abi list` and `mint abi show ABI` to inspect the supported choices.
 - **Block addresses and sizes** — from linker script, memory map, or flash layout documentation. Each block needs a `start_address` and `length`.
 - **Padding byte** — usually `0xFF` (erased flash state) but confirm. Some platforms use `0x00`.
 - **CRC algorithm** — if blocks need integrity checks, you need the polynomial, initial value, XOR-out, and reflection settings. Check existing CRC routines or documentation.
@@ -169,7 +169,7 @@ schema = { fingerprint = true, type = "u64" }
 config_schema = { fingerprint = "config", type = "u64" }
 ```
 
-Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
+Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the effective, nameless ABI: byte order, address-unit width, types, dimensions, offsets, storage sizes, alignment, array strides, bitmap widths and ref topology. ABI names, field names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
 
 ### Checksums (`checksum`)
 
@@ -264,6 +264,10 @@ mint header layout.toml -o layout.h
 # ABI fingerprints without a data source or build
 mint fingerprint layout.toml#config
 mint fingerprint layout.toml
+
+# Discover accepted ABI profiles and inspect their effective rules
+mint abi list
+mint abi show generic-le
 
 # JSON data source (file or inline)
 mint build layout.toml --json data.json --variants Debug/Default -o out.hex

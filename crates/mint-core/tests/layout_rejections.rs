@@ -13,7 +13,7 @@ fn layout_error(file_stem: &str, block_name: &str, data: &str) -> String {
     let layout = format!(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [{block_name}.header]
 start_address = 0x1000
@@ -36,7 +36,7 @@ fn toml_rejects_unknown_mint_key() {
         "toml",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 unknown = true
 
 [block.header]
@@ -58,13 +58,88 @@ value = { value = 1, type = "u16" }
 }
 
 #[test]
+fn toml_requires_a_supported_abi() {
+    let missing = write_layout(
+        "missing-abi",
+        "toml",
+        r#"
+[mint]
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+value = { value = 1, type = "u16" }
+"#,
+    );
+    let error = mint_core::layout::load_layout(&missing)
+        .expect_err("layout should be rejected")
+        .to_string();
+    assert!(
+        error.contains("missing field") && error.contains("abi"),
+        "{error}"
+    );
+
+    let unknown = write_layout(
+        "unknown-abi",
+        "toml",
+        r#"
+[mint]
+abi = "unknown"
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+value = { value = 1, type = "u16" }
+"#,
+    );
+    let error = mint_core::layout::load_layout(&unknown)
+        .expect_err("layout should be rejected")
+        .to_string();
+    assert!(
+        error.contains("unknown variant") && error.contains("generic-le"),
+        "{error}"
+    );
+}
+
+#[test]
+fn toml_rejects_the_legacy_endianness_setting() {
+    let path = write_layout(
+        "legacy-endianness",
+        "toml",
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+value = { value = 1, type = "u16" }
+"#,
+    );
+
+    let error = mint_core::layout::load_layout(&path)
+        .expect_err("layout should be rejected")
+        .to_string();
+    assert!(
+        error.contains("unknown field") && error.contains("endianness"),
+        "{error}"
+    );
+}
+
+#[test]
 fn toml_rejects_unknown_block_key() {
     let path = write_layout(
         "unknown-block-key",
         "toml",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block]
 unexpected = true
@@ -93,7 +168,7 @@ fn toml_rejects_virtual_offset() {
         "toml",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 virtual_offset = 0
 
 [block.header]
@@ -177,7 +252,7 @@ fn bitmap_field_rejects_unknown_keys() {
 fn nested_member_named_type_is_a_branch_child() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0x1000
 length = 0x20

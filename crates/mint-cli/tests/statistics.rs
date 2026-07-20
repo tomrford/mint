@@ -167,7 +167,7 @@ fn test_no_checksum_section_returns_empty_crc_values() {
 
     let layout_content = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block_no_crc.header]
 start_address = 0x1000

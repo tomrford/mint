@@ -12,7 +12,7 @@ fn export_json_uses_nested_block_data() {
 
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [config.header]
 start_address = 0x1000

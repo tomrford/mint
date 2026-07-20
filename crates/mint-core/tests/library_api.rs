@@ -79,7 +79,7 @@ fn build_rejects_range_that_exceeds_address_space() {
     let config = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [oversized.header]
 start_address = 0xFFFFFFF0

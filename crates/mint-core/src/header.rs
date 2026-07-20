@@ -1,11 +1,11 @@
 use crate::build::{BlockSelector, resolve_blocks};
 use crate::error::MintError;
+use crate::layout::abi::{Abi, AbiSpec};
 use crate::layout::block::{Block, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
 use crate::layout::resolved::validate_static;
-use crate::layout::scalar_type::ScalarType;
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
@@ -174,10 +174,18 @@ fn render_block(
         names,
         &mut path,
         &mut macros,
+        settings.abi,
     )?;
 
     let mut typedef = String::from("typedef struct {\n");
-    render_fields(source, 1, &macro_prefix, &mut path, &mut typedef)?;
+    render_fields(
+        source,
+        1,
+        &macro_prefix,
+        &mut path,
+        &mut typedef,
+        settings.abi,
+    )?;
     typedef.push_str(&format!("}} {typedef_name};\n"));
 
     Ok(RenderedBlock {
@@ -196,6 +204,7 @@ fn collect_macros(
     names: &mut NameRegistry,
     path: &mut Vec<String>,
     output: &mut Vec<MacroDefinition>,
+    abi: Abi,
 ) -> Result<(), LayoutError> {
     for (name, node) in fields {
         path.push(name.clone());
@@ -209,6 +218,7 @@ fn collect_macros(
                     names,
                     path,
                     output,
+                    abi,
                 )?;
             }
             Entry::Leaf(leaf) => collect_leaf_macros(
@@ -219,6 +229,7 @@ fn collect_macros(
                 names,
                 path,
                 output,
+                abi,
             )?,
         }
         path.pop();
@@ -235,6 +246,7 @@ fn collect_leaf_macros(
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,
+    abi: Abi,
 ) -> Result<(), LayoutError> {
     let size = leaf.size()?;
 
@@ -274,7 +286,7 @@ fn collect_leaf_macros(
     }
 
     if let EntrySource::Bitmap(fields) = &leaf.source {
-        let width = leaf.scalar_type.size_bytes() * 8;
+        let width = abi.scalar(leaf.scalar_type)?.storage_size * 8;
         let mut shift = 0usize;
         for field in fields {
             if let BitmapFieldSource::Name(data_name) = &field.source {
@@ -350,6 +362,7 @@ fn render_fields(
     block_prefix: &str,
     path: &mut Vec<String>,
     output: &mut String,
+    abi: Abi,
 ) -> Result<(), LayoutError> {
     let indent = "  ".repeat(depth);
     for (name, node) in fields {
@@ -357,11 +370,11 @@ fn render_fields(
         match node {
             Entry::Branch(children) => {
                 output.push_str(&format!("{indent}struct {{\n"));
-                render_fields(children, depth + 1, block_prefix, path, output)?;
+                render_fields(children, depth + 1, block_prefix, path, output, abi)?;
                 output.push_str(&format!("{indent}}} {name};\n"));
             }
             Entry::Leaf(leaf) => {
-                let c_type = c_type(leaf.scalar_type);
+                let c_type = abi.scalar(leaf.scalar_type)?.c_type;
                 let dimensions = match leaf.size()? {
                     None => String::new(),
                     Some(SizeSource::OneD(_)) => {
@@ -387,35 +400,6 @@ fn render_fields(
         path.pop();
     }
     Ok(())
-}
-
-fn c_type(scalar: ScalarType) -> &'static str {
-    match scalar {
-        ScalarType::U8 => "uint8_t",
-        ScalarType::U16 => "uint16_t",
-        ScalarType::U32 => "uint32_t",
-        ScalarType::U64 => "uint64_t",
-        ScalarType::I8 => "int8_t",
-        ScalarType::I16 => "int16_t",
-        ScalarType::I32 => "int32_t",
-        ScalarType::I64 => "int64_t",
-        ScalarType::F32 => "float",
-        ScalarType::F64 => "double",
-        ScalarType::Fixed(fixed) if fixed.signed => match fixed.total_bits {
-            8 => "int8_t",
-            16 => "int16_t",
-            32 => "int32_t",
-            64 => "int64_t",
-            _ => unreachable!("fixed-point widths are validated while parsing"),
-        },
-        ScalarType::Fixed(fixed) => match fixed.total_bits {
-            8 => "uint8_t",
-            16 => "uint16_t",
-            32 => "uint32_t",
-            64 => "uint64_t",
-            _ => unreachable!("fixed-point widths are validated while parsing"),
-        },
-    }
 }
 
 fn macro_path(block_prefix: &str, path: &[String]) -> Result<String, LayoutError> {

@@ -6,6 +6,8 @@ mint builds flash blocks from layout files and data sources, and generates match
 mint build [OPTIONS] [FILE[#BLOCK] | FILE]...
 mint header [FILE[#BLOCK] | FILE]... -o FILE
 mint fingerprint FILE[#BLOCK]
+mint abi list
+mint abi show ABI
 mint skill
 ```
 
@@ -60,6 +62,24 @@ Generated structs use Mint's natural aggregate alignment contract. The target AB
 
 ---
 
+## ABI discovery
+
+Every layout selects a named ABI profile in `[mint]`. List the accepted names without parsing a layout:
+
+```bash
+mint abi list
+```
+
+Inspect one profile's byte order, addressable unit, supported scalar types and aggregate rules:
+
+```bash
+mint abi show generic-le
+```
+
+`generic-le` and `generic-be` use the same natural-width, byte-addressed layout family and differ only in byte order. Output format remains an independent build option: either profile can be rendered as Intel HEX or Motorola S-Record.
+
+---
+
 ## ABI fingerprints
 
 `mint fingerprint` calculates fingerprints without a data source or block build. Selecting one block fully validates that block and resolves the ABI shape of its fingerprint targets without fully validating those targets or resolving unrelated siblings. It then prints exactly the selected block's 16-character lowercase hexadecimal value:
@@ -69,7 +89,7 @@ mint fingerprint layout.toml#config
 ```
 
 ```text
-3e02a8698c5e7d0e
+206a2310660bb1cf
 ```
 
 Selecting a file fully validates every block and prints them in declaration order as `<block> <fingerprint>`:
@@ -79,8 +99,8 @@ mint fingerprint layout.toml
 ```
 
 ```text
-config 3e02a8698c5e7d0e
-data 57ddcf99766ea79b
+config 206a2310660bb1cf
+data c1c13126ea0f1e6b
 ```
 
 Stdout contains only these values. Diagnostics use stderr and failures return a non-zero exit code, so the command is suitable for build-system extraction. The fingerprint is also available as a macro when `mint header` encounters a `fingerprint` field.

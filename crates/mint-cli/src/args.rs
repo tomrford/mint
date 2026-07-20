@@ -4,6 +4,7 @@ use crate::output_args::OutputArgs;
 
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use mint_core::build::BlockSelector;
+use mint_core::layout::abi::Abi;
 use std::path::PathBuf;
 
 pub const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
@@ -35,8 +36,27 @@ pub enum Command {
     Header(HeaderArgs),
     #[command(about = "Print ABI fingerprints for layout blocks")]
     Fingerprint(FingerprintArgs),
+    #[command(about = "List and inspect supported ABIs")]
+    Abi(AbiArgs),
     #[command(about = "Print the bundled Mint skill text")]
     Skill,
+}
+
+#[derive(ClapArgs, Debug)]
+pub struct AbiArgs {
+    #[command(subcommand)]
+    pub command: AbiCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AbiCommand {
+    #[command(about = "List supported ABI names")]
+    List,
+    #[command(about = "Show layout properties for an ABI")]
+    Show {
+        #[arg(value_name = "ABI")]
+        abi: Abi,
+    },
 }
 
 #[derive(ClapArgs, Debug)]

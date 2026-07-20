@@ -1,11 +1,11 @@
 #[path = "common/mod.rs"]
 mod common;
 
-fn layout(start_address: u32, endianness: &str, data_content: &str) -> String {
+fn layout(start_address: u32, abi: &str, data_content: &str) -> String {
     format!(
         r#"
 [mint]
-endianness = "{endianness}"
+abi = "{abi}"
 
 [block.header]
 start_address = 0x{start_address:X}
@@ -20,11 +20,11 @@ padding = 0xFF
 
 /// Helper to create a minimal layout with given data content.
 fn ref_layout(start_address: u32, data_content: &str) -> String {
-    layout(start_address, "little", data_content)
+    layout(start_address, "generic-le", data_content)
 }
 
-fn ref_layout_with_endian(start_address: u32, endianness: &str, data_content: &str) -> String {
-    layout(start_address, endianness, data_content)
+fn ref_layout_with_abi(start_address: u32, abi: &str, data_content: &str) -> String {
+    layout(start_address, abi, data_content)
 }
 
 fn load_and_build(name: &str, toml_str: &str) -> Vec<u8> {
@@ -155,9 +155,9 @@ target = { value = 0xFF, type = "u32" }
 
 #[test]
 fn ref_big_endian() {
-    let toml = ref_layout_with_endian(
+    let toml = ref_layout_with_abi(
         0x4000,
-        "big",
+        "generic-be",
         r#"
 ptr = { ref = "target", type = "u32" }
 target = { value = 0xAB, type = "u32" }

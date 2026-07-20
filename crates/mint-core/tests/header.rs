@@ -21,7 +21,7 @@ fn maps_all_scalar_fixed_point_and_storage_types() {
         "header-types",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -99,7 +99,7 @@ fn emits_fingerprint_values_for_firmware_comparison() {
         "header-fingerprint",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
@@ -120,7 +120,7 @@ pointer = { ref = "missing", type = "u32" }
         |path| vec![BlockSelector::named(path, "block")],
     );
 
-    assert!(header.contains("#define BLOCK_SCHEMA_FINGERPRINT UINT64_C(0x636CA69EB274AAFA)"));
+    assert!(header.contains("#define BLOCK_SCHEMA_FINGERPRINT UINT64_C(0x9F2050E2FAA654D7)"));
     assert!(header.contains("uint64_t schema; /* fingerprint */"));
 }
 
@@ -128,7 +128,7 @@ pointer = { ref = "missing", type = "u32" }
 fn emits_array_macros_nested_structs_and_selected_order_deterministically() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [first.header]
 start_address = 0
@@ -179,7 +179,7 @@ fn rejects_names_that_collapse_to_the_same_macro() {
         "header-array-collision",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 32
@@ -194,7 +194,7 @@ foo_bar = { name = "Two", type = "u8", size = 2 }
         "header-bitmap-collision",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 16
@@ -211,7 +211,7 @@ flags = { type = "u8", bitmap = [
         "header-block-collision",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [fooBar.header]
 start_address = 0
 length = 16
@@ -233,7 +233,7 @@ fn delegates_dangling_const_and_oversized_block_validation() {
         "header-oversized",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 4
@@ -251,7 +251,7 @@ value = { value = 1, type = "u64" }
         "header-missing-const",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 16

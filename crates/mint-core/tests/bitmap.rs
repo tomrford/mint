@@ -8,7 +8,7 @@ fn bitmap_layout(data_content: &str) -> String {
     format!(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000

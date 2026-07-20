@@ -1,13 +1,13 @@
+use super::abi::{AbiSpec, Endianness};
 use super::block::Config;
 use super::entry::{EntrySource, SizeSource};
 use super::error::LayoutError;
 use super::resolved::{ResolvedLayout, ResolvedNode, TargetKind};
 use super::scalar_type::ScalarType;
-use super::settings::Endianness;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 
-const HASH_CONTEXT: &str = "mint block ABI fingerprint v1";
+const HASH_CONTEXT: &str = "mint block ABI fingerprint v2";
 
 pub(crate) fn calculate(config: &Config) -> Result<IndexMap<String, u64>, LayoutError> {
     calculate_scoped(config, config.blocks.keys().map(String::as_str), true)
@@ -30,8 +30,8 @@ pub(crate) fn calculate_scoped<'a>(
         let block = config.blocks.get(root_name).ok_or_else(|| {
             LayoutError::BlockNotFound(format!("'{root_name}'. Available blocks: {}", available()))
         })?;
-        let resolved = ResolvedLayout::new(&block.data)?;
-        for (_, _, leaf) in resolved.emission_leaves() {
+        let resolved = ResolvedLayout::new(&block.data, config.mint.abi)?;
+        for (_, _, _, leaf) in resolved.emission_leaves() {
             let EntrySource::Fingerprint(target) = &leaf.source else {
                 continue;
             };
@@ -58,22 +58,21 @@ pub(crate) fn calculate_scoped<'a>(
         }
         let resolved = match resolved_roots.remove(name) {
             Some(resolved) => resolved,
-            None => ResolvedLayout::new(&block.data)?,
+            None => ResolvedLayout::new(&block.data, config.mint.abi)?,
         };
-        fingerprints.insert(
-            name.clone(),
-            fingerprint(&resolved, config.mint.endianness)?,
-        );
+        fingerprints.insert(name.clone(), fingerprint(&resolved)?);
     }
     Ok(fingerprints)
 }
 
-fn fingerprint(resolved: &ResolvedLayout<'_>, endianness: Endianness) -> Result<u64, LayoutError> {
+fn fingerprint(resolved: &ResolvedLayout<'_>) -> Result<u64, LayoutError> {
     let mut hasher = blake3::Hasher::new_derive_key(HASH_CONTEXT);
-    hasher.update(&[match endianness {
+    let abi = resolved.abi();
+    hasher.update(&[match abi.endianness() {
         Endianness::Little => 0,
         Endianness::Big => 1,
     }]);
+    hash_usize(abi.address_unit_bits(), &mut hasher)?;
     hash_node(&resolved.root, resolved, &mut hasher)?;
 
     let digest = hasher.finalize();
@@ -103,6 +102,7 @@ fn hash_node(
         }
         ResolvedNode::Leaf {
             coordinates,
+            scalar_abi,
             leaf,
             dimensions,
         } => {
@@ -110,6 +110,9 @@ fn hash_node(
             hash_usize(coordinates.offset, hasher)?;
             hash_usize(coordinates.size, hasher)?;
             hash_usize(coordinates.alignment, hasher)?;
+            hash_usize(scalar_abi.storage_size, hasher)?;
+            hash_usize(scalar_abi.alignment, hasher)?;
+            hash_usize(scalar_abi.array_stride, hasher)?;
             hash_scalar(leaf.scalar_type, hasher);
             hash_dimensions(dimensions.as_ref(), hasher)?;
             match &leaf.source {
@@ -131,7 +134,10 @@ fn hash_node(
                         TargetKind::Branch => 0,
                         TargetKind::Leaf => 1,
                     }]);
-                    hash_usize(target.coordinates.offset, hasher)?;
+                    let target_offset = resolved
+                        .abi()
+                        .offset_to_address_units(target.coordinates.offset)?;
+                    hasher.update(&target_offset.to_be_bytes());
                     hash_usize(target.coordinates.size, hasher)?;
                     hash_usize(target.coordinates.alignment, hasher)?;
                 }
