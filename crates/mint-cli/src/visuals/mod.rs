@@ -67,8 +67,8 @@ pub fn print_detailed(stats: &BuildStats) {
             )),
             Cell::new(format!(
                 "{}/{}",
-                format_bytes(block.reserved_size as usize),
-                format_bytes(block.allocated_size as usize)
+                format_bytes(u64::from(block.reserved_size)),
+                format_bytes(u64::from(block.allocated_size))
             )),
             Cell::new(format_space_reserved(
                 block.reserved_size,

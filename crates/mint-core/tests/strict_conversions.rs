@@ -77,6 +77,32 @@ ok.int_exact_to_f32   = { value = 16777216, type = "f32" }
 }
 
 #[test]
+fn strict_conversions_reject_lossy_f64_to_f32() {
+    let layout = common::write_layout_file(
+        "test_strict_lossy_f64_to_f32",
+        r#"
+[mint]
+endianness = "little"
+
+[block.header]
+start_address = 0x80000
+length = 0x100
+padding = 0x00
+
+[block.data]
+bad = { value = 16777217.0, type = "f32" }
+"#,
+    );
+
+    let error = common::build_block(&layout, "block", true, None)
+        .expect_err("strict mode should reject lossy f64 to f32 conversion");
+    assert!(
+        common::error_chain(&error).contains("lossy float conversion to f32"),
+        "{error}"
+    );
+}
+
+#[test]
 fn strict_conversions_fail_fractional_float_to_int() {
     common::ensure_out_dir();
 

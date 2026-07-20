@@ -89,27 +89,35 @@ def test_named_build_block_exposes_the_fingerprint_used_in_output():
         _ = layout.blocks()[0].fingerprint
 
 
-def test_build_block_fingerprint_is_cached(tmp_path):
+def test_file_build_block_fingerprint_tracks_the_layout_used_by_build(tmp_path):
     layout_path = tmp_path / "fingerprint.toml"
-    layout_path.write_text(
-        """
-        [mint]
-        endianness = "little"
 
-        [config.header]
-        start_address = 0x1000
-        length = 0x20
+    def write_layout(value_type):
+        layout_path.write_text(
+            f"""
+            [mint]
+            endianness = "little"
 
-        [config.data]
-        value = { value = 7, type = "u16" }
-        """
-    )
+            [config.header]
+            start_address = 0x1000
+            length = 0x20
+
+            [config.data]
+            schema = {{ fingerprint = true, type = "u64" }}
+            value = {{ value = 7, type = "{value_type}" }}
+            """
+        )
+
+    write_layout("u16")
     block = mint.Layout.from_file(str(layout_path)).blocks("config")[0]
+    original = block.fingerprint
 
-    fingerprint = block.fingerprint
-    layout_path.write_text("invalid TOML")
+    write_layout("u32")
+    updated = block.fingerprint
+    result = mint.build([block])
 
-    assert block.fingerprint == fingerprint
+    assert updated != original
+    assert int.from_bytes(result.ranges[0].data[:8], "little") == int(updated, 16)
 
 
 def test_build_block_fingerprint_ignores_unrelated_invalid_siblings():
@@ -386,6 +394,29 @@ def test_main_sheet_requires_xlsx_path():
             data={"Default": {"Value": 1}},
             variants=["Default"],
             main_sheet="Config",
+        )
+
+
+def test_python_data_rejects_reference_cycles_before_build():
+    layout = mint.Layout.from_string("unused.toml", "")
+    cycle = []
+    cycle.append(cycle)
+
+    with pytest.raises(ValueError, match="reference cycle"):
+        mint.build(
+            layout.blocks("config"),
+            data={"Default": {"Value": cycle}},
+            variants=["Default"],
+        )
+
+    nested = None
+    for _ in range(128):
+        nested = [nested]
+    with pytest.raises(ValueError, match="maximum depth"):
+        mint.build(
+            layout.blocks("config"),
+            data={"Default": {"Value": nested}},
+            variants=["Default"],
         )
 
 

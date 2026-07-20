@@ -1,7 +1,7 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any, overload
 
-JsonData = Mapping[str, Mapping[str, Any]]
+JsonData = dict[str, dict[str, Any]]
 
 class MintError(Exception): ...
 

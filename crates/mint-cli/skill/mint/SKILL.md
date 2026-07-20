@@ -41,7 +41,7 @@ voltage = { const = "default_voltage", type = "f32" }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
-Block names and every `[myblock.data]` path segment must be valid, non-keyword C identifiers matching `[_a-zA-Z][_a-zA-Z0-9]*`. Use unquoted dotted keys or nested tables for nested structs; quoted dotted keys are rejected as flat fields.
+Block names and every `[myblock.data]` path segment must be valid, non-keyword C identifiers matching `[_a-zA-Z][_a-zA-Z0-9]*` and must avoid C-reserved underscore forms. Block names cannot start with `_`; fields cannot start with `__` or an underscore followed by an uppercase letter. Use unquoted dotted keys or nested tables for nested structs; quoted dotted keys are rejected as flat fields.
 
 Multiple blocks can live in one file. Build specific blocks with `layout.toml#blockname`.
 
@@ -194,7 +194,7 @@ For cross-block CRC or non-CRC algorithms, use a separate hex post-processing to
 
 ## Alignment
 
-mint applies **natural C aggregate alignment**. Each integer or fixed-point leaf aligns to its storage width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. All gaps use the block's `padding` byte.
+mint applies **natural C aggregate alignment**. Each integer or fixed-point leaf aligns to its storage width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. All gaps use the block's `padding` byte. The resolved data payload must fit the configured block length and cannot exceed Mint's 256 MiB in-memory materialization limit.
 
 **This means mint does not support packed structs.** If the target C code uses `__attribute__((packed))`, `#pragma pack(1)`, or similar, the TOML layout will produce different offsets than the firmware expects. There is no way to disable alignment in mint. If the firmware uses packed structs, this is a fundamental incompatibility — raise it with the user immediately.
 

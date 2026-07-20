@@ -60,7 +60,7 @@ result = mint.build(layout.blocks())
 
 Calling `layout.blocks()` with no names builds every block in that layout. Passing names builds those blocks in the requested order.
 
-A named `BuildBlock` computes and caches the same selector-scoped lowercase hexadecimal ABI fingerprint as `mint fingerprint FILE#BLOCK`. Unrelated sibling blocks are not resolved:
+A named `BuildBlock` computes the same selector-scoped lowercase hexadecimal ABI fingerprint as `mint fingerprint FILE#BLOCK`. File-backed selectors read the current layout each time, so the property stays consistent with later builds. Unrelated sibling blocks are not resolved:
 
 ```python
 config = layout.blocks("config")[0]
@@ -74,7 +74,7 @@ The singular property requires a named selector. Accessing `fingerprint` on a se
 
 `mint.build(...)` accepts at most one data source:
 
-- `data={...}` for an in-memory JSON-style mapping.
+- `data={...}` for an in-memory JSON-style `dict`.
 - `json_path="data.json"` for a JSON file.
 - `xlsx_path="data.xlsx"` for an Excel workbook.
 

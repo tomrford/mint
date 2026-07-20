@@ -124,6 +124,19 @@ jobs:
           tar -tzf "target/package/mint-core-${RELEASE_VERSION}.crate"
           tar -tzf "target/package/mint-cli-${RELEASE_VERSION}.crate"
 
+      - name: Verify packaged mint-cli against packaged mint-core
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          STAGE="$(mktemp -d)"
+          tar -xzf "target/package/mint-core-${RELEASE_VERSION}.crate" -C "$STAGE"
+          tar -xzf "target/package/mint-cli-${RELEASE_VERSION}.crate" -C "$STAGE"
+          cargo check \
+            --manifest-path "$STAGE/mint-cli-${RELEASE_VERSION}/Cargo.toml" \
+            --offline \
+            --config "patch.crates-io.mint-core.path='$STAGE/mint-core-${RELEASE_VERSION}'"
+
       - name: Upload crate packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

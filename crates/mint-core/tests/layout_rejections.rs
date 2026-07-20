@@ -58,6 +58,35 @@ value = { value = 1, type = "u16" }
 }
 
 #[test]
+fn toml_rejects_unknown_block_key() {
+    let path = write_layout(
+        "unknown-block-key",
+        "toml",
+        r#"
+[mint]
+endianness = "little"
+
+[block]
+unexpected = true
+
+[block.header]
+start_address = 0x1000
+length = 0x20
+
+[block.data]
+value = { value = 1, type = "u16" }
+"#,
+    );
+
+    let err = mint_core::layout::load_layout(&path).expect_err("layout should be rejected");
+    let message = err.to_string();
+    assert!(
+        message.contains("unknown field") && message.contains("unexpected"),
+        "expected unknown-field error, got: {message}"
+    );
+}
+
+#[test]
 fn toml_rejects_virtual_offset() {
     let path = write_layout(
         "virtual-offset",
@@ -202,6 +231,18 @@ fn parse_rejects_invalid_field_and_block_names() {
             "not-valid",
             r#"field = { value = 1, type = "u8" }"#,
             "block name 'not-valid' is not a valid C identifier",
+        ),
+        (
+            "reserved-field",
+            "block",
+            r#"__value = { value = 1, type = "u8" }"#,
+            "field name '__value' is reserved by C",
+        ),
+        (
+            "reserved-block",
+            "_config",
+            r#"field = { value = 1, type = "u8" }"#,
+            "block name '_config' is reserved by C",
         ),
     ] {
         let error = layout_error(file_stem, block_name, data);

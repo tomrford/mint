@@ -207,15 +207,20 @@ macro_rules! impl_try_from_strict_float_targets {
                             return Err(err!("non-finite float not allowed in strict mode"));
                         }
                         let out = *v as $t;
-                        if out.is_finite() {
-                            Ok(out)
-                        } else {
-                            Err(err!(format!(
+                        if !out.is_finite() {
+                            return Err(err!(format!(
                                 "float value {} out of range for {}",
                                 v,
                                 stringify!($t)
-                            )))
+                            )));
                         }
+                        if out as f64 != *v {
+                            return Err(err!(format!(
+                                "lossy float conversion to {} not allowed in strict mode",
+                                stringify!($t)
+                            )));
+                        }
+                        Ok(out)
                     }
                     DataValue::U64(v) => {
                         strict_integer_to_float(*v, |v| v as $t as f64, i128::from(*v))
