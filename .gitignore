@@ -1,10 +1,5 @@
 target
 .DS_Store
 .direnv
-.venv
-.pytest_cache
-__pycache__
-*.pyc
-*.so
 out
 examples/~$*.xlsx

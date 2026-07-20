@@ -6,7 +6,6 @@ mint is available as:
 
 - `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output, C header rendering, ABI fingerprints, and in-memory build APIs.
 - `mint-cli` - Implements the `mint` command-line tool for building flash files and generating C headers and ABI fingerprints.
-- `mint-python` - Python bindings for `mint-core` (in-repo only; not published to PyPI).
 
 ![img](https://raw.githubusercontent.com/tomrford/mint/main/doc/img.png)
 
@@ -32,14 +31,11 @@ nix develop -c cargo clippy --workspace
 nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx --variants Default
 nix develop -c cargo run -p mint-cli -- header block.toml -o blocks.h
 nix develop -c cargo run -p mint-cli -- fingerprint block.toml
-nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml
-nix develop -c uv run --directory crates/mint-python --group dev pytest tests
 ```
 
 ### Documentation
 
 - [CLI reference](https://github.com/tomrford/mint/blob/main/doc/cli.md)
-- [Python bindings](https://github.com/tomrford/mint/blob/main/doc/python.md)
 - [Layout files](https://github.com/tomrford/mint/blob/main/doc/layout.md)
 - [Data sources](https://github.com/tomrford/mint/blob/main/doc/sources.md)
 - [Example layouts & data](https://github.com/tomrford/mint/tree/main/doc/examples)

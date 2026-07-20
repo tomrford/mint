@@ -4,11 +4,10 @@ mint is an embedded development tool that works with TOML layout files and data 
 
 ## Architecture & Codebase
 
-mint is a Cargo workspace with three crates:
+mint is a Cargo workspace with two crates:
 
 - `crates/mint-core`: library crate for layout parsing, data sources, bytestream assembly, output rendering, and library-facing build APIs.
 - `crates/mint-cli`: binary crate for argument parsing, data-source construction from CLI args, writing files, and terminal output.
-- `crates/mint-python`: Python bindings for `mint-core`.
 
 ### Core Concepts
 
@@ -35,7 +34,6 @@ mint is a Cargo workspace with three crates:
 - `crates/mint-core/src/data/`: Data source interaction and value retrieval.
 - `crates/mint-core/src/output/`: Binary generation and data ranges.
 - `crates/mint-core/tests/`: Core behavior and library API tests.
-- `crates/mint-python/`: Python package, PyO3 bindings, and binding tests.
 
 ## Development Environment
 
@@ -46,11 +44,8 @@ mint is a Cargo workspace with three crates:
   - Format: `nix develop -c cargo fmt` (Run before submitting)
   - Clippy: `nix develop -c cargo clippy --workspace` (Run before submitting)
   - Local install: `nix develop -c cargo install --path crates/mint-cli`
-  - Python bindings: `nix develop -c uv run --directory crates/mint-python --group dev maturin develop --manifest-path Cargo.toml`
-  - Python tests: `nix develop -c uv run --directory crates/mint-python --group dev pytest tests`
 
 ### Release Notes
 
 - Release archives build the `mint-cli` package and ship the `mint` binary.
 - crates.io publishing is ordered by dependency: publish `mint-core` first, then `mint-cli`.
-- `mint-python` is not released: no PyPI publishing and no release wheels. The crate stays in the workspace and is built and tested in CI only.
