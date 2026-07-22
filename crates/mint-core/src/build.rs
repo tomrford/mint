@@ -33,14 +33,15 @@ impl BlockStat {
     }
 
     pub fn allocated_address_units(&self) -> u64 {
-        let unit_octets = self.address_unit_bits / 8;
         debug_assert!(
-            unit_octets > 0
+            self.address_unit_bits >= 8
                 && self.address_unit_bits.is_multiple_of(8)
-                && (self.allocated_size as usize).is_multiple_of(unit_octets),
+                && (self.allocated_size as usize).is_multiple_of(self.address_unit_bits / 8),
             "build statistics must contain a whole number of target address units"
         );
-        u64::from(self.allocated_size) / unit_octets as u64
+        // BlockStat fields are public, so avoid dividing by zero on a malformed unit width.
+        let unit_octets = (self.address_unit_bits / 8).max(1) as u64;
+        u64::from(self.allocated_size) / unit_octets
     }
 }
 
