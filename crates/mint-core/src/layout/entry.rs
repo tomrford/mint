@@ -612,12 +612,17 @@ impl LeafEntry {
                 };
                 match ds.retrieve_1d_array_or_string(name)? {
                     ValueSource::Single(v) => {
-                        if !matches!(self.scalar_type, ScalarType::U8) {
+                        if !matches!(self.scalar_type, ScalarType::U8 | ScalarType::U16) {
                             return Err(LayoutError::DataValueExportFailed(
-                                "Strings should have type u8.".to_owned(),
+                                "Strings should have type u8 or u16.".to_owned(),
                             ));
                         }
-                        append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding);
+                        append_string(
+                            &mut out,
+                            v.string_to_bytes(self.scalar_type, config.abi.endianness())?,
+                            scalar_abi,
+                            config.padding,
+                        );
                         value_sink.record_value(field_path, data_value_to_json(&v)?)?;
                     }
                     ValueSource::Array(v) => {
@@ -653,12 +658,17 @@ impl LeafEntry {
                 value_sink.record_value(field_path, array_to_json(v)?)?;
             }
             EntrySource::Value(ValueSource::Single(v)) => {
-                if !matches!(self.scalar_type, ScalarType::U8) {
+                if !matches!(self.scalar_type, ScalarType::U8 | ScalarType::U16) {
                     return Err(LayoutError::DataValueExportFailed(
-                        "Strings should have type u8.".to_owned(),
+                        "Strings should have type u8 or u16.".to_owned(),
                     ));
                 }
-                append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding);
+                append_string(
+                    &mut out,
+                    v.string_to_bytes(self.scalar_type, config.abi.endianness())?,
+                    scalar_abi,
+                    config.padding,
+                );
                 value_sink.record_value(field_path, data_value_to_json(v)?)?;
             }
             EntrySource::Const(name) => {
@@ -679,12 +689,17 @@ impl LeafEntry {
                         value_sink.record_value(field_path, array_to_json(v)?)?;
                     }
                     ValueSource::Single(v) => {
-                        if !matches!(self.scalar_type, ScalarType::U8) {
+                        if !matches!(self.scalar_type, ScalarType::U8 | ScalarType::U16) {
                             return Err(LayoutError::DataValueExportFailed(
-                                "Strings should have type u8.".to_owned(),
+                                "Strings should have type u8 or u16.".to_owned(),
                             ));
                         }
-                        append_string(&mut out, v.string_to_bytes()?, scalar_abi, config.padding);
+                        append_string(
+                            &mut out,
+                            v.string_to_bytes(self.scalar_type, config.abi.endianness())?,
+                            scalar_abi,
+                            config.padding,
+                        );
                         value_sink.record_value(field_path, data_value_to_json(v)?)?;
                     }
                 }
@@ -817,8 +832,9 @@ struct ArrayEncoding {
 }
 
 fn append_string(output: &mut Vec<u8>, bytes: Vec<u8>, scalar_abi: ScalarAbi, padding: u8) {
-    for byte in bytes {
-        append_array_element(output, &[byte], scalar_abi, padding);
+    debug_assert!(bytes.len().is_multiple_of(scalar_abi.storage_size));
+    for element in bytes.chunks_exact(scalar_abi.storage_size) {
+        append_array_element(output, element, scalar_abi, padding);
     }
 }
 

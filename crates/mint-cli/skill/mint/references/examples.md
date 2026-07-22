@@ -57,12 +57,12 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 
 | Source             | Allowed types       | `size`/`SIZE`              | Notes                                                      |
 | ------------------ | ------------------- | -------------------------- | ---------------------------------------------------------- |
-| `value` (scalar)   | any                 | no                         | Numeric, boolean, or string literal                        |
-| `value` (string)   | `u8`                | required                   | UTF-8 encoded into byte array                              |
+| `value` (scalar)   | any                 | no                         | Numeric or boolean literal                                 |
+| `value` (string)   | `u8`, `u16`         | required                   | One zero-extended UTF-8 byte per scalar element            |
 | `value` (1D array) | any                 | required                   | Inline array of values                                     |
 | `value` (2D array) | —                   | —                          | **Not supported.** 2D arrays must come from a data source. |
 | `const` (scalar)   | any                 | no                         | Reusable literal from `[mint.const]`                       |
-| `const` (string)   | `u8`                | required                   | Reusable UTF-8 string from `[mint.const]`                  |
+| `const` (string)   | `u8`, `u16`         | required                   | Reusable string with one UTF-8 byte per scalar element     |
 | `const` (1D array) | any                 | required                   | Reusable inline array from `[mint.const]`                  |
 | `name` (scalar)    | any                 | no                         | Single value from data source                              |
 | `name` (1D array)  | any                 | required (`size = N`)      | 1D array from data source                                  |
@@ -95,6 +95,8 @@ Leaves are naturally aligned to their storage width:
 - fixed-point aligns to its storage width (`uq8.8` = 2-byte aligned, `q15.16` = 4-byte aligned)
 
 Each dotted-path branch aligns to the maximum alignment of its children. Children retain their parsed order, each branch receives tail padding before its next sibling, and the root data struct is padded to its aggregate alignment. Gaps and tail padding use the block's `padding` byte. This alignment is always applied — mint does not support packed structs (`__attribute__((packed))`, `#pragma pack(1)`, etc.).
+
+Strings use `u8` or `u16` storage. Each UTF-8 byte occupies one scalar element and is zero-extended in ABI byte order, so `size = N` counts `N` elements rather than Unicode code points. C28x strings use `type = "u16"`, one byte per 16-bit word.
 
 ---
 

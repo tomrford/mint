@@ -94,7 +94,7 @@ message = { value = "Hello", type = "u8", size = 16 }
 ip_addr = { value = [192, 168, 1, 1], type = "u8", size = 4 }
 ```
 
-Strings and arrays require `size`. Strings are UTF-8 encoded into the byte array.
+Strings and arrays require `size`. Strings use `u8` or `u16` storage. Each UTF-8 byte occupies one scalar element and is zero-extended to the storage width in ABI byte order, so `size` counts elements rather than Unicode code points. C28x strings use `type = "u16"`, one byte per 16-bit word.
 
 ### Reusable constants (`const`)
 
@@ -194,7 +194,7 @@ For cross-block CRC or non-CRC algorithms, use a separate hex post-processing to
 
 ## Alignment
 
-mint applies the selected ABI profile's **natural C aggregate alignment**. The generic, ARM AAPCS32 and RISC-V ILP32 profiles align each integer or fixed-point leaf to its storage width, `f32` to 4 octets and `f64` to 8 octets. The TriCore and TI C28x EABI profiles instead align 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. C28x rejects exact-width 8-bit fields and strings. Its standard HEX/S-record output uses octet addresses equal to twice the target word address. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. Generated headers assert every field offset and final structure size against the target compiler. All gaps use the block's `padding` byte. The resolved data payload must fit the configured block length and cannot exceed Mint's 256 MiB in-memory materialization limit.
+mint applies the selected ABI profile's **natural C aggregate alignment**. The generic, ARM AAPCS32 and RISC-V ILP32 profiles align each integer or fixed-point leaf to its storage width, `f32` to 4 octets and `f64` to 8 octets. The TriCore and TI C28x EABI profiles instead align 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. C28x rejects exact-width 8-bit fields. Its strings therefore use `type = "u16"`, with one UTF-8 byte per 16-bit word. Its standard HEX/S-record output uses octet addresses equal to twice the target word address. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. Generated headers assert every field offset and final structure size against the target compiler. All gaps use the block's `padding` byte. The resolved data payload must fit the configured block length and cannot exceed Mint's 256 MiB in-memory materialization limit.
 
 **This means mint does not support packed structs.** If the target C code uses `__attribute__((packed))`, `#pragma pack(1)`, or similar, the TOML layout will produce different offsets than the firmware expects. There is no way to disable alignment in mint. If the firmware uses packed structs, this is a fundamental incompatibility — raise it with the user immediately.
 

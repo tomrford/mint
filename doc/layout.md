@@ -60,7 +60,7 @@ The required `abi` setting selects the layout rules used for every block in the 
 | `riscv-ilp32-le` | RISC-V ILP32 | little-endian | 8 bits |
 | `ti-c28x-eabi` | TI C28x EABI | little-endian | 16 bits |
 
-`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride. C28x rejects `u8`, `i8`, 8-bit fixed-point fields and strings because its C library has 16-bit `char` and no exact-width 8-bit integer types. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
+`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride. C28x rejects `u8`, `i8` and 8-bit fixed-point fields because its C library has 16-bit `char` and no exact-width 8-bit integer types. Strings can use `u8` or `u16` storage; C28x strings use `type = "u16"`, with one UTF-8 byte zero-extended into each 16-bit word. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
 
 The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices. Both use standard octet-addressed Intel HEX or Motorola S-record addresses. For C28x, Mint multiplies each target word address by two at the output boundary and requires an even output record width. This deliberately matches byte-addressed image tools and bootloaders; Mint does not currently emit TI's native word-addressed HEX dialect.
 
@@ -188,7 +188,7 @@ len = { const = "app.length", type = "u32" }
 
 ### Strings
 
-Strings use `u8` type with `size` for fixed-length fields.
+Strings use `u8` or `u16` type with `size` for fixed-length fields. Mint encodes the UTF-8 bytes, not Unicode code points. Each byte occupies one scalar element and is zero-extended to the storage width in ABI byte order, so `size = N` reserves `N` elements. C28x strings use `type = "u16"`, with one UTF-8 byte per 16-bit word.
 
 ```toml
 [block.data]
@@ -197,6 +197,9 @@ message = { value = "Hello", type = "u8", size = 16 }
 
 # From data source
 device.name = { name = "DeviceName", type = "u8", size = 16 }
+
+# C28x string (one UTF-8 byte per 16-bit word)
+c28x_message = { value = "Hello", type = "u16", size = 16 }
 ```
 
 ### Arrays
