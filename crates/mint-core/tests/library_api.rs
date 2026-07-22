@@ -112,6 +112,80 @@ value = { value = 1, type = "u8" }
 }
 
 #[test]
+fn c28x_build_renders_standard_octet_addresses() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+abi = "ti-c28x-eabi"
+
+[block.header]
+start_address = 0x1000
+length = 4
+
+[block.data]
+first = { value = 0x1234, type = "u16" }
+second = { value = 0x5678, type = "u16" }
+"#,
+    )
+    .expect("layout string should parse");
+
+    let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("c28x.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("c28x.toml", "block")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect("C28x block should build");
+
+    assert_eq!(artifact.ranges[0].start_address, 0x1000);
+    assert_eq!(artifact.ranges[0].output_start_address().unwrap(), 0x2000);
+    let output = artifact.render(OutputFormat::Hex, 16).expect("hex renders");
+    assert!(
+        output.lines().any(|line| line.starts_with(":04200000")),
+        "{output}"
+    );
+}
+
+#[test]
+fn c28x_rejects_scaled_output_address_overflow() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+abi = "ti-c28x-eabi"
+
+[overflow.header]
+start_address = 0x80000000
+length = 2
+
+[overflow.data]
+value = { value = 1, type = "u16" }
+"#,
+    )
+    .expect("layout string should parse");
+
+    let error = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("c28x-overflow.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("c28x-overflow.toml", "overflow")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect_err("scaled C28x range should be rejected");
+
+    assert!(
+        common::error_chain(&error).contains("octet-addressed output range"),
+        "{error}"
+    );
+}
+
+#[test]
 fn data_sources_can_be_constructed_without_cli_args() {
     let variants = vec!["Default".to_owned()];
     let json_source = JsonDataSource::from_value(

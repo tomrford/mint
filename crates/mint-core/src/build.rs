@@ -16,8 +16,11 @@ use std::time::{Duration, Instant};
 pub struct BlockStat {
     pub layout: PathBuf,
     pub block: String,
+    /// Start address in target addressable units.
     pub start_address: u32,
+    /// Allocated block size in octets.
     pub allocated_size: u32,
+    /// Emitted payload size in octets.
     pub reserved_size: u32,
     pub checksum_values: Vec<u32>,
 }
@@ -419,7 +422,11 @@ fn build_single_bytestream(
             value_sink,
         )?;
 
-        let data_range = output::bytestream_to_datarange(build_output.bytestream, &block.header)?;
+        let data_range = output::bytestream_to_datarange(
+            build_output.bytestream,
+            &block.header,
+            layout.mint.abi,
+        )?;
 
         let stat = BlockStat {
             layout: resolved.layout.clone(),
@@ -468,6 +475,17 @@ fn collect_results(
 const ADDRESS_SPACE_SIZE: u64 = u32::MAX as u64 + 1;
 
 fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError> {
+    if let Some((_, first)) = named_ranges.first()
+        && named_ranges
+            .iter()
+            .any(|(_, range)| range.address_unit_bits != first.address_unit_bits)
+    {
+        return Err(OutputError::AddressRangeError(
+            "one output file cannot mix target addressable-unit widths".to_owned(),
+        )
+        .into());
+    }
+
     let mut ranges = Vec::with_capacity(named_ranges.len());
     for (name, range) in named_ranges {
         let (start, end) = checked_range_bounds(name, range)?;
@@ -504,7 +522,7 @@ fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError>
 }
 
 fn checked_range_bounds(name: &str, range: &DataRange) -> Result<(u64, u64), MintError> {
-    let start = u64::from(range.start_address);
+    let start = u64::from(range.output_start_address()?);
     let end = start + u64::from(range.allocated_size);
     if end > ADDRESS_SPACE_SIZE {
         return Err(OutputError::AddressRangeError(format!(
@@ -556,12 +574,37 @@ mod tests {
     use super::*;
 
     fn range(start_address: u32, allocated_size: u32) -> DataRange {
+        range_with_unit(start_address, allocated_size, 8)
+    }
+
+    fn range_with_unit(
+        start_address: u32,
+        allocated_size: u32,
+        address_unit_bits: usize,
+    ) -> DataRange {
+        let reserved_size = (address_unit_bits / 8) as u32;
         DataRange {
             start_address,
-            bytestream: vec![0],
-            reserved_size: 1,
+            address_unit_bits,
+            bytestream: vec![0; reserved_size as usize],
+            reserved_size,
             allocated_size,
         }
+    }
+
+    #[test]
+    fn c28x_overlap_checks_use_scaled_octet_addresses() {
+        let adjacent = vec![
+            ("first".to_owned(), range_with_unit(0x1000, 4, 16)),
+            ("second".to_owned(), range_with_unit(0x1002, 2, 16)),
+        ];
+        check_overlaps(&adjacent).expect("adjacent C28x ranges do not overlap");
+
+        let overlapping = vec![
+            ("first".to_owned(), range_with_unit(0x1000, 4, 16)),
+            ("second".to_owned(), range_with_unit(0x1001, 2, 16)),
+        ];
+        check_overlaps(&overlapping).expect_err("overlapping C28x ranges should fail");
     }
 
     #[test]

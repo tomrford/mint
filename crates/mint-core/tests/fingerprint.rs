@@ -125,9 +125,15 @@ wide = { value = 2, type = "u64" }
     let tricore = fingerprint_of(
         &generic_source.replace("abi = \"generic-le\"", "abi = \"tricore-eabi-le\""),
     );
+    let riscv =
+        fingerprint_of(&generic_source.replace("abi = \"generic-le\"", "abi = \"riscv-ilp32-le\""));
+    let c28x =
+        fingerprint_of(&generic_source.replace("abi = \"generic-le\"", "abi = \"ti-c28x-eabi\""));
 
     assert_eq!(generic, arm);
+    assert_eq!(generic, riscv);
     assert_ne!(generic, tricore);
+    assert_ne!(generic, c28x);
 
     let generic_u32 = layout_with("word = { value = 1, type = \"u32\" }");
     let tricore_u32 = generic_u32.replace("abi = \"generic-le\"", "abi = \"tricore-eabi-le\"");
@@ -322,7 +328,7 @@ value = { value = 1, type = "u64" }
     assert!(
         error
             .to_string()
-            .contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+            .contains("resolved layout size (8 octets) exceeds configured block length (4 octets)"),
         "{error}"
     );
 }

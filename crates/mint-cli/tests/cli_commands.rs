@@ -57,6 +57,8 @@ fn abi_list_prints_supported_profiles() {
     assert!(stdout.contains("generic-be"));
     assert!(stdout.contains("arm-aapcs32-le"));
     assert!(stdout.contains("tricore-eabi-le"));
+    assert!(stdout.contains("riscv-ilp32-le"));
+    assert!(stdout.contains("ti-c28x-eabi"));
     assert!(stdout.contains("little-endian"));
     assert!(stdout.contains("big-endian"));
     assert!(output.stderr.is_empty());
@@ -93,7 +95,9 @@ fn abi_show_rejects_unknown_profiles_with_supported_names() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr is utf8");
     assert!(stderr.contains("unknown ABI 'unknown'"));
-    assert!(stderr.contains("generic-le, generic-be, arm-aapcs32-le, tricore-eabi-le"));
+    assert!(stderr.contains(
+        "generic-le, generic-be, arm-aapcs32-le, tricore-eabi-le, riscv-ilp32-le, ti-c28x-eabi"
+    ));
 }
 
 #[test]
@@ -105,6 +109,32 @@ fn abi_show_reports_tricore_64_bit_alignment() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    let u64_row = stdout
+        .lines()
+        .find(|line| line.starts_with("u64"))
+        .expect("u64 row");
+    assert_eq!(
+        u64_row.split_whitespace().collect::<Vec<_>>(),
+        ["u64", "8", "4", "8", "uint64_t"]
+    );
+}
+
+#[test]
+fn abi_show_reports_c28x_support_and_output_addressing() {
+    let output = mint_command()
+        .args(["abi", "show", "ti-c28x-eabi"])
+        .output()
+        .expect("mint abi show should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    assert!(stdout.contains("target addressable unit: 16 bits"));
+    assert!(stdout.contains("2 × target word address"));
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.starts_with("u8") && line.contains("unsupported"))
+    );
     let u64_row = stdout
         .lines()
         .find(|line| line.starts_with("u64"))

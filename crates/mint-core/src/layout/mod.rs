@@ -16,7 +16,7 @@ use error::LayoutError;
 use std::collections::hash_map::Entry;
 use std::path::Path;
 
-/// Largest resolved block payload Mint materializes in memory.
+/// Largest resolved block payload Mint materializes in octets.
 pub const MAX_RESOLVED_BLOCK_SIZE: usize = 256 * 1024 * 1024;
 
 pub fn load_layout(filename: impl AsRef<Path>) -> Result<Config, LayoutError> {

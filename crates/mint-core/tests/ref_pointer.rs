@@ -65,6 +65,23 @@ target = { value = 0xDEADBEEF, type = "u32" }
 }
 
 #[test]
+fn c28x_refs_use_word_addresses() {
+    let toml = ref_layout_with_abi(
+        0x1000,
+        "ti-c28x-eabi",
+        r#"
+ptr = { ref = "target", type = "u32" }
+target = { value = 0x1234, type = "u16" }
+"#,
+    );
+
+    let bytes = load_and_build("ref_c28x_word_address", &toml);
+    assert_eq!(bytes.len(), 8);
+    assert_eq!(&bytes[0..4], &0x1002u32.to_le_bytes());
+    assert_eq!(&bytes[4..6], &0x1234u16.to_le_bytes());
+}
+
+#[test]
 fn ref_resolves_backward_pointer() {
     let toml = ref_layout(
         0x1000,

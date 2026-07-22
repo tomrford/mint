@@ -134,6 +134,42 @@ tail = { value = 0xAA55, type = "u16" }
 }
 
 #[test]
+fn c28x_matches_compiler_probed_aggregate_shapes() {
+    let u16_u64 = build_output_for_abi(
+        "ti-c28x-eabi",
+        r#"
+first = { value = 0x1122, type = "u16" }
+second = { value = 0x7766554433221100, type = "u64" }
+"#,
+    );
+    assert_eq!(u16_u64.bytestream.len(), 12);
+    assert_eq!(
+        &u16_u64.bytestream[4..12],
+        &0x7766554433221100u64.to_le_bytes()
+    );
+
+    let u64_u16 = build_output_for_abi(
+        "ti-c28x-eabi",
+        r#"
+first = { value = 0x7766554433221100, type = "u64" }
+second = { value = 0x1122, type = "u16" }
+"#,
+    );
+    assert_eq!(u64_u16.bytestream.len(), 12);
+    assert_eq!(&u64_u16.bytestream[8..10], &0x1122u16.to_le_bytes());
+
+    let u16_f32 = build_output_for_abi(
+        "ti-c28x-eabi",
+        r#"
+first = { value = 0x1122, type = "u16" }
+second = { value = 1.5, type = "f32" }
+"#,
+    );
+    assert_eq!(u16_f32.bytestream.len(), 8);
+    assert_eq!(&u16_f32.bytestream[4..8], &1.5f32.to_le_bytes());
+}
+
+#[test]
 fn refs_follow_aligned_branch_and_leaf_offsets() {
     let output = build_output(
         r#"

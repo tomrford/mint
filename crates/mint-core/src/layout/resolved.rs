@@ -30,21 +30,43 @@ pub(crate) fn validate_static<'a>(
     let total_size = resolved.total_size();
     if total_size > MAX_RESOLVED_BLOCK_SIZE {
         return Err(LayoutError::InvalidLayout(format!(
-            "resolved layout size ({total_size} bytes) exceeds Mint's materialized block limit ({MAX_RESOLVED_BLOCK_SIZE} bytes)"
+            "resolved layout size ({total_size} octets) exceeds Mint's materialized block limit ({MAX_RESOLVED_BLOCK_SIZE} octets)"
         )));
     }
     if total_size > block.header.length as usize {
         return Err(LayoutError::InvalidLayout(format!(
-            "resolved layout size ({total_size} bytes) exceeds configured block length ({} bytes)",
+            "resolved layout size ({total_size} octets) exceeds configured block length ({} octets)",
             block.header.length
         )));
     }
-    let end_address = u64::from(block.header.start_address) + u64::from(block.header.length);
-    if end_address > u64::from(u32::MAX) + 1 {
+
+    let unit_octets = settings.abi.address_unit_octets();
+    if !(block.header.length as usize).is_multiple_of(unit_octets) {
         return Err(LayoutError::InvalidLayout(format!(
-            "block address range 0x{:08X}-0x{:08X} exceeds the 32-bit address space",
-            block.header.start_address,
-            end_address.saturating_sub(1)
+            "configured block length ({} octets) is not divisible by the {}-octet addressable unit of ABI '{}'",
+            block.header.length,
+            unit_octets,
+            settings.abi.name()
+        )));
+    }
+    if !total_size.is_multiple_of(unit_octets) {
+        return Err(LayoutError::InvalidLayout(format!(
+            "resolved layout size ({total_size} octets) is not divisible by the {}-octet addressable unit of ABI '{}'",
+            unit_octets,
+            settings.abi.name()
+        )));
+    }
+
+    let output_start = u64::from(block.header.start_address)
+        .checked_mul(unit_octets as u64)
+        .ok_or_else(|| {
+            LayoutError::InvalidLayout("block output start address overflow".to_owned())
+        })?;
+    let output_end = output_start + u64::from(block.header.length);
+    if output_end > u64::from(u32::MAX) + 1 {
+        return Err(LayoutError::InvalidLayout(format!(
+            "block octet-addressed output range 0x{output_start:08X}-0x{:08X} exceeds the 32-bit address space",
+            output_end.saturating_sub(1)
         )));
     }
     for (path, coordinates, _, leaf) in resolved.emission_leaves() {

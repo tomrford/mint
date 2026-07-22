@@ -57,10 +57,12 @@ The required `abi` setting selects the layout rules used for every block in the 
 | `generic-be` | natural-width C layout | big-endian | 8 bits |
 | `arm-aapcs32-le` | ARM AAPCS32 | little-endian | 8 bits |
 | `tricore-eabi-le` | Infineon TriCore EABI | little-endian | 8 bits |
+| `riscv-ilp32-le` | RISC-V ILP32 | little-endian | 8 bits |
+| `ti-c28x-eabi` | TI C28x EABI | little-endian | 16 bits |
 
-`generic-le`, `generic-be` and `arm-aapcs32-le` share the same natural-width scalar and aggregate rules. TriCore differs by aligning 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
+`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride. C28x rejects `u8`, `i8`, 8-bit fixed-point fields and strings because its C library has 16-bit `char` and no exact-width 8-bit integer types. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
 
-The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices. Both currently use standard octet-addressed Intel HEX or Motorola S-record addresses. Target address-unit semantics, C layout and output record addressing are separate contracts.
+The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices. Both use standard octet-addressed Intel HEX or Motorola S-record addresses. For C28x, Mint multiplies each target word address by two at the output boundary and requires an even output record width. This deliberately matches byte-addressed image tools and bootloaders; Mint does not currently emit TI's native word-addressed HEX dialect.
 
 ---
 
@@ -70,12 +72,12 @@ Each block requires a header section defining the memory region.
 
 ```toml
 [blockname.header]
-start_address = 0x8B000    # Start address in memory (required)
-length = 0x1000            # Block size in bytes
+start_address = 0x8B000    # Start address in target address units (required)
+length = 0x1000            # Block size in octets
 padding = 0xFF             # Padding byte value (default: 0xFF)
 ```
 
-The resolved data aggregate must fit within `length` and cannot exceed 256 MiB. Mint materializes block payloads in memory and rejects larger layouts before allocation.
+The resolved data aggregate must fit within `length` and cannot exceed 256 MiB. Mint materializes block payloads in memory and rejects larger layouts before allocation. For profiles with addressable units wider than one octet, `length` and every resolved block size must be divisible by the address-unit width.
 
 ---
 
@@ -87,7 +89,7 @@ Every block name and data field path segment must be a valid C identifier matchi
 
 ### Aggregate alignment
 
-Each ABI family lays out dotted paths as naturally aligned C aggregates. Every leaf gets its storage size, alignment and array stride from the selected profile. The generic and ARM profiles align exact-width integers to their width, `f32` to 4 octets and `f64` to 8 octets. TriCore uses 4-octet alignment for 64-bit scalars while retaining 8-octet storage and array stride. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
+Each ABI family lays out dotted paths as naturally aligned C aggregates. Every leaf gets its storage size, alignment and array stride from the selected profile. The generic, ARM and RISC-V profiles align exact-width integers to their width, `f32` to 4 octets and `f64` to 8 octets. TriCore and C28x use 4-octet alignment for 64-bit scalars while retaining 8-octet storage and array stride. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
 
 All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Use `mint abi show` to inspect the selected profile before matching a generated header to a compiler target.
 
@@ -256,7 +258,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 - fixed-point types are not valid with `ref`
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
-- The resolved address is `start_address + target_offset`
+- The resolved address is `start_address + target_offset_octets / address_unit_octets`
 - The target path is validated from the resolved layout before field values are emitted
 - The resolved address must fit the ref's `u16`, `u32` or `u64` storage type
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)

@@ -10,7 +10,7 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 
 | Key   | Type                                | Default      | Description                                      |
 | ----- | ----------------------------------- | ------------ | ------------------------------------------------ |
-| `abi` | Named profile | — (required) | Target layout profile, such as `"arm-aapcs32-le"` or `"tricore-eabi-le"`; run `mint abi list` to discover accepted names |
+| `abi` | Named profile | — (required) | Target layout profile, such as `"riscv-ilp32-le"` or `"ti-c28x-eabi"`; run `mint abi list` to discover accepted names |
 
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 
@@ -30,8 +30,8 @@ All fields are required — no inheritance or partial configs.
 
 | Key             | Type           | Default      | Description                                   |
 | --------------- | -------------- | ------------ | --------------------------------------------- |
-| `start_address` | `u32` (hex ok) | — (required) | Base address in flash                         |
-| `length`        | `u32` (hex ok) | — (required) | Allocated size; resolved data must fit         |
+| `start_address` | `u32` (hex ok) | — (required) | Base address in target address units          |
+| `length`        | `u32` (hex ok) | — (required) | Allocated octets; resolved data must fit       |
 | `padding`       | `u8` (hex ok)  | `0xFF`       | Array, alignment, and tail fill byte           |
 
 ### `[blockname.data]` — field definitions
@@ -191,7 +191,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 
 Ref targets are dotted paths rooted at the block's data section and are validated before field values are emitted. `ref = "table"` resolves to the address of the branch containing `table.entries`. Forward and backward refs both work. Cross-block refs are not supported.
 
-Resolved address: `start_address + field_offset`. The address must fit the ref's `u16`, `u32` or `u64` storage type.
+Resolved address: `start_address + field_offset_octets / address_unit_octets`. The address must fit the ref's `u16`, `u32` or `u64` storage type.
 
 ## Excel data source
 

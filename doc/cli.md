@@ -76,9 +76,9 @@ Inspect one profile's byte order, target addressable unit, output-address conven
 mint abi show generic-le
 ```
 
-`generic-le`, `generic-be` and `arm-aapcs32-le` use the same natural-width layout family. `tricore-eabi-le` aligns 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. Profile names do not contribute to ABI fingerprints: profiles with the same effective layout and address semantics remain compatible.
+`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` use the same natural-width layout family. `tricore-eabi-le` and `ti-c28x-eabi` align 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. C28x rejects exact-width 8-bit fields and strings. Profile names do not contribute to ABI fingerprints: profiles with the same effective layout and address semantics remain compatible.
 
-Output format remains an independent build option. Intel HEX and Motorola S-record output currently use standard octet addresses; target address-unit semantics and output record addressing are separate contracts.
+Output format remains an independent build option. Intel HEX and Motorola S-record output use standard octet addresses. For C28x, record addresses are twice the target word address and record width must be an even number of octets. Mint does not currently emit TI's native word-addressed HEX dialect.
 
 ---
 

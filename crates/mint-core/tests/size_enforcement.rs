@@ -41,7 +41,8 @@ value = { value = 1, type = "u64" }
             if matches!(source.as_ref(), MintError::Layout(LayoutError::InvalidLayout(_)))
     ));
     assert!(
-        chain.contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+        chain
+            .contains("resolved layout size (8 octets) exceeds configured block length (4 octets)"),
         "{chain}"
     );
 }

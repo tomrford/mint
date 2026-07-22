@@ -209,6 +209,34 @@ nested.wide = {{ value = 2, type = "u64" }}
         tricore.contains("_Static_assert(offsetof(block_t, nested.wide) * CHAR_BIT == 4u * 8u")
     );
     assert!(tricore.contains("_Static_assert(sizeof(block_t) * CHAR_BIT == 12u * 8u"));
+
+    let c28x = generate("header-c28x-assertions", &source("ti-c28x-eabi"), |path| {
+        vec![BlockSelector::all(path)]
+    });
+    assert!(c28x.contains("_Static_assert(offsetof(block_t, nested.wide) * CHAR_BIT == 4u * 8u"));
+    assert!(c28x.contains("_Static_assert(sizeof(block_t) * CHAR_BIT == 12u * 8u"));
+}
+
+#[test]
+fn c28x_rejects_exact_width_8_bit_fields() {
+    let message = error(
+        "header-c28x-u8",
+        r#"
+[mint]
+abi = "ti-c28x-eabi"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+value = { value = 1, type = "u8" }
+"#,
+    );
+
+    assert!(
+        message.contains("does not support scalar type u8"),
+        "{message}"
+    );
+    assert!(message.contains("16-bit char"), "{message}");
 }
 
 #[test]
@@ -281,7 +309,7 @@ value = { value = 1, type = "u64" }
     );
     assert!(
         oversized
-            .contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+            .contains("resolved layout size (8 octets) exceeds configured block length (4 octets)"),
         "{oversized}"
     );
 

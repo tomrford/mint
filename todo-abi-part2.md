@@ -2,25 +2,20 @@
 
 Temporary tracker for the follow-up to the ABI profile foundation. Delete once part 2 lands.
 
-## Address-unit semantics at the output boundary
+## Native TI output dialect
 
-The octet↔address-unit conversion exists only at the ref/fingerprint boundary
-(`Abi::offset_to_address_units`). Word-addressed profiles (C28x) need decisions and hooks
-everywhere else addresses and sizes meet:
+C28x now uses target word addresses for `header.start_address` and refs, while lengths, resolved
+offsets, buffers, overlap checks and standard output addresses remain octet-based. Intel HEX and
+Motorola S-record starts are emitted as `target_start_address * unit_octets`, matching the existing
+BRUSA bootloader flow.
 
-- `header.start_address` is in target address units. `header.length`, resolved offsets, storage
-  sizes and buffers are octets. Ref emission therefore remains
-  `start_address + offset_octets / unit_octets`.
-- For the first C28x implementation, Intel HEX and Motorola S-record output intentionally remain
-  standard octet-addressed formats. Convert the target start address at the output boundary with
-  `output_start_octets = start_address * unit_octets`; range ends and overlap checks then remain
-  octet-based. This matches the existing BRUSA bootloader flow, which halves record addresses.
-- A native TI word-addressed HEX dialect, including word swapping, remains a possible later output
-  backend rather than an ABI rule.
+A native TI word-addressed HEX dialect, including word swapping, remains a possible later output
+backend rather than an ABI rule. A future output-engine change, potentially using hexy, should own
+that dialect and any output-level checksum transforms.
 
 ## Storage widening seam in conversions
 
-The initial C28x profile will reject `u8`, `i8`, 8-bit fixed-point and strings, so its supported
+The C28x profile rejects `u8`, `i8`, 8-bit fixed-point and strings, so its supported
 scalars retain equal logical and storage widths. If a later explicitly named widened-byte type is
 needed, plumb `ScalarAbi` into `conversions.rs`: `DataValue::to_bytes` currently emits logical
 width, and strings need an explicit one-character-per-word or packed encoding contract.
@@ -28,14 +23,13 @@ width, and strings need an explicit one-character-per-word or packed encoding co
 ## Header generation for 16-bit char targets
 
 Generated assertions now use `sizeof/offsetof * CHAR_BIT == octets * 8u`. Verify them with the TI
-compiler when C28x lands, including nested fields and final aggregate size.
+compiler, including nested fields and final aggregate size.
 
-## New profiles
+## Future profiles
 
-- `ti-c28x-eabi`, plus whichever embedded ABIs part 2 scopes in.
-- Per-profile scalar support: `Abi::scalar` returns `Result` so profiles can reject types
-  (e.g. no `f64`, or `f64` spelled `long double`).
-- `mint abi show` now prints its scalar size/alignment/stride/C-type table from `Abi::scalar`.
+Per-profile scalar support is available through `Abi::scalar`, including rejection and C spelling.
+Qualify compiler-dependent profiles carefully—for example, AVR profiles must identify their
+configured `double` width rather than presenting one ambiguous ABI name.
 
 ## Tooling
 
