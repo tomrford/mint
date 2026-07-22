@@ -194,7 +194,7 @@ For cross-block CRC or non-CRC algorithms, use a separate hex post-processing to
 
 ## Alignment
 
-mint applies **natural C aggregate alignment**. Each integer or fixed-point leaf aligns to its storage width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. All gaps use the block's `padding` byte. The resolved data payload must fit the configured block length and cannot exceed Mint's 256 MiB in-memory materialization limit.
+mint applies the selected ABI profile's **natural C aggregate alignment**. The generic and ARM AAPCS32 profiles align each integer or fixed-point leaf to its storage width, `f32` to 4 octets and `f64` to 8 octets. The TriCore EABI profile instead aligns 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. Generated headers assert every field offset and final structure size against the target compiler. All gaps use the block's `padding` byte. The resolved data payload must fit the configured block length and cannot exceed Mint's 256 MiB in-memory materialization limit.
 
 **This means mint does not support packed structs.** If the target C code uses `__attribute__((packed))`, `#pragma pack(1)`, or similar, the TOML layout will produce different offsets than the firmware expects. There is no way to disable alignment in mint. If the firmware uses packed structs, this is a fundamental incompatibility — raise it with the user immediately.
 
@@ -267,7 +267,7 @@ mint fingerprint layout.toml
 
 # Discover accepted ABI profiles and inspect their effective rules
 mint abi list
-mint abi show generic-le
+mint abi show arm-aapcs32-le
 
 # JSON data source (file or inline)
 mint build layout.toml --json data.json --variants Debug/Default -o out.hex

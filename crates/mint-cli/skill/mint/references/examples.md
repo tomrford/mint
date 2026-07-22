@@ -10,7 +10,7 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 
 | Key   | Type                                | Default      | Description                                      |
 | ----- | ----------------------------------- | ------------ | ------------------------------------------------ |
-| `abi` | `"generic-le"` \| `"generic-be"` | — (required) | Target layout profile; run `mint abi list` to discover accepted names |
+| `abi` | Named profile | — (required) | Target layout profile, such as `"arm-aapcs32-le"` or `"tricore-eabi-le"`; run `mint abi list` to discover accepted names |
 
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 

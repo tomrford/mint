@@ -112,6 +112,29 @@ pointer = { ref = "right", type = "u32" }
 }
 
 #[test]
+fn profile_names_do_not_affect_fingerprints_but_effective_layout_does() {
+    let generic_source = layout_with(
+        r#"
+word = { value = 1, type = "u32" }
+wide = { value = 2, type = "u64" }
+"#,
+    );
+    let generic = fingerprint_of(&generic_source);
+    let arm =
+        fingerprint_of(&generic_source.replace("abi = \"generic-le\"", "abi = \"arm-aapcs32-le\""));
+    let tricore = fingerprint_of(
+        &generic_source.replace("abi = \"generic-le\"", "abi = \"tricore-eabi-le\""),
+    );
+
+    assert_eq!(generic, arm);
+    assert_ne!(generic, tricore);
+
+    let generic_u32 = layout_with("word = { value = 1, type = \"u32\" }");
+    let tricore_u32 = generic_u32.replace("abi = \"generic-le\"", "abi = \"tricore-eabi-le\"");
+    assert_eq!(fingerprint_of(&generic_u32), fingerprint_of(&tricore_u32));
+}
+
+#[test]
 fn self_and_cross_block_fingerprints_are_injected_from_one_intrinsic_map() {
     let source = r#"
 [mint]

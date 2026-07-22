@@ -12,12 +12,15 @@ use super::scalar_type::ScalarType;
 pub enum Abi {
     GenericLe,
     GenericBe,
+    ArmAapcs32Le,
+    TricoreEabiLe,
 }
 
 /// Shared rule set used by one or more named ABI profiles.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AbiFamily {
     GenericNatural,
+    NaturalAlign4,
 }
 
 /// Byte order used to encode multi-byte scalar values.
@@ -60,29 +63,43 @@ pub struct ScalarAbi {
 
 impl Abi {
     /// Profiles accepted by layout parsing and the CLI.
-    pub const ALL: [Self; 2] = [Self::GenericLe, Self::GenericBe];
+    pub const ALL: [Self; 4] = [
+        Self::GenericLe,
+        Self::GenericBe,
+        Self::ArmAapcs32Le,
+        Self::TricoreEabiLe,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::GenericLe => "generic-le",
             Self::GenericBe => "generic-be",
+            Self::ArmAapcs32Le => "arm-aapcs32-le",
+            Self::TricoreEabiLe => "tricore-eabi-le",
         }
     }
 
     pub fn family(self) -> AbiFamily {
-        AbiFamily::GenericNatural
+        match self {
+            Self::GenericLe | Self::GenericBe | Self::ArmAapcs32Le => AbiFamily::GenericNatural,
+            Self::TricoreEabiLe => AbiFamily::NaturalAlign4,
+        }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::GenericLe => "Natural-width, byte-addressed C layout with little-endian values",
-            Self::GenericBe => "Natural-width, byte-addressed C layout with big-endian values",
+            Self::GenericLe => "Natural-width C layout with little-endian values",
+            Self::GenericBe => "Natural-width C layout with big-endian values",
+            Self::ArmAapcs32Le => "ARM AAPCS32 layout with little-endian values",
+            Self::TricoreEabiLe => {
+                "Infineon TriCore EABI layout with little-endian values and 4-byte 64-bit alignment"
+            }
         }
     }
 
     pub fn endianness(self) -> Endianness {
         match self {
-            Self::GenericLe => Endianness::Little,
+            Self::GenericLe | Self::ArmAapcs32Le | Self::TricoreEabiLe => Endianness::Little,
             Self::GenericBe => Endianness::Big,
         }
     }
@@ -92,13 +109,9 @@ impl Abi {
         8
     }
 
-    /// Human-readable scalar types accepted by this profile.
-    pub fn supported_scalar_types(self) -> &'static str {
-        match self.family() {
-            AbiFamily::GenericNatural => {
-                "u8, u16, u32, u64, i8, i16, i32, i64, f32, f64, fixed-point"
-            }
-        }
+    /// Address convention used by the supported text output formats.
+    pub fn output_addressing(self) -> &'static str {
+        "octet addresses (standard Intel HEX and Motorola S-record)"
     }
 
     pub fn scalar(self, scalar: ScalarType) -> Result<ScalarAbi, LayoutError> {
@@ -128,13 +141,14 @@ impl AbiFamily {
     pub const fn name(self) -> &'static str {
         match self {
             Self::GenericNatural => "generic-natural",
+            Self::NaturalAlign4 => "natural-align4",
         }
     }
 
     /// Human-readable aggregate alignment and tail-padding rules.
     pub const fn aggregate_rules(self) -> &'static str {
         match self {
-            Self::GenericNatural => {
+            Self::GenericNatural | Self::NaturalAlign4 => {
                 "aggregates align to their maximum member alignment and pad tails to that alignment"
             }
         }
@@ -143,6 +157,13 @@ impl AbiFamily {
     fn scalar(self, scalar: ScalarType) -> ScalarAbi {
         match self {
             Self::GenericNatural => natural_scalar(scalar),
+            Self::NaturalAlign4 => {
+                let scalar = natural_scalar(scalar);
+                ScalarAbi {
+                    alignment: scalar.alignment.min(4),
+                    ..scalar
+                }
+            }
         }
     }
 }
@@ -250,6 +271,42 @@ mod tests {
         assert_eq!(little, big);
         assert_eq!(Abi::GenericLe.endianness(), Endianness::Little);
         assert_eq!(Abi::GenericBe.endianness(), Endianness::Big);
+    }
+
+    #[test]
+    fn arm_aapcs32_uses_the_generic_natural_layout() {
+        for scalar in [
+            ScalarType::U8,
+            ScalarType::U16,
+            ScalarType::U32,
+            ScalarType::U64,
+            ScalarType::I8,
+            ScalarType::I16,
+            ScalarType::I32,
+            ScalarType::I64,
+            ScalarType::F32,
+            ScalarType::F64,
+        ] {
+            assert_eq!(
+                Abi::ArmAapcs32Le.scalar(scalar).unwrap(),
+                Abi::GenericLe.scalar(scalar).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn tricore_aligns_64_bit_scalars_to_four_bytes() {
+        let scalar = Abi::TricoreEabiLe.scalar(ScalarType::U64).unwrap();
+        assert_eq!(scalar.storage_size, 8);
+        assert_eq!(scalar.alignment, 4);
+        assert_eq!(scalar.array_stride, 8);
+        assert_eq!(
+            Abi::TricoreEabiLe
+                .scalar(ScalarType::F32)
+                .unwrap()
+                .alignment,
+            4
+        );
     }
 
     #[test]

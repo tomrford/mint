@@ -55,8 +55,12 @@ The required `abi` setting selects the layout rules used for every block in the 
 | --- | --- | --- | --- |
 | `generic-le` | natural-width C layout | little-endian | 8 bits |
 | `generic-be` | natural-width C layout | big-endian | 8 bits |
+| `arm-aapcs32-le` | ARM AAPCS32 | little-endian | 8 bits |
+| `tricore-eabi-le` | Infineon TriCore EABI | little-endian | 8 bits |
 
-The profiles share one layout family rather than duplicating the scalar and aggregate rules for each byte order. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective rules. The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices.
+`generic-le`, `generic-be` and `arm-aapcs32-le` share the same natural-width scalar and aggregate rules. TriCore differs by aligning 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
+
+The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices. Both currently use standard octet-addressed Intel HEX or Motorola S-record addresses. Target address-unit semantics, C layout and output record addressing are separate contracts.
 
 ---
 
@@ -83,7 +87,7 @@ Every block name and data field path segment must be a valid C identifier matchi
 
 ### Aggregate alignment
 
-The generic ABI family lays out dotted paths as naturally aligned C aggregates. Each leaf uses its storage width for size, alignment and array stride: integer and fixed-point types align to their exact width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
+Each ABI family lays out dotted paths as naturally aligned C aggregates. Every leaf gets its storage size, alignment and array stride from the selected profile. The generic and ARM profiles align exact-width integers to their width, `f32` to 4 octets and `f64` to 8 octets. TriCore uses 4-octet alignment for 64-bit scalars while retaining 8-octet storage and array stride. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
 
 All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Use `mint abi show` to inspect the selected profile before matching a generated header to a compiler target.
 
@@ -97,6 +101,8 @@ mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
 Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members.
+
+Generated headers include C11 `_Static_assert` checks for every field offset and final structure size. The checks compare `sizeof` and `offsetof` through `CHAR_BIT`, so Mint's octet offsets remain valid on targets whose C addressable unit is wider than 8 bits. Compiling the header with the target compiler therefore verifies that its C ABI agrees with Mint's selected profile.
 
 Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
 

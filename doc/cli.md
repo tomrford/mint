@@ -58,7 +58,7 @@ The command renders and validates the complete header before writing it. Each bl
 
 Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including dangling const names, scalar consts with array sizes, two-dimensional literals, zero-extent arrays, invalid checksum placement, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space.
 
-Generated structs use Mint's natural aggregate alignment contract. The target ABI must align exact-width integers to their width, `float` to 4 bytes, and `double` to 8 bytes.
+Generated structs use the selected ABI profile's aggregate rules and include C11 `_Static_assert` checks for every field offset and final structure size. The checks use `CHAR_BIT` so their expected values remain expressed in octets.
 
 ---
 
@@ -70,13 +70,15 @@ Every layout selects a named ABI profile in `[mint]`. List the accepted names wi
 mint abi list
 ```
 
-Inspect one profile's byte order, addressable unit, supported scalar types and aggregate rules:
+Inspect one profile's byte order, target addressable unit, output-address convention, scalar storage/alignment/stride table and aggregate rules:
 
 ```bash
 mint abi show generic-le
 ```
 
-`generic-le` and `generic-be` use the same natural-width, byte-addressed layout family and differ only in byte order. Output format remains an independent build option: either profile can be rendered as Intel HEX or Motorola S-Record.
+`generic-le`, `generic-be` and `arm-aapcs32-le` use the same natural-width layout family. `tricore-eabi-le` aligns 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. Profile names do not contribute to ABI fingerprints: profiles with the same effective layout and address semantics remain compatible.
+
+Output format remains an independent build option. Intel HEX and Motorola S-record output currently use standard octet addresses; target address-unit semantics and output record addressing are separate contracts.
 
 ---
 

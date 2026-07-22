@@ -55,6 +55,8 @@ fn abi_list_prints_supported_profiles() {
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
     assert!(stdout.contains("generic-le"));
     assert!(stdout.contains("generic-be"));
+    assert!(stdout.contains("arm-aapcs32-le"));
+    assert!(stdout.contains("tricore-eabi-le"));
     assert!(stdout.contains("little-endian"));
     assert!(stdout.contains("big-endian"));
     assert!(output.stderr.is_empty());
@@ -72,8 +74,12 @@ fn abi_show_describes_layout_rules() {
     assert!(stdout.contains("name: generic-le"));
     assert!(stdout.contains("family: generic-natural"));
     assert!(stdout.contains("byte order: little"));
-    assert!(stdout.contains("addressable unit: 8 bits"));
+    assert!(stdout.contains("target addressable unit: 8 bits"));
+    assert!(stdout.contains("output addresses: octet addresses"));
     assert!(stdout.contains("aggregate rules:"));
+    assert!(stdout.contains("type  storage  alignment  stride  C type"));
+    assert!(stdout.contains("u64"));
+    assert!(stdout.contains("all sizes, alignments and strides are in octets"));
     assert!(output.stderr.is_empty());
 }
 
@@ -87,7 +93,26 @@ fn abi_show_rejects_unknown_profiles_with_supported_names() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr is utf8");
     assert!(stderr.contains("unknown ABI 'unknown'"));
-    assert!(stderr.contains("generic-le, generic-be"));
+    assert!(stderr.contains("generic-le, generic-be, arm-aapcs32-le, tricore-eabi-le"));
+}
+
+#[test]
+fn abi_show_reports_tricore_64_bit_alignment() {
+    let output = mint_command()
+        .args(["abi", "show", "tricore-eabi-le"])
+        .output()
+        .expect("mint abi show should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    let u64_row = stdout
+        .lines()
+        .find(|line| line.starts_with("u64"))
+        .expect("u64 row");
+    assert_eq!(
+        u64_row.split_whitespace().collect::<Vec<_>>(),
+        ["u64", "8", "4", "8", "uint64_t"]
+    );
 }
 
 #[test]
