@@ -18,6 +18,8 @@ pub struct BlockStat {
     pub block: String,
     /// Start address in target addressable units.
     pub start_address: u32,
+    /// Width of one target addressable unit.
+    pub address_unit_bits: usize,
     /// Allocated block size in octets.
     pub allocated_size: u32,
     /// Emitted payload size in octets.
@@ -28,6 +30,17 @@ pub struct BlockStat {
 impl BlockStat {
     pub fn display_name(&self) -> String {
         format!("{}#{}", self.layout.display(), self.block)
+    }
+
+    pub fn allocated_address_units(&self) -> u64 {
+        let unit_octets = self.address_unit_bits / 8;
+        debug_assert!(
+            unit_octets > 0
+                && self.address_unit_bits.is_multiple_of(8)
+                && (self.allocated_size as usize).is_multiple_of(unit_octets),
+            "build statistics must contain a whole number of target address units"
+        );
+        u64::from(self.allocated_size) / unit_octets as u64
     }
 }
 
@@ -432,6 +445,7 @@ fn build_single_bytestream(
             layout: resolved.layout.clone(),
             block: resolved.name.clone(),
             start_address: data_range.start_address,
+            address_unit_bits: data_range.address_unit_bits,
             allocated_size: data_range.allocated_size,
             reserved_size: data_range.reserved_size,
             checksum_values: build_output.checksum_values,
