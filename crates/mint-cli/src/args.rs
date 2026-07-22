@@ -2,6 +2,7 @@ use crate::data_args::DataArgs;
 use crate::layout_args::{LayoutArgs, parse_block_arg};
 use crate::output_args::OutputArgs;
 
+use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use mint_core::build::BlockSelector;
 use mint_core::layout::abi::Abi;
@@ -54,9 +55,15 @@ pub enum AbiCommand {
     List,
     #[command(about = "Show layout properties for an ABI")]
     Show {
-        #[arg(value_name = "ABI")]
+        #[arg(value_name = "ABI", value_parser = abi_value_parser())]
         abi: Abi,
     },
+}
+
+/// Enumerates `Abi::ALL` so help output and shell completion list the
+/// profile names without a clap dependency in mint-core.
+fn abi_value_parser() -> impl TypedValueParser<Value = Abi> {
+    PossibleValuesParser::new(Abi::ALL.map(Abi::name)).try_map(|name| name.parse::<Abi>())
 }
 
 #[derive(ClapArgs, Debug)]

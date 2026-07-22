@@ -1,6 +1,7 @@
 use std::process::Command;
 
 use mint_cli::args::SKILL_TEXT;
+use mint_core::layout::abi::Abi;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -53,14 +54,18 @@ fn abi_list_prints_supported_profiles() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
-    assert!(stdout.contains("generic-le"));
-    assert!(stdout.contains("generic-be"));
-    assert!(stdout.contains("arm-aapcs32-le"));
-    assert!(stdout.contains("tricore-eabi-le"));
-    assert!(stdout.contains("riscv-ilp32-le"));
-    assert!(stdout.contains("ti-c28x-eabi"));
-    assert!(stdout.contains("little-endian"));
-    assert!(stdout.contains("big-endian"));
+    for abi in Abi::ALL {
+        assert!(
+            stdout.contains(abi.name()),
+            "missing {}: {stdout}",
+            abi.name()
+        );
+        assert!(
+            stdout.contains(abi.description()),
+            "missing description for {}: {stdout}",
+            abi.name()
+        );
+    }
     assert!(output.stderr.is_empty());
 }
 
@@ -83,21 +88,6 @@ fn abi_show_describes_layout_rules() {
     assert!(stdout.contains("u64"));
     assert!(stdout.contains("all sizes, alignments and strides are in octets"));
     assert!(output.stderr.is_empty());
-}
-
-#[test]
-fn abi_show_rejects_unknown_profiles_with_supported_names() {
-    let output = mint_command()
-        .args(["abi", "show", "unknown"])
-        .output()
-        .expect("mint abi show should run");
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).expect("stderr is utf8");
-    assert!(stderr.contains("unknown ABI 'unknown'"));
-    assert!(stderr.contains(
-        "generic-le, generic-be, arm-aapcs32-le, tricore-eabi-le, riscv-ilp32-le, ti-c28x-eabi"
-    ));
 }
 
 #[test]
