@@ -23,7 +23,7 @@ Global configuration applies to all blocks. The `[mint.checksum]` section define
 
 ```toml
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]      # Named checksum config (can define multiple)
 polynomial = 0x04C11DB7    # CRC polynomial
@@ -47,6 +47,23 @@ ip_octets = [192, 168, 1, 10]
 
 Each block also exposes `<block_name>.start_address` and `<block_name>.length` as consts. These promoted values use the block header values.
 
+### ABI profiles
+
+The required `abi` setting selects the layout rules used for every block in the file. The currently supported profiles are:
+
+| ABI | Family | Byte order | Addressable unit |
+| --- | --- | --- | --- |
+| `generic-le` | natural-width C layout | little-endian | 8 bits |
+| `generic-be` | natural-width C layout | big-endian | 8 bits |
+| `arm-aapcs32-le` | ARM AAPCS32 | little-endian | 8 bits |
+| `tricore-eabi-le` | Infineon TriCore EABI | little-endian | 8 bits |
+| `riscv-ilp32-le` | RISC-V ILP32 | little-endian | 8 bits |
+| `ti-c28x-eabi` | TI C28x EABI | little-endian | 16 bits |
+
+`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride. C28x rejects `u8`, `i8` and 8-bit fixed-point fields because its C library has 16-bit `char` and no exact-width 8-bit integer types. Strings can use `u8` or `u16` storage; C28x strings use `type = "u16"`, with one UTF-8 byte zero-extended into each 16-bit word. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
+
+The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices. Both use standard octet-addressed Intel HEX or Motorola S-record addresses. For C28x, Mint multiplies each target word address by two at the output boundary and requires an even output record width. This deliberately matches byte-addressed image tools and bootloaders; Mint does not currently emit TI's native word-addressed HEX dialect.
+
 ---
 
 ## Block Header
@@ -55,12 +72,12 @@ Each block requires a header section defining the memory region.
 
 ```toml
 [blockname.header]
-start_address = 0x8B000    # Start address in memory (required)
-length = 0x1000            # Block size in bytes
+start_address = 0x8B000    # Start address in target address units (required)
+length = 0x1000            # Block size in octets
 padding = 0xFF             # Padding byte value (default: 0xFF)
 ```
 
-The resolved data aggregate must fit within `length` and cannot exceed 256 MiB. Mint materializes block payloads in memory and rejects larger layouts before allocation.
+The resolved data aggregate must fit within `length` and cannot exceed 256 MiB. Mint materializes block payloads in memory and rejects larger layouts before allocation. For profiles with addressable units wider than one octet, `length` and every resolved block size must be divisible by the address-unit width.
 
 ---
 
@@ -72,9 +89,9 @@ Every block name and data field path segment must be a valid C identifier matchi
 
 ### Aggregate alignment
 
-Mint lays out dotted paths as naturally aligned C aggregates. Each leaf uses its storage width for size and alignment: integer and fixed-point types align to their exact width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
+Each ABI family lays out dotted paths as naturally aligned C aggregates. Every leaf gets its storage size, alignment and array stride from the selected profile. The generic, ARM and RISC-V profiles align exact-width integers to their width, `f32` to 4 octets and `f64` to 8 octets. TriCore and C28x use 4-octet alignment for 64-bit scalars while retaining 8-octet storage and array stride. Each branch aligns to the maximum alignment of its children. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
 
-All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Target ABIs with different alignment rules remain the caller's responsibility.
+All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Use `mint abi show` to inspect the selected profile before matching a generated header to a compiler target.
 
 ### C header generation
 
@@ -86,6 +103,8 @@ mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
 Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members.
+
+Generated headers include C11 `_Static_assert` checks for every field offset and final structure size. The checks compare `sizeof` and `offsetof` through `CHAR_BIT`, so Mint's octet offsets remain valid on targets whose C addressable unit is wider than 8 bits. Compiling the header with the target compiler therefore verifies that its C ABI agrees with Mint's selected profile.
 
 Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
 
@@ -169,7 +188,7 @@ len = { const = "app.length", type = "u32" }
 
 ### Strings
 
-Strings use `u8` type with `size` for fixed-length fields.
+Strings use `u8` or `u16` type with `size` for fixed-length fields. Mint encodes the UTF-8 bytes, not Unicode code points. Each byte occupies one scalar element and is zero-extended to the storage width in ABI byte order, so `size = N` reserves `N` elements. C28x strings use `type = "u16"`, with one UTF-8 byte per 16-bit word.
 
 ```toml
 [block.data]
@@ -178,6 +197,9 @@ message = { value = "Hello", type = "u8", size = 16 }
 
 # From data source
 device.name = { name = "DeviceName", type = "u8", size = 16 }
+
+# C28x string (one UTF-8 byte per 16-bit word)
+c28x_message = { value = "Hello", type = "u16", size = 16 }
 ```
 
 ### Arrays
@@ -239,7 +261,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 - fixed-point types are not valid with `ref`
 - `size`/`SIZE` cannot be used with `ref`
 - The target path must exist within the same block — cross-block refs are not supported
-- The resolved address is `start_address + target_offset`
+- The resolved address is `start_address + target_offset_octets / address_unit_octets`
 - The target path is validated from the resolved layout before field values are emitted
 - The resolved address must fit the ref's `u16`, `u32` or `u64` storage type
 - Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
@@ -259,7 +281,7 @@ manifest_schema = { fingerprint = true, type = "u64" }
 
 Build and header generation fully validate selected blocks and calculate fingerprints only for the blocks referenced by their fingerprint fields. Fingerprint target blocks have their ABIs resolved and shape-checked, but are not otherwise fully validated unless they are also selected. A named `mint fingerprint layout.toml#block` selector fully validates and fingerprints that block, resolves the ABI shape of its fingerprint targets and does not resolve unrelated siblings. `mint fingerprint layout.toml` fully validates and fingerprints every block in declaration order. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
 
-The fingerprint covers endianness and the resolved, nameless ABI: aggregate shape, offsets, sizes, alignments, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved offset and target kind rather than their name. Block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
+The fingerprint covers the effective, nameless ABI: byte order, address-unit width, aggregate shape, offsets, scalar storage sizes, alignments, array strides, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved address-unit offset and target kind rather than their name. The ABI profile name, block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
 
 Fingerprint fields require `type = "u64"` and cannot use `size` or `SIZE`. The marker and referenced fingerprint value are not inputs to the containing block's own fingerprint; the field contributes as a normal `u64` at its resolved position. This keeps self-fingerprints non-recursive and prevents cross-block dependency cycles.
 
@@ -309,7 +331,7 @@ A single layout file can define multiple blocks, each with its own checksum conf
 
 ```toml
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7

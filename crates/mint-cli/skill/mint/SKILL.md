@@ -15,7 +15,7 @@ A layout file has three levels: global config, per-block headers, and per-block 
 
 ```toml
 [mint]                    # Global config (required)
-endianness = "little"     # Required: "little" or "big"
+abi = "generic-le"       # Required; discover profiles with `mint abi list`
 
 [mint.checksum.crc32]     # Named CRC config (define as many as needed)
 polynomial = 0x04C11DB7
@@ -29,8 +29,8 @@ default_voltage = 3.3
 fw_name = "BootloaderV2"
 
 [myblock.header]          # Per-block memory region
-start_address = 0x8000    # Required — base address in flash
-length = 0x1000           # Required — allocated size; resolved data must fit
+start_address = 0x8000    # Required — base address in target address units
+length = 0x1000           # Required — allocated octets; resolved data must fit
 padding = 0xFF            # Array, alignment, and tail fill byte (default: 0xFF)
 
 [myblock.data]            # Field definitions (dotted paths = nested structs)
@@ -57,8 +57,8 @@ When setting up mint for a project, these parameters need to be established. If 
 
 **From the hardware/firmware side:**
 
-- **Endianness** — little or big. Check target MCU architecture or existing byte-swap calls.
-- **Block addresses and sizes** — from linker script, memory map, or flash layout documentation. Each block needs a `start_address` and `length`.
+- **ABI profile** — select the target's byte order and layout rules. Run `mint abi list` and `mint abi show ABI` to inspect the supported choices.
+- **Block addresses and sizes** — from linker script, memory map, or flash layout documentation. Each block needs a `start_address` in target address units and a `length` in octets.
 - **Padding byte** — usually `0xFF` (erased flash state) but confirm. Some platforms use `0x00`.
 - **CRC algorithm** — if blocks need integrity checks, you need the polynomial, initial value, XOR-out, and reflection settings. Check existing CRC routines or documentation.
 - **Struct layout** — C header files defining the structs that live at each flash address. These become the `[block.data]` fields.
@@ -94,7 +94,7 @@ message = { value = "Hello", type = "u8", size = 16 }
 ip_addr = { value = [192, 168, 1, 1], type = "u8", size = 4 }
 ```
 
-Strings and arrays require `size`. Strings are UTF-8 encoded into the byte array.
+Strings and arrays require `size`. Strings use `u8` or `u16` storage. Each UTF-8 byte occupies one scalar element and is zero-extended to the storage width in ABI byte order, so `size` counts elements rather than Unicode code points. C28x strings use `type = "u16"`, one byte per 16-bit word.
 
 ### Reusable constants (`const`)
 
@@ -155,7 +155,7 @@ table_ptr = { ref = "table", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
 ```
 
-The ref target is a dotted path rooted at the block's data section and is validated before field values are emitted. Refs resolve to `start_address + field_offset`, which must fit the selected storage type. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
+The ref target is a dotted path rooted at the block's data section and is validated before field values are emitted. Refs resolve to `start_address + field_offset_octets / address_unit_octets`, which must fit the selected storage type. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
 
 ### ABI fingerprints (`fingerprint`)
 
@@ -169,7 +169,7 @@ schema = { fingerprint = true, type = "u64" }
 config_schema = { fingerprint = "config", type = "u64" }
 ```
 
-Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the nameless resolved ABI: endianness, types, dimensions, offsets, alignment, bitmap widths and ref topology. Names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
+Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the effective, nameless ABI: byte order, address-unit width, types, dimensions, offsets, storage sizes, alignment, array strides, bitmap widths and ref topology. ABI names, field names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
 
 ### Checksums (`checksum`)
 
@@ -194,7 +194,7 @@ For cross-block CRC or non-CRC algorithms, use a separate hex post-processing to
 
 ## Alignment
 
-mint applies **natural C aggregate alignment**. Each integer or fixed-point leaf aligns to its storage width, `f32` aligns to 4 bytes, and `f64` aligns to 8 bytes. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. All gaps use the block's `padding` byte. The resolved data payload must fit the configured block length and cannot exceed Mint's 256 MiB in-memory materialization limit.
+mint applies the selected ABI profile's **natural C aggregate alignment**. The generic, ARM AAPCS32 and RISC-V ILP32 profiles align each integer or fixed-point leaf to its storage width, `f32` to 4 octets and `f64` to 8 octets. The TriCore and TI C28x EABI profiles instead align 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. C28x rejects exact-width 8-bit fields. Its strings therefore use `type = "u16"`, with one UTF-8 byte per 16-bit word. Its standard HEX/S-record output uses octet addresses equal to twice the target word address. Each dotted-path branch aligns to the maximum alignment of its children, preserves parsed child order, and receives tail padding before the next sibling. The root data struct also receives tail padding, so its reserved size matches `sizeof` under this ABI. Generated headers assert every field offset and final structure size against the target compiler. All gaps use the block's `padding` byte. The resolved data payload must fit the configured block length and cannot exceed Mint's 256 MiB in-memory materialization limit.
 
 **This means mint does not support packed structs.** If the target C code uses `__attribute__((packed))`, `#pragma pack(1)`, or similar, the TOML layout will produce different offsets than the firmware expects. There is no way to disable alignment in mint. If the firmware uses packed structs, this is a fundamental incompatibility — raise it with the user immediately.
 
@@ -264,6 +264,10 @@ mint header layout.toml -o layout.h
 # ABI fingerprints without a data source or build
 mint fingerprint layout.toml#config
 mint fingerprint layout.toml
+
+# Discover accepted ABI profiles and inspect their effective rules
+mint abi list
+mint abi show arm-aapcs32-le
 
 # JSON data source (file or inline)
 mint build layout.toml --json data.json --variants Debug/Default -o out.hex

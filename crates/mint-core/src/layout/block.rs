@@ -1,9 +1,9 @@
+use super::abi::{Abi, Endianness, ScalarAbi};
 use super::entry::{EntrySource, LeafEntry};
 use super::error::{LayoutError, in_field_path};
 use super::header::Header;
 use super::resolved::{ResolvedLayout, validate_static};
-use super::scalar_type::ScalarType;
-use super::settings::{Endianness, MintConfig};
+use super::settings::MintConfig;
 use super::used_values::ValueSink;
 use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
@@ -18,7 +18,7 @@ use std::fmt;
 struct PendingChecksum {
     leaf_index: usize,
     buffer_position: usize,
-    scalar_type: ScalarType,
+    scalar_abi: ScalarAbi,
     config_name: String,
     field_path: Vec<String>,
 }
@@ -50,7 +50,7 @@ impl ValueSink for StagingValueSink<'_> {
 }
 
 pub(crate) struct BuildConfig<'a> {
-    pub(crate) endianness: &'a Endianness,
+    pub(crate) abi: Abi,
     pub(crate) padding: u8,
     pub(crate) strict: bool,
     pub(crate) consts: &'a HashMap<String, ValueSource>,
@@ -160,7 +160,7 @@ impl Block {
         let resolved = validate_static(self, settings)?;
         let total_size = resolved.total_size();
         let config = BuildConfig {
-            endianness: &settings.endianness,
+            abi: settings.abi,
             padding: self.header.padding,
             strict,
             consts: &settings.consts,
@@ -175,7 +175,9 @@ impl Block {
         let mut pending_checksums = Vec::new();
         let mut pending_values = Vec::new();
 
-        for (leaf_index, (path, coordinates, leaf)) in resolved.emission_leaves().enumerate() {
+        for (leaf_index, (path, coordinates, scalar_abi, leaf)) in
+            resolved.emission_leaves().enumerate()
+        {
             let field_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
             let mut staging_sink = StagingValueSink {
                 leaf_index,
@@ -197,11 +199,11 @@ impl Block {
                         pending_checksums.push(PendingChecksum {
                             leaf_index,
                             buffer_position: coordinates.offset,
-                            scalar_type: leaf.scalar_type,
+                            scalar_abi,
                             config_name: config_name.clone(),
                             field_path: field_path.clone(),
                         });
-                        Ok(vec![0; leaf.scalar_type.size_bytes()])
+                        Ok(vec![0; scalar_abi.storage_size])
                     }
                     EntrySource::Fingerprint(target) => {
                         let target_name = target.block_name(block_name);
@@ -213,7 +215,7 @@ impl Block {
                         })?;
                         let bytes = DataValue::U64(*value).to_bytes(
                             leaf.scalar_type,
-                            config.endianness,
+                            config.abi.endianness(),
                             true,
                         )?;
                         staging_sink.record_value(
@@ -222,7 +224,13 @@ impl Block {
                         )?;
                         Ok(bytes)
                     }
-                    _ => leaf.emit_bytes(data_source, &config, &mut staging_sink, &field_path),
+                    _ => leaf.emit_bytes(
+                        data_source,
+                        &config,
+                        &mut staging_sink,
+                        &field_path,
+                        scalar_abi,
+                    ),
                 }
             })()
             .map_err(|error| in_field_path(path, error))?;
@@ -292,11 +300,7 @@ impl Block {
                 "Ref target '{target}' not found in resolved layout."
             ))
         })?;
-        let target_offset = u64::try_from(target_offset.offset).map_err(|_| {
-            LayoutError::DataValueExportFailed(format!(
-                "Address overflow resolving ref to '{target}'."
-            ))
-        })?;
+        let target_offset = config.abi.offset_to_address_units(target_offset.offset)?;
         let address = u64::from(header.start_address)
             .checked_add(target_offset)
             .ok_or_else(|| {
@@ -304,7 +308,8 @@ impl Block {
                     "Address overflow resolving ref to '{target}'."
                 ))
             })?;
-        let bytes = DataValue::U64(address).to_bytes(leaf.scalar_type, config.endianness, true)?;
+        let bytes =
+            DataValue::U64(address).to_bytes(leaf.scalar_type, config.abi.endianness(), true)?;
         value_sink.record_value(
             field_path,
             serde_json::Value::Number(serde_json::Number::from(address)),
@@ -323,11 +328,11 @@ impl Block {
         for pending in pending_checksums {
             let crc_config = settings.checksum_config(&pending.config_name)?;
             let crc_val = checksum::calculate_crc(&buffer[..pending.buffer_position], crc_config);
-            let crc_bytes = match config.endianness {
+            let crc_bytes = match config.abi.endianness() {
                 Endianness::Big => crc_val.to_be_bytes(),
                 Endianness::Little => crc_val.to_le_bytes(),
             };
-            let size = pending.scalar_type.size_bytes();
+            let size = pending.scalar_abi.storage_size;
             buffer[pending.buffer_position..pending.buffer_position + size]
                 .copy_from_slice(&crc_bytes[..size]);
             pending_values.push(PendingValueRecord {
@@ -363,7 +368,7 @@ mod tests {
         let config = crate::layout::parse_toml_layout(
             r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -413,7 +418,7 @@ checksum_two = { checksum = "crc32", type = "u32" }
         let config = crate::layout::parse_toml_layout(
             r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000

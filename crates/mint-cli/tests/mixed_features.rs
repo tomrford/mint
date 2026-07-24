@@ -18,7 +18,7 @@ fn mixed_feature_matrix() {
     // Build two layouts to cover multiple settings
     let layout_be_pad_addr = r#"
 [mint]
-endianness = "big"
+abi = "generic-be"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -41,7 +41,7 @@ checksum = { checksum = "crc32", type = "u32" }
 
     let layout_le_end = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7

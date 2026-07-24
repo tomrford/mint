@@ -22,6 +22,10 @@ fn main() -> ExitCode {
         Command::Build(args) => run_command(|| run_build(&args)),
         Command::Header(args) => run_command(|| commands::header(&args)),
         Command::Fingerprint(args) => run_command(|| commands::fingerprint(&args)),
+        Command::Abi(args) => {
+            commands::abi(&args);
+            ExitCode::SUCCESS
+        }
         Command::Skill => {
             print!("{SKILL_TEXT}");
             ExitCode::SUCCESS

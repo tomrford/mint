@@ -6,6 +6,8 @@ mint builds flash blocks from layout files and data sources, and generates match
 mint build [OPTIONS] [FILE[#BLOCK] | FILE]...
 mint header [FILE[#BLOCK] | FILE]... -o FILE
 mint fingerprint FILE[#BLOCK]
+mint abi list
+mint abi show ABI
 mint skill
 ```
 
@@ -56,7 +58,27 @@ The command renders and validates the complete header before writing it. Each bl
 
 Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including dangling const names, scalar consts with array sizes, two-dimensional literals, zero-extent arrays, invalid checksum placement, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space.
 
-Generated structs use Mint's natural aggregate alignment contract. The target ABI must align exact-width integers to their width, `float` to 4 bytes, and `double` to 8 bytes.
+Generated structs use the selected ABI profile's aggregate rules and include C11 `_Static_assert` checks for every field offset and final structure size. The checks use `CHAR_BIT` so their expected values remain expressed in octets.
+
+---
+
+## ABI discovery
+
+Every layout selects a named ABI profile in `[mint]`. List the accepted names without parsing a layout:
+
+```bash
+mint abi list
+```
+
+Inspect one profile's byte order, target addressable unit, output-address convention, scalar storage/alignment/stride table and aggregate rules:
+
+```bash
+mint abi show generic-le
+```
+
+`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` use the same natural-width layout family. `tricore-eabi-le` and `ti-c28x-eabi` align 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. Strings use `u8` or `u16` storage, with each UTF-8 byte zero-extended into one scalar element in ABI byte order. C28x rejects exact-width 8-bit fields, so its strings use `type = "u16"`, one byte per 16-bit word. Profile names do not contribute to ABI fingerprints: profiles with the same effective layout and address semantics remain compatible.
+
+Output format remains an independent build option. Intel HEX and Motorola S-record output use standard octet addresses. For C28x, record addresses are twice the target word address and record width must be an even number of octets. Mint does not currently emit TI's native word-addressed HEX dialect.
 
 ---
 
@@ -69,7 +91,7 @@ mint fingerprint layout.toml#config
 ```
 
 ```text
-3e02a8698c5e7d0e
+206a2310660bb1cf
 ```
 
 Selecting a file fully validates every block and prints them in declaration order as `<block> <fingerprint>`:
@@ -79,8 +101,8 @@ mint fingerprint layout.toml
 ```
 
 ```text
-config 3e02a8698c5e7d0e
-data 57ddcf99766ea79b
+config 206a2310660bb1cf
+data c1c13126ea0f1e6b
 ```
 
 Stdout contains only these values. Diagnostics use stderr and failures return a non-zero exit code, so the command is suitable for build-system extraction. The fingerprint is also available as a macro when `mint header` encounters a `fingerprint` field.

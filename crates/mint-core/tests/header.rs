@@ -21,7 +21,7 @@ fn maps_all_scalar_fixed_point_and_storage_types() {
         "header-types",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -99,7 +99,7 @@ fn emits_fingerprint_values_for_firmware_comparison() {
         "header-fingerprint",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
@@ -120,7 +120,7 @@ pointer = { ref = "missing", type = "u32" }
         |path| vec![BlockSelector::named(path, "block")],
     );
 
-    assert!(header.contains("#define BLOCK_SCHEMA_FINGERPRINT UINT64_C(0x636CA69EB274AAFA)"));
+    assert!(header.contains("#define BLOCK_SCHEMA_FINGERPRINT UINT64_C(0x9F2050E2FAA654D7)"));
     assert!(header.contains("uint64_t schema; /* fingerprint */"));
 }
 
@@ -128,7 +128,7 @@ pointer = { ref = "missing", type = "u32" }
 fn emits_array_macros_nested_structs_and_selected_order_deterministically() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [first.header]
 start_address = 0
@@ -174,12 +174,78 @@ value = { value = 3, type = "u8" }
 }
 
 #[test]
+fn emits_profile_aware_layout_assertions() {
+    let source = |abi: &str| {
+        format!(
+            r#"
+[mint]
+abi = "{abi}"
+
+[block.header]
+start_address = 0
+length = 0x20
+
+[block.data]
+word = {{ value = 1, type = "u32" }}
+nested.wide = {{ value = 2, type = "u64" }}
+"#
+        )
+    };
+
+    let arm = generate("header-arm-assertions", &source("arm-aapcs32-le"), |path| {
+        vec![BlockSelector::all(path)]
+    });
+    assert!(arm.contains("#include <limits.h>"));
+    assert!(arm.contains("#include <stddef.h>"));
+    assert!(arm.contains("_Static_assert(offsetof(block_t, nested.wide) * CHAR_BIT == 8u * 8u"));
+    assert!(arm.contains("_Static_assert(sizeof(block_t) * CHAR_BIT == 16u * 8u"));
+
+    let tricore = generate(
+        "header-tricore-assertions",
+        &source("tricore-eabi-le"),
+        |path| vec![BlockSelector::all(path)],
+    );
+    assert!(
+        tricore.contains("_Static_assert(offsetof(block_t, nested.wide) * CHAR_BIT == 4u * 8u")
+    );
+    assert!(tricore.contains("_Static_assert(sizeof(block_t) * CHAR_BIT == 12u * 8u"));
+
+    let c28x = generate("header-c28x-assertions", &source("ti-c28x-eabi"), |path| {
+        vec![BlockSelector::all(path)]
+    });
+    assert!(c28x.contains("_Static_assert(offsetof(block_t, nested.wide) * CHAR_BIT == 4u * 8u"));
+    assert!(c28x.contains("_Static_assert(sizeof(block_t) * CHAR_BIT == 12u * 8u"));
+}
+
+#[test]
+fn c28x_rejects_exact_width_8_bit_fields() {
+    let message = error(
+        "header-c28x-u8",
+        r#"
+[mint]
+abi = "ti-c28x-eabi"
+[block.header]
+start_address = 0
+length = 16
+[block.data]
+value = { value = 1, type = "u8" }
+"#,
+    );
+
+    assert!(
+        message.contains("does not support scalar type u8"),
+        "{message}"
+    );
+    assert!(message.contains("16-bit char"), "{message}");
+}
+
+#[test]
 fn rejects_names_that_collapse_to_the_same_macro() {
     let array_collision = error(
         "header-array-collision",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 32
@@ -194,7 +260,7 @@ foo_bar = { name = "Two", type = "u8", size = 2 }
         "header-bitmap-collision",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 16
@@ -211,7 +277,7 @@ flags = { type = "u8", bitmap = [
         "header-block-collision",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [fooBar.header]
 start_address = 0
 length = 16
@@ -233,7 +299,7 @@ fn delegates_dangling_const_and_oversized_block_validation() {
         "header-oversized",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 4
@@ -243,7 +309,7 @@ value = { value = 1, type = "u64" }
     );
     assert!(
         oversized
-            .contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+            .contains("resolved layout size (8 octets) exceeds configured block length (4 octets)"),
         "{oversized}"
     );
 
@@ -251,7 +317,7 @@ value = { value = 1, type = "u64" }
         "header-missing-const",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 16

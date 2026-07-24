@@ -52,8 +52,8 @@ pub fn print_detailed(stats: &BuildStats) {
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
             Cell::new("Block").add_attribute(Attribute::Bold),
-            Cell::new("Address Range").add_attribute(Attribute::Bold),
-            Cell::new("Reserved/Alloc").add_attribute(Attribute::Bold),
+            Cell::new("Address Range (target units)").add_attribute(Attribute::Bold),
+            Cell::new("Reserved/Allocated (bytes)").add_attribute(Attribute::Bold),
             Cell::new("Space Reserved").add_attribute(Attribute::Bold),
             Cell::new("Checksum Value").add_attribute(Attribute::Bold),
         ]);
@@ -63,7 +63,7 @@ pub fn print_detailed(stats: &BuildStats) {
             Cell::new(block.display_name()),
             Cell::new(format_address_range(
                 block.start_address,
-                block.allocated_size,
+                block.allocated_address_units(),
             )),
             Cell::new(format!(
                 "{}/{}",

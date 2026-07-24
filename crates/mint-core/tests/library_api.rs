@@ -79,7 +79,7 @@ fn build_rejects_range_that_exceeds_address_space() {
     let config = layout::parse_toml_layout(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [oversized.header]
 start_address = 0xFFFFFFF0
@@ -108,6 +108,156 @@ value = { value = 1, type = "u8" }
         message.contains("block 'oversized' from 'overflow.toml'")
             && message.contains("exceeds the 32-bit address space"),
         "unexpected error: {message}"
+    );
+}
+
+#[test]
+fn c28x_build_renders_standard_octet_addresses() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+abi = "ti-c28x-eabi"
+
+[block.header]
+start_address = 0x1000
+length = 8
+
+[block.data]
+first = { value = 0x1234, type = "u16" }
+label = { value = "OK", type = "u16", size = 2 }
+second = { value = 0x5678, type = "u16" }
+"#,
+    )
+    .expect("layout string should parse");
+
+    let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("c28x.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("c28x.toml", "block")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect("C28x block should build");
+
+    assert_eq!(artifact.ranges[0].start_address, 0x1000);
+    assert_eq!(artifact.ranges[0].output_start_address().unwrap(), 0x2000);
+    assert_eq!(
+        artifact.ranges[0].bytestream,
+        [0x34, 0x12, 0x4F, 0x00, 0x4B, 0x00, 0x78, 0x56]
+    );
+    let output = artifact.render(OutputFormat::Hex, 16).expect("hex renders");
+    assert!(
+        output.lines().any(|line| line.starts_with(":08200000")),
+        "{output}"
+    );
+}
+
+#[test]
+fn u16_strings_encode_utf8_bytes_in_abi_byte_order() {
+    for (abi, expected) in [
+        ("generic-le", [0x41, 0x00, 0xC3, 0x00, 0xA9, 0x00]),
+        ("generic-be", [0x00, 0x41, 0x00, 0xC3, 0x00, 0xA9]),
+    ] {
+        let source = format!(
+            r#"
+[mint]
+abi = "{abi}"
+
+[block.header]
+start_address = 0
+length = 6
+
+[block.data]
+label = {{ value = "Aé", type = "u16", size = 3 }}
+"#
+        );
+        let config = layout::parse_toml_layout(&source).expect("layout string should parse");
+        let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
+            layouts: vec![NamedLayout {
+                name: PathBuf::from("string.toml"),
+                config,
+            }],
+            blocks: vec![BlockSelector::named("string.toml", "block")],
+            data_source: None,
+            strict: false,
+            capture_values: false,
+        })
+        .expect("u16 string should build");
+
+        assert_eq!(artifact.ranges[0].bytestream, expected, "ABI {abi}");
+    }
+}
+
+#[test]
+fn strings_reject_non_byte_storage_types() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+abi = "generic-le"
+
+[block.header]
+start_address = 0
+length = 2
+
+[block.data]
+label = { value = "A", type = "i16", size = 1 }
+"#,
+    )
+    .expect("layout string should parse");
+
+    let error = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("invalid-string.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("invalid-string.toml", "block")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect_err("non-u8/u16 string storage should fail");
+
+    assert!(
+        common::error_chain(&error).contains("Strings should have type u8 or u16."),
+        "{error}"
+    );
+}
+
+#[test]
+fn c28x_rejects_scaled_output_address_overflow() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+abi = "ti-c28x-eabi"
+
+[overflow.header]
+start_address = 0x80000000
+length = 2
+
+[overflow.data]
+value = { value = 1, type = "u16" }
+"#,
+    )
+    .expect("layout string should parse");
+
+    let error = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("c28x-overflow.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::named("c28x-overflow.toml", "overflow")],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect_err("scaled C28x range should be rejected");
+
+    assert!(
+        common::error_chain(&error).contains("octet-addressed output range"),
+        "{error}"
     );
 }
 

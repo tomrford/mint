@@ -9,7 +9,7 @@ mod common;
 fn fixed_point_literals_and_arrays_encode_little_endian() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -35,7 +35,7 @@ samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
 fn fixed_point_signed_big_endian_values_encode() {
     let layout = r#"
 [mint]
-endianness = "big"
+abi = "generic-be"
 
 [block.header]
 start_address = 0x80000
@@ -56,7 +56,7 @@ unit = { value = 1.0, type = "uq8.8" }
 fn fixed_point_json_values_and_2d_arrays_encode() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -87,7 +87,7 @@ grid = { name = "Grid", type = "uq8.8", size = [2, 2] }
 fn fixed_point_used_values_report_resolved_numbers() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -110,7 +110,7 @@ samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
 fn fixed_point_strict_rejects_overflow_and_non_strict_clamps() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -138,7 +138,7 @@ gain = { value = 300.5, type = "uq8.8" }
 fn fixed_point_64bit_float_overflow_clamps_in_non_strict_mode() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -172,7 +172,7 @@ signed_limit = { value = 9223372036854775808.0, type = "q63.0" }
 fn fixed_point_rejects_non_finite_input() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -195,7 +195,7 @@ gain = { value = inf, type = "uq8.8" }
 fn fixed_point_export_json_reports_resolved_numbers() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [config.header]
 start_address = 0x1000
@@ -242,7 +242,7 @@ fn fixed_point_rejects_bitmap_ref_and_checksum_storage() {
             "fixed-point-bitmap",
             r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -261,7 +261,7 @@ flags = { type = "uq8.8", bitmap = [
             "fixed-point-ref",
             r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -278,7 +278,7 @@ ptr = { ref = "target", type = "uq8.8" }
             "fixed-point-checksum",
             r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7

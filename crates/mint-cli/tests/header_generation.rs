@@ -64,7 +64,7 @@ _Static_assert(CONFIG_MATRIX_ROWS == 2u, "matrix rows");
 _Static_assert(CONFIG_MATRIX_COLS == 2u, "matrix columns");
 _Static_assert(CONFIG_FLAGS_ENABLE_DEBUG_SHIFT == 0u, "bitmap shift");
 _Static_assert(CONFIG_FLAGS_REGION_CODE_MASK == UINT16_C(0x00F0), "bitmap mask");
-_Static_assert(CONFIG_SCHEMA_FINGERPRINT == UINT64_C(0x3E02A8698C5E7D0E), "config fingerprint");
+_Static_assert(CONFIG_SCHEMA_FINGERPRINT == UINT64_C(0x206A2310660BB1CF), "config fingerprint");
 _Static_assert(DATA_CONFIG_SCHEMA_FINGERPRINT == CONFIG_SCHEMA_FINGERPRINT, "cross-block fingerprint");
 _Static_assert(offsetof(config_t, schema) == 0u, "schema offset");
 _Static_assert(offsetof(config_t, device.id) == 8u, "device id offset");
@@ -106,7 +106,7 @@ fn validation_failure_does_not_touch_output() {
         "invalid-header",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 [block.header]
 start_address = 0
 length = 16

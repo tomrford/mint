@@ -10,7 +10,7 @@ fn const_layout(data: &str) -> String {
     format!(
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.const]
 magic = 0xDEADBEEF
@@ -100,7 +100,7 @@ fn const_rejects_collision_with_promoted_header_name() {
         "const_collision",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.const]
 "block.start_address" = 0x2000
@@ -124,7 +124,7 @@ fn const_rejects_nested_tables_during_deserialization() {
         "const_nested",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.const.block]
 length = 0x40

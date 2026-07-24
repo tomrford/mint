@@ -21,7 +21,7 @@ fn oversized_layout_fails_during_block_build() {
         "oversized_layout",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [oversized.header]
 start_address = 0x80000
@@ -41,7 +41,8 @@ value = { value = 1, type = "u64" }
             if matches!(source.as_ref(), MintError::Layout(LayoutError::InvalidLayout(_)))
     ));
     assert!(
-        chain.contains("resolved layout size (8 bytes) exceeds configured block length (4 bytes)"),
+        chain
+            .contains("resolved layout size (8 octets) exceeds configured block length (4 octets)"),
         "{chain}"
     );
 }
@@ -54,7 +55,7 @@ fn materialized_block_limit_fails_before_allocation() {
         &format!(
             r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0
@@ -81,7 +82,7 @@ fn zero_extent_arrays_fail_during_block_build() {
         "zero_extent_layout",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
@@ -107,7 +108,7 @@ fn two_dimensional_literals_fail_during_block_build() {
         "two_dimensional_literal",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
@@ -133,7 +134,7 @@ fn lowercase_size_allows_padding() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -160,7 +161,7 @@ fn uppercase_size_rejects_underfilled_1d() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -193,7 +194,7 @@ fn uppercase_size_rejects_underfilled_2d() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -222,7 +223,7 @@ fn both_size_and_uppercase_size_errors() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000
@@ -252,7 +253,7 @@ fn uppercase_size_accepts_exact_match() {
 
     let layout_toml = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x80000

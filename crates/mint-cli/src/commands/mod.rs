@@ -1,9 +1,11 @@
 mod writer;
 
-use crate::args::{Args, FingerprintArgs, HeaderArgs};
+use crate::args::{AbiArgs, AbiCommand, Args, FingerprintArgs, HeaderArgs};
 use mint_core::build::{self, BuildRequest, BuildStats};
 use mint_core::data::DataSource;
 use mint_core::error::MintError;
+use mint_core::layout::abi::Abi;
+use mint_core::layout::scalar_type::ScalarType;
 use mint_core::output::{self, OutputFile};
 use writer::{write_output, write_text};
 
@@ -25,6 +27,53 @@ pub fn fingerprint(args: &FingerprintArgs) -> Result<(), MintError> {
         }
     }
     Ok(())
+}
+
+pub fn abi(args: &AbiArgs) {
+    match args.command {
+        AbiCommand::List => {
+            for abi in Abi::ALL {
+                println!("{:<18} {}", abi.name(), abi.description());
+            }
+        }
+        AbiCommand::Show { abi } => {
+            println!("name: {}", abi.name());
+            println!("family: {}", abi.family());
+            println!("description: {}", abi.description());
+            println!("byte order: {}", abi.endianness());
+            println!("target addressable unit: {} bits", abi.address_unit_bits());
+            println!("output addresses: {}", abi.output_addressing());
+            println!("aggregate rules: {}", abi.family().aggregate_rules());
+            println!();
+            println!("type  storage  alignment  stride  C type");
+            for scalar in [
+                ScalarType::U8,
+                ScalarType::I8,
+                ScalarType::U16,
+                ScalarType::I16,
+                ScalarType::U32,
+                ScalarType::I32,
+                ScalarType::U64,
+                ScalarType::I64,
+                ScalarType::F32,
+                ScalarType::F64,
+            ] {
+                match abi.scalar(scalar) {
+                    Ok(layout) => println!(
+                        "{:<4}  {:>7}  {:>9}  {:>6}  {}",
+                        scalar,
+                        layout.storage_size,
+                        layout.alignment,
+                        layout.array_stride,
+                        layout.c_type
+                    ),
+                    Err(_) => println!("{scalar:<4}  unsupported"),
+                }
+            }
+            println!("all sizes, alignments and strides are in octets");
+            println!("fixed-point values use the matching-width signed or unsigned integer layout");
+        }
+    }
 }
 
 pub fn build(args: &Args, data_source: Option<&dyn DataSource>) -> Result<BuildStats, MintError> {

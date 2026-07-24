@@ -1,11 +1,11 @@
 use crate::build::{BlockSelector, resolve_blocks};
 use crate::error::MintError;
+use crate::layout::abi::Abi;
 use crate::layout::block::{Block, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
-use crate::layout::resolved::validate_static;
-use crate::layout::scalar_type::ScalarType;
+use crate::layout::resolved::{ResolvedNode, validate_static};
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
@@ -69,7 +69,9 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     }
 
     let guard = format!("MINT_{}_H", guard_parts.join("_"));
-    let mut output = format!("#ifndef {guard}\n#define {guard}\n\n#include <stdint.h>\n");
+    let mut output = format!(
+        "#ifndef {guard}\n#define {guard}\n\n#include <limits.h>\n#include <stddef.h>\n#include <stdint.h>\n"
+    );
 
     let macros = rendered
         .iter()
@@ -91,6 +93,11 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
         output.push_str(&block.typedef);
     }
 
+    for block in &rendered {
+        output.push('\n');
+        output.push_str(&block.assertions);
+    }
+
     output.push_str(&format!("\n#endif /* {guard} */\n"));
     Ok(output)
 }
@@ -99,6 +106,7 @@ struct RenderedBlock {
     macro_prefix: String,
     macros: Vec<MacroDefinition>,
     typedef: String,
+    assertions: String,
 }
 
 struct MacroDefinition {
@@ -158,7 +166,7 @@ fn render_block(
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
-    validate_static(block, settings)?;
+    let resolved = validate_static(block, settings)?;
 
     let Entry::Branch(source) = &block.data else {
         return Err(header_error("block data must be a table"));
@@ -174,16 +182,27 @@ fn render_block(
         names,
         &mut path,
         &mut macros,
+        settings.abi,
     )?;
 
     let mut typedef = String::from("typedef struct {\n");
-    render_fields(source, 1, &macro_prefix, &mut path, &mut typedef)?;
+    render_fields(
+        source,
+        1,
+        &macro_prefix,
+        &mut path,
+        &mut typedef,
+        settings.abi,
+    )?;
     typedef.push_str(&format!("}} {typedef_name};\n"));
+
+    let assertions = render_layout_assertions(block_name, &typedef_name, &resolved.root);
 
     Ok(RenderedBlock {
         macro_prefix,
         macros,
         typedef,
+        assertions,
     })
 }
 
@@ -196,6 +215,7 @@ fn collect_macros(
     names: &mut NameRegistry,
     path: &mut Vec<String>,
     output: &mut Vec<MacroDefinition>,
+    abi: Abi,
 ) -> Result<(), LayoutError> {
     for (name, node) in fields {
         path.push(name.clone());
@@ -209,6 +229,7 @@ fn collect_macros(
                     names,
                     path,
                     output,
+                    abi,
                 )?;
             }
             Entry::Leaf(leaf) => collect_leaf_macros(
@@ -219,6 +240,7 @@ fn collect_macros(
                 names,
                 path,
                 output,
+                abi,
             )?,
         }
         path.pop();
@@ -235,6 +257,7 @@ fn collect_leaf_macros(
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,
+    abi: Abi,
 ) -> Result<(), LayoutError> {
     let size = leaf.size()?;
 
@@ -274,7 +297,7 @@ fn collect_leaf_macros(
     }
 
     if let EntrySource::Bitmap(fields) = &leaf.source {
-        let width = leaf.scalar_type.size_bytes() * 8;
+        let width = abi.scalar(leaf.scalar_type)?.storage_size * 8;
         let mut shift = 0usize;
         for field in fields {
             if let BitmapFieldSource::Name(data_name) = &field.source {
@@ -350,6 +373,7 @@ fn render_fields(
     block_prefix: &str,
     path: &mut Vec<String>,
     output: &mut String,
+    abi: Abi,
 ) -> Result<(), LayoutError> {
     let indent = "  ".repeat(depth);
     for (name, node) in fields {
@@ -357,11 +381,11 @@ fn render_fields(
         match node {
             Entry::Branch(children) => {
                 output.push_str(&format!("{indent}struct {{\n"));
-                render_fields(children, depth + 1, block_prefix, path, output)?;
+                render_fields(children, depth + 1, block_prefix, path, output, abi)?;
                 output.push_str(&format!("{indent}}} {name};\n"));
             }
             Entry::Leaf(leaf) => {
-                let c_type = c_type(leaf.scalar_type);
+                let c_type = abi.scalar(leaf.scalar_type)?.c_type;
                 let dimensions = match leaf.size()? {
                     None => String::new(),
                     Some(SizeSource::OneD(_)) => {
@@ -389,32 +413,50 @@ fn render_fields(
     Ok(())
 }
 
-fn c_type(scalar: ScalarType) -> &'static str {
-    match scalar {
-        ScalarType::U8 => "uint8_t",
-        ScalarType::U16 => "uint16_t",
-        ScalarType::U32 => "uint32_t",
-        ScalarType::U64 => "uint64_t",
-        ScalarType::I8 => "int8_t",
-        ScalarType::I16 => "int16_t",
-        ScalarType::I32 => "int32_t",
-        ScalarType::I64 => "int64_t",
-        ScalarType::F32 => "float",
-        ScalarType::F64 => "double",
-        ScalarType::Fixed(fixed) if fixed.signed => match fixed.total_bits {
-            8 => "int8_t",
-            16 => "int16_t",
-            32 => "int32_t",
-            64 => "int64_t",
-            _ => unreachable!("fixed-point widths are validated while parsing"),
-        },
-        ScalarType::Fixed(fixed) => match fixed.total_bits {
-            8 => "uint8_t",
-            16 => "uint16_t",
-            32 => "uint32_t",
-            64 => "uint64_t",
-            _ => unreachable!("fixed-point widths are validated while parsing"),
-        },
+fn render_layout_assertions(
+    block_name: &str,
+    typedef_name: &str,
+    root: &ResolvedNode<'_>,
+) -> String {
+    let mut output = String::new();
+    let mut path = Vec::new();
+    render_node_assertions(block_name, typedef_name, root, &mut path, &mut output);
+
+    let root_size = match root {
+        ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
+            coordinates.size
+        }
+    };
+    output.push_str(&format!(
+        "_Static_assert(sizeof({typedef_name}) * CHAR_BIT == {root_size}u * 8u, \"Mint ABI size mismatch for {typedef_name}\");\n"
+    ));
+    output
+}
+
+fn render_node_assertions(
+    block_name: &str,
+    typedef_name: &str,
+    node: &ResolvedNode<'_>,
+    path: &mut Vec<String>,
+    output: &mut String,
+) {
+    let ResolvedNode::Branch { children, .. } = node else {
+        return;
+    };
+
+    for (name, child) in children {
+        path.push(name.clone());
+        let offset = match child {
+            ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
+                coordinates.offset
+            }
+        };
+        let member = path.join(".");
+        output.push_str(&format!(
+            "_Static_assert(offsetof({typedef_name}, {member}) * CHAR_BIT == {offset}u * 8u, \"Mint ABI offset mismatch for {block_name}.{member}\");\n"
+        ));
+        render_node_assertions(block_name, typedef_name, child, path, output);
+        path.pop();
     }
 }
 

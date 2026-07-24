@@ -31,6 +31,7 @@ nix develop -c cargo clippy --workspace
 nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx --variants Default
 nix develop -c cargo run -p mint-cli -- header block.toml -o blocks.h
 nix develop -c cargo run -p mint-cli -- fingerprint block.toml
+nix develop -c cargo run -p mint-cli -- abi list
 ```
 
 ### Documentation
@@ -57,13 +58,16 @@ mint header layout.toml -o layout.h
 
 # Print every block's ABI fingerprint
 mint fingerprint layout.toml
+
+# Discover supported layout ABIs
+mint abi list
 ```
 
 ### Layout Example
 
 ```toml
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [config.header]
 start_address = 0x8000

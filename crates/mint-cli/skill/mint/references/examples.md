@@ -8,9 +8,9 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 
 ### `[mint]` — global configuration (required)
 
-| Key              | Type                  | Default      | Description                                           |
-| ---------------- | --------------------- | ------------ | ----------------------------------------------------- |
-| `endianness`     | `"little"` \| `"big"` | — (required) | Byte order for all multi-byte values                  |
+| Key   | Type                                | Default      | Description                                      |
+| ----- | ----------------------------------- | ------------ | ------------------------------------------------ |
+| `abi` | Named profile | — (required) | Target layout profile, such as `"riscv-ilp32-le"` or `"ti-c28x-eabi"`; run `mint abi list` to discover accepted names |
 
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 
@@ -30,8 +30,8 @@ All fields are required — no inheritance or partial configs.
 
 | Key             | Type           | Default      | Description                                   |
 | --------------- | -------------- | ------------ | --------------------------------------------- |
-| `start_address` | `u32` (hex ok) | — (required) | Base address in flash                         |
-| `length`        | `u32` (hex ok) | — (required) | Allocated size; resolved data must fit         |
+| `start_address` | `u32` (hex ok) | — (required) | Base address in target address units          |
+| `length`        | `u32` (hex ok) | — (required) | Allocated octets; resolved data must fit       |
 | `padding`       | `u8` (hex ok)  | `0xFF`       | Array, alignment, and tail fill byte           |
 
 ### `[blockname.data]` — field definitions
@@ -57,12 +57,12 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 
 | Source             | Allowed types       | `size`/`SIZE`              | Notes                                                      |
 | ------------------ | ------------------- | -------------------------- | ---------------------------------------------------------- |
-| `value` (scalar)   | any                 | no                         | Numeric, boolean, or string literal                        |
-| `value` (string)   | `u8`                | required                   | UTF-8 encoded into byte array                              |
+| `value` (scalar)   | any                 | no                         | Numeric or boolean literal                                 |
+| `value` (string)   | `u8`, `u16`         | required                   | One zero-extended UTF-8 byte per scalar element            |
 | `value` (1D array) | any                 | required                   | Inline array of values                                     |
 | `value` (2D array) | —                   | —                          | **Not supported.** 2D arrays must come from a data source. |
 | `const` (scalar)   | any                 | no                         | Reusable literal from `[mint.const]`                       |
-| `const` (string)   | `u8`                | required                   | Reusable UTF-8 string from `[mint.const]`                  |
+| `const` (string)   | `u8`, `u16`         | required                   | Reusable string with one UTF-8 byte per scalar element     |
 | `const` (1D array) | any                 | required                   | Reusable inline array from `[mint.const]`                  |
 | `name` (scalar)    | any                 | no                         | Single value from data source                              |
 | `name` (1D array)  | any                 | required (`size = N`)      | 1D array from data source                                  |
@@ -96,6 +96,8 @@ Leaves are naturally aligned to their storage width:
 
 Each dotted-path branch aligns to the maximum alignment of its children. Children retain their parsed order, each branch receives tail padding before its next sibling, and the root data struct is padded to its aggregate alignment. Gaps and tail padding use the block's `padding` byte. This alignment is always applied — mint does not support packed structs (`__attribute__((packed))`, `#pragma pack(1)`, etc.).
 
+Strings use `u8` or `u16` storage. Each UTF-8 byte occupies one scalar element and is zero-extended in ABI byte order, so `size = N` counts `N` elements rather than Unicode code points. C28x strings use `type = "u16"`, one byte per 16-bit word.
+
 ---
 
 ## TOML layout and generated C header
@@ -104,7 +106,7 @@ Define the memory shape in the layout file:
 
 ```toml
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -191,7 +193,7 @@ count_ptr = { ref = "table.count", type = "u32" }
 
 Ref targets are dotted paths rooted at the block's data section and are validated before field values are emitted. `ref = "table"` resolves to the address of the branch containing `table.entries`. Forward and backward refs both work. Cross-block refs are not supported.
 
-Resolved address: `start_address + field_offset`. The address must fit the ref's `u16`, `u32` or `u64` storage type.
+Resolved address: `start_address + field_offset_octets / address_unit_octets`. The address must fit the ref's `u16`, `u32` or `u64` storage type.
 
 ## Excel data source
 
@@ -299,7 +301,7 @@ When creating a mint layout for a new project:
 
 1. **Identify the structs** — find the C headers defining flash-resident data structures.
 2. **Get the memory map** — `start_address` and `length` for each block from the linker script or flash layout docs.
-3. **Determine endianness** — match the target MCU's byte order.
+3. **Select the ABI profile** — match the target's byte order and layout rules; inspect choices with `mint abi list` and `mint abi show ABI`.
 4. **Check for CRC requirements** — get the polynomial, initial value, XOR-out, and reflection settings from the firmware's CRC validation code.
 5. **Choose padding byte** — usually `0xFF` (erased NOR flash) or `0x00`. Check what the firmware/bootloader expects in unused regions.
 6. **Map each struct field** to a TOML entry, choosing `value` for constants or `name` for data-source-driven values.

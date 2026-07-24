@@ -1,6 +1,7 @@
 use std::process::Command;
 
 use mint_cli::args::SKILL_TEXT;
+use mint_core::layout::abi::Abi;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -40,7 +41,98 @@ fn top_level_help_lists_commands() {
     assert!(stdout.contains("build"));
     assert!(stdout.contains("header"));
     assert!(stdout.contains("fingerprint"));
+    assert!(stdout.contains("abi"));
     assert!(stdout.contains("skill"));
+}
+
+#[test]
+fn abi_list_prints_supported_profiles() {
+    let output = mint_command()
+        .args(["abi", "list"])
+        .output()
+        .expect("mint abi list should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    for abi in Abi::ALL {
+        assert!(
+            stdout.contains(abi.name()),
+            "missing {}: {stdout}",
+            abi.name()
+        );
+        assert!(
+            stdout.contains(abi.description()),
+            "missing description for {}: {stdout}",
+            abi.name()
+        );
+    }
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn abi_show_describes_layout_rules() {
+    let output = mint_command()
+        .args(["abi", "show", "generic-le"])
+        .output()
+        .expect("mint abi show should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    assert!(stdout.contains("name: generic-le"));
+    assert!(stdout.contains("family: generic-natural"));
+    assert!(stdout.contains("byte order: little"));
+    assert!(stdout.contains("target addressable unit: 8 bits"));
+    assert!(stdout.contains("output addresses: octet addresses"));
+    assert!(stdout.contains("aggregate rules:"));
+    assert!(stdout.contains("type  storage  alignment  stride  C type"));
+    assert!(stdout.contains("u64"));
+    assert!(stdout.contains("all sizes, alignments and strides are in octets"));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn abi_show_reports_tricore_64_bit_alignment() {
+    let output = mint_command()
+        .args(["abi", "show", "tricore-eabi-le"])
+        .output()
+        .expect("mint abi show should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    let u64_row = stdout
+        .lines()
+        .find(|line| line.starts_with("u64"))
+        .expect("u64 row");
+    assert_eq!(
+        u64_row.split_whitespace().collect::<Vec<_>>(),
+        ["u64", "8", "4", "8", "uint64_t"]
+    );
+}
+
+#[test]
+fn abi_show_reports_c28x_support_and_output_addressing() {
+    let output = mint_command()
+        .args(["abi", "show", "ti-c28x-eabi"])
+        .output()
+        .expect("mint abi show should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    assert!(stdout.contains("target addressable unit: 16 bits"));
+    assert!(stdout.contains("2 × target word address"));
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.starts_with("u8") && line.contains("unsupported"))
+    );
+    let u64_row = stdout
+        .lines()
+        .find(|line| line.starts_with("u64"))
+        .expect("u64 row");
+    assert_eq!(
+        u64_row.split_whitespace().collect::<Vec<_>>(),
+        ["u64", "8", "4", "8", "uint64_t"]
+    );
 }
 
 #[test]
@@ -49,7 +141,7 @@ fn fingerprint_prints_only_hex_for_one_block_and_named_lines_for_a_file() {
         "fingerprint-output",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [config.header]
 start_address = 0x1000
@@ -112,7 +204,7 @@ fn fingerprint_validation_is_scoped_to_the_selected_block() {
         "fingerprint-scope",
         r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [good.header]
 start_address = 0x1000

@@ -30,7 +30,7 @@ fn inline_checksum_basic() {
 
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -71,7 +71,7 @@ fn no_checksum_block() {
 
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x4000
@@ -93,7 +93,7 @@ value1 = { value = 0x11223344, type = "u32" }
 fn checksum_cannot_be_the_first_data_field() {
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -128,7 +128,7 @@ fn named_checksum_configs_differ() {
 
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -194,7 +194,7 @@ fn checksum_combined_output() {
 
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -260,7 +260,7 @@ fn checksum_unknown_config_fails() {
 
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
@@ -286,7 +286,7 @@ fn multiple_checksums_in_block_are_resolved_in_order() {
 
     let layout = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -335,7 +335,7 @@ fn checksum_wrong_type_fails() {
 
     let layout_prefix = r#"
 [mint]
-endianness = "little"
+abi = "generic-le"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7

@@ -9,10 +9,14 @@ struct BuildOutput {
 }
 
 fn layout(data: &str) -> String {
+    layout_for_abi("generic-le", data)
+}
+
+fn layout_for_abi(abi: &str, data: &str) -> String {
     format!(
         r#"
 [mint]
-endianness = "little"
+abi = "{abi}"
 
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
@@ -33,7 +37,11 @@ padding = 0xEE
 }
 
 fn build_output(data: &str) -> BuildOutput {
-    let config = layout::parse_toml_layout(&layout(data)).expect("layout parses");
+    build_output_for_abi("generic-le", data)
+}
+
+fn build_output_for_abi(abi: &str, data: &str) -> BuildOutput {
+    let config = layout::parse_toml_layout(&layout_for_abi(abi, data)).expect("layout parses");
     let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
         layouts: vec![NamedLayout {
             name: PathBuf::from("aggregate.toml"),
@@ -100,6 +108,65 @@ sibling = { value = 0x55, type = "u8" }
             .filter(|(offset, _)| !matches!(offset, 0 | 8 | 16..=25 | 32))
             .all(|(_, byte)| *byte == 0xEE)
     );
+}
+
+#[test]
+fn tricore_uses_four_byte_alignment_and_eight_byte_array_stride_for_u64() {
+    let output = build_output_for_abi(
+        "tricore-eabi-le",
+        r#"
+word = { value = 0x44332211, type = "u32" }
+wide = { value = 0x7766554433221100, type = "u64" }
+values = { value = [1, 2], type = "u64", size = 2 }
+tail = { value = 0xAA55, type = "u16" }
+"#,
+    );
+
+    assert_eq!(output.bytestream.len(), 32);
+    assert_eq!(&output.bytestream[0..4], &0x44332211u32.to_le_bytes());
+    assert_eq!(
+        &output.bytestream[4..12],
+        &0x7766554433221100u64.to_le_bytes()
+    );
+    assert_eq!(&output.bytestream[12..20], &1u64.to_le_bytes());
+    assert_eq!(&output.bytestream[20..28], &2u64.to_le_bytes());
+    assert_eq!(&output.bytestream[28..30], &0xAA55u16.to_le_bytes());
+}
+
+#[test]
+fn c28x_matches_compiler_probed_aggregate_shapes() {
+    let u16_u64 = build_output_for_abi(
+        "ti-c28x-eabi",
+        r#"
+first = { value = 0x1122, type = "u16" }
+second = { value = 0x7766554433221100, type = "u64" }
+"#,
+    );
+    assert_eq!(u16_u64.bytestream.len(), 12);
+    assert_eq!(
+        &u16_u64.bytestream[4..12],
+        &0x7766554433221100u64.to_le_bytes()
+    );
+
+    let u64_u16 = build_output_for_abi(
+        "ti-c28x-eabi",
+        r#"
+first = { value = 0x7766554433221100, type = "u64" }
+second = { value = 0x1122, type = "u16" }
+"#,
+    );
+    assert_eq!(u64_u16.bytestream.len(), 12);
+    assert_eq!(&u64_u16.bytestream[8..10], &0x1122u16.to_le_bytes());
+
+    let u16_f32 = build_output_for_abi(
+        "ti-c28x-eabi",
+        r#"
+first = { value = 0x1122, type = "u16" }
+second = { value = 1.5, type = "f32" }
+"#,
+    );
+    assert_eq!(u16_f32.bytestream.len(), 8);
+    assert_eq!(&u16_f32.bytestream[4..8], &1.5f32.to_le_bytes());
 }
 
 #[test]

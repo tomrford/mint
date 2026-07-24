@@ -1,7 +1,7 @@
+use super::abi::{EndianBytes, Endianness};
 use super::conversions::convert_value_to_bytes;
 use super::error::LayoutError;
 use super::scalar_type::ScalarType;
-use super::settings::Endianness;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -25,15 +25,29 @@ impl DataValue {
     pub fn to_bytes(
         &self,
         scalar_type: ScalarType,
-        endianness: &Endianness,
+        endianness: Endianness,
         strict: bool,
     ) -> Result<Vec<u8>, LayoutError> {
         convert_value_to_bytes(self, scalar_type, endianness, strict)
     }
 
-    pub fn string_to_bytes(&self) -> Result<Vec<u8>, LayoutError> {
+    pub fn string_to_bytes(
+        &self,
+        scalar_type: ScalarType,
+        endianness: Endianness,
+    ) -> Result<Vec<u8>, LayoutError> {
         match self {
-            DataValue::Str(val) => Ok(val.as_bytes().to_vec()),
+            DataValue::Str(val) => match scalar_type {
+                ScalarType::U8 => Ok(val.as_bytes().to_vec()),
+                ScalarType::U16 => Ok(val
+                    .as_bytes()
+                    .iter()
+                    .flat_map(|byte| u16::from(*byte).to_endian_bytes(endianness))
+                    .collect()),
+                _ => Err(LayoutError::DataValueExportFailed(
+                    "Strings should have type u8 or u16.".to_owned(),
+                )),
+            },
             _ => Err(LayoutError::DataValueExportFailed(
                 "String expected for string type.".to_owned(),
             )),
