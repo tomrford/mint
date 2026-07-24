@@ -398,6 +398,10 @@ fn render_fields(
                 };
                 let comment = match &leaf.source {
                     EntrySource::Bitmap(_) => " /* bitmap storage */".to_owned(),
+                    EntrySource::Ref(source) if source.is_list() => {
+                        " /* ref addresses */".to_owned()
+                    }
+                    EntrySource::Ref(_) => " /* ref address */".to_owned(),
                     EntrySource::Fingerprint(_) => " /* fingerprint */".to_owned(),
                     _ => leaf
                         .scalar_type

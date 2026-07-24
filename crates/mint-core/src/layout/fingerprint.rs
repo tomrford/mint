@@ -1,6 +1,6 @@
 use super::abi::Endianness;
 use super::block::Config;
-use super::entry::{EntrySource, SizeSource};
+use super::entry::{EntrySource, RefSource, RefTarget, SizeSource};
 use super::error::LayoutError;
 use super::resolved::{ResolvedLayout, ResolvedNode, TargetKind};
 use super::scalar_type::ScalarType;
@@ -123,23 +123,30 @@ fn hash_node(
                         hash_usize(field.bits, hasher)?;
                     }
                 }
-                EntrySource::Ref(path) => {
+                EntrySource::Ref(RefSource::Scalar(RefTarget::Path(path))) => {
                     hasher.update(&[2]);
-                    let target = resolved.target(path).ok_or_else(|| {
-                        layout_size_error(format!(
-                            "ref target '{path}' disappeared after resolution"
-                        ))
-                    })?;
-                    hasher.update(&[match target.kind {
-                        TargetKind::Branch => 0,
-                        TargetKind::Leaf => 1,
-                    }]);
-                    let target_offset = resolved
-                        .abi()
-                        .offset_to_address_units(target.coordinates.offset)?;
-                    hash_u64(target_offset, hasher);
-                    hash_usize(target.coordinates.size, hasher)?;
-                    hash_usize(target.coordinates.alignment, hasher)?;
+                    hash_resolved_ref_target(path, resolved, hasher)?;
+                }
+                EntrySource::Ref(RefSource::Scalar(RefTarget::Address(_))) => {
+                    hasher.update(&[2, 2]);
+                }
+                EntrySource::Ref(RefSource::List(targets)) => {
+                    hasher.update(&[2, 3]);
+                    let Some(SizeSource::OneD(capacity)) = dimensions else {
+                        return Err(layout_size_error(
+                            "ref list dimensions disappeared after resolution",
+                        ));
+                    };
+                    for index in 0..*capacity {
+                        match targets.get(index) {
+                            Some(RefTarget::Path(path)) => {
+                                hash_resolved_ref_target(path, resolved, hasher)?;
+                            }
+                            Some(RefTarget::Address(_)) | None => {
+                                hasher.update(&[2]);
+                            }
+                        }
+                    }
                 }
                 _ => {
                     hasher.update(&[0]);
@@ -147,6 +154,27 @@ fn hash_node(
             }
         }
     }
+    Ok(())
+}
+
+fn hash_resolved_ref_target(
+    path: &str,
+    resolved: &ResolvedLayout<'_>,
+    hasher: &mut blake3::Hasher,
+) -> Result<(), LayoutError> {
+    let target = resolved.target(path).ok_or_else(|| {
+        layout_size_error(format!("ref target '{path}' disappeared after resolution"))
+    })?;
+    hasher.update(&[match target.kind {
+        TargetKind::Branch => 0,
+        TargetKind::Leaf => 1,
+    }]);
+    let target_offset = resolved
+        .abi()
+        .offset_to_address_units(target.coordinates.offset)?;
+    hash_u64(target_offset, hasher);
+    hash_usize(target.coordinates.size, hasher)?;
+    hash_usize(target.coordinates.alignment, hasher)?;
     Ok(())
 }
 

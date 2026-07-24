@@ -102,7 +102,7 @@ mint header layout.toml -o layout.h
 mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
-Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members.
+Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members. Ref members represent serialized target addresses, not C pointer objects.
 
 Generated headers include C11 `_Static_assert` checks for every field offset and final structure size. The checks compare `sizeof` and `offsetof` through `CHAR_BIT`, so Mint's octet offsets remain valid on targets whose C addressable unit is wider than 8 bits. Compiling the header with the target compiler therefore verifies that its C ABI agrees with Mint's selected profile.
 
@@ -119,7 +119,7 @@ The layout parser guarantees valid block and field names. Header generation runs
 | `name`        | Data source lookup key (mutually exclusive with other sources)                    |
 | `const`       | Const lookup key from `[mint.const]` or an auto-promoted block header const            |
 | `bitmap`      | Bitmap field definitions (see below)                                                  |
-| `ref`         | Pointer to another field in the same block (see below)                                |
+| `ref`         | Target address from a same-block path or unsigned integer literal (see below)          |
 | `checksum`    | Inline checksum referencing a named config (see below)                                |
 | `fingerprint` | `true` for this block or another block name in the same file (see below)              |
 | `size`/`SIZE` | Array size (minimum 1 per dimension); `size` pads if data is shorter, `SIZE` errors if data is shorter. |
@@ -237,9 +237,9 @@ Bitmap fields are packed LSB-first into the specified type. signedness of fields
 
 Fixed-point types are not valid with `bitmap`.
 
-### Refs (Pointers)
+### Refs (addresses)
 
-A `ref` entry resolves to the absolute memory address of another field within the same block. The ref target is a dotted path rooted at `block.data` — for example, `device.info.version` refers to `[block.data] device.info.version`. Refs can point to leaf fields or branch nodes (nested structs); a branch ref resolves to the branch's aligned aggregate start.
+A scalar `ref` stores one absolute target address. A string target is a dotted path rooted at `block.data` — for example, `device.info.version` refers to `[block.data] device.info.version`. Path refs can point to leaf fields or branch nodes (nested structs); a branch ref resolves to the branch's aligned aggregate start. An unsigned integer target is already an absolute address in the selected ABI's addressable units. It is stored without adding the block start or converting from octets. Use `0` for an intentional zero or null address.
 
 ```toml
 [block.data]
@@ -252,6 +252,17 @@ table_ptr = { ref = "table", type = "u32" }
 
 # Pointer to a specific nested field
 count_ptr = { ref = "table.count", type = "u32" }
+
+# Intentional zero address and an external absolute target address
+none = { ref = 0, type = "u32" }
+peripheral = { ref = 0x40001000, type = "u32" }
+
+# Fixed-capacity list mixing resolved paths and absolute addresses
+# Missing slots from lowercase size are encoded as zero addresses.
+table_ptrs = { ref = ["table", 0, "table.count", 0x40001000], type = "u32", size = 8 }
+
+# Uppercase SIZE requires exactly four supplied entries.
+strict_ptrs = { ref = ["table", 0, "table.count", 0x40001000], type = "u32", SIZE = 4 }
 ```
 
 **Ref rules:**
@@ -259,12 +270,16 @@ count_ptr = { ref = "table.count", type = "u32" }
 - `ref` is mutually exclusive with every other source
 - `type` must be an unsigned integer type (`u16`, `u32`, `u64`)
 - fixed-point types are not valid with `ref`
-- `size`/`SIZE` cannot be used with `ref`
-- The target path must exist within the same block — cross-block refs are not supported
-- The resolved address is `start_address + target_offset_octets / address_unit_octets`
-- The target path is validated from the resolved layout before field values are emitted
-- The resolved address must fit the ref's `u16`, `u32` or `u64` storage type
-- Refs can reference fields defined before or after the ref in the layout (forward and backward refs are both supported)
+- A scalar ref accepts one non-empty path string or one unsigned integer literal and cannot use `size`/`SIZE`
+- A ref list accepts any mix of path strings and unsigned integer literals. It requires a one-dimensional `size` or `SIZE` with a minimum capacity of 1; two-dimensional reflists are not supported
+- Both size forms reject more entries than the declared capacity. Lowercase `size` encodes missing entries as zero addresses; uppercase `SIZE` rejects missing entries. Ref underfill does not use the block padding byte
+- A target path must exist within the same block — cross-block path refs are not supported. Path refs can reference fields defined before or after the ref
+- A resolved path address is `start_address + target_offset_octets / address_unit_octets`
+- An integer literal is already an absolute target address in the ABI's addressable units. On C28x, for example, a literal is a word address and is not divided by two
+- Nonzero literals support addresses outside the layout, such as memory-mapped peripherals or linker-owned objects, but Mint cannot validate their target, rebase them when the layout changes or include target shape in the fingerprint
+- Every resolved or literal address must fit the ref's `u16`, `u32` or `u64` storage type
+- Ref paths and list entries are validated from the resolved layout before field values are emitted. Global `--strict` does not change ref validation
+- Used-values export reports a scalar ref as its resolved numeric address and a reflist as the explicitly supplied addresses in source order. Synthesized zero underfill is omitted; explicit zeros remain present
 
 ### ABI fingerprints
 
@@ -281,7 +296,7 @@ manifest_schema = { fingerprint = true, type = "u64" }
 
 Build and header generation fully validate selected blocks and calculate fingerprints only for the blocks referenced by their fingerprint fields. Fingerprint target blocks have their ABIs resolved and shape-checked, but are not otherwise fully validated unless they are also selected. A named `mint fingerprint layout.toml#block` selector fully validates and fingerprints that block, resolves the ABI shape of its fingerprint targets and does not resolve unrelated siblings. `mint fingerprint layout.toml` fully validates and fingerprints every block in declaration order. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
 
-The fingerprint covers the effective, nameless ABI: byte order, address-unit width, aggregate shape, offsets, scalar storage sizes, alignments, array strides, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Ref targets contribute their resolved address-unit offset and target kind rather than their name. The ABI profile name, block names, field names, values, `name`/`value`/`const` source choices, addresses, allocated block length and padding byte value do not contribute.
+The fingerprint covers the effective, nameless ABI: byte order, address-unit width, aggregate shape, offsets, scalar storage sizes, alignments, array strides, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Resolved path targets contribute their resolved address-unit offset and target kind rather than their name. Literal targets contribute only an opaque literal-address marker, not their value. Reflist capacity and the positions of resolved targets contribute; literal values, explicit literal count and synthesized zero underfill do not. The ABI profile name, block names, field names, values, `name`/`value`/`const` source choices, block addresses, allocated block length and padding byte value do not contribute.
 
 Fingerprint fields require `type = "u64"` and cannot use `size` or `SIZE`. The marker and referenced fingerprint value are not inputs to the containing block's own fingerprint; the field contributes as a normal `u64` at its resolved position. This keeps self-fingerprints non-recursive and prevents cross-block dependency cycles.
 

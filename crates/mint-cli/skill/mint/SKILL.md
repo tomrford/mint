@@ -146,16 +146,21 @@ Fixed-point types are not valid with `bitmap`.
 
 ### Refs / pointers (`ref`)
 
-Store the absolute address of another field within the same block.
+Store resolved or literal absolute target addresses.
 
 ```toml
 table.entries = { name = "TableEntries", type = "u16", size = 32 }
 table.count = { name = "TableCount", type = "u16" }
 table_ptr = { ref = "table", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
+none = { ref = 0, type = "u32" }
+external = { ref = 0x40001000, type = "u32" }
+ptrs = { ref = ["table", 0, "table.count", 0x40001000], type = "u32", size = 8 }
 ```
 
-The ref target is a dotted path rooted at the block's data section and is validated before field values are emitted. Refs resolve to `start_address + field_offset_octets / address_unit_octets`, which must fit the selected storage type. The `type` must be an unsigned integer (`u16`, `u32`, `u64`). Fixed-point types are not valid with `ref`. Forward and backward refs both work. Cross-block refs are not supported.
+A path target is rooted at the block's data section and is validated before field values are emitted. It resolves to `start_address + field_offset_octets / address_unit_octets`. An unsigned integer target is already an absolute address in target address units, so mint does not rebase or convert it; zero is an intentional zero/null address. Nonzero literals can address targets outside the layout, but mint cannot validate or rebase them.
+
+The `type` must be `u16`, `u32` or `u64`, and every address must fit it. A scalar ref cannot use `size`/`SIZE`. A reflist can mix paths and literals and requires a one-dimensional capacity. Lowercase `size` zero-fills missing address slots; uppercase `SIZE` requires the exact number of entries. Both reject overfill. Refs to paths can point forward or backward within the same block; cross-block path refs are not supported. Generated headers keep refs as integer address storage rather than C pointer objects.
 
 ### ABI fingerprints (`fingerprint`)
 
@@ -169,7 +174,7 @@ schema = { fingerprint = true, type = "u64" }
 config_schema = { fingerprint = "config", type = "u64" }
 ```
 
-Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the effective, nameless ABI: byte order, address-unit width, types, dimensions, offsets, storage sizes, alignment, array strides, bitmap widths and ref topology. ABI names, field names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
+Fingerprint fields require `u64` and cannot use `size`/`SIZE`. Fingerprints cover the effective, nameless ABI: byte order, address-unit width, types, dimensions, offsets, storage sizes, alignment, array strides, bitmap widths and ref topology. Resolved ref targets contribute target shape and position. Literal addresses contribute an opaque marker but not their numeric value; reflist underfill also uses that marker. ABI names, field names, values, producer choices (`name`, `value` or `const`), block addresses, allocated lengths and padding values do not contribute. A selected block is fully validated, while its fingerprint targets have only their ABI shapes resolved; unrelated siblings are not resolved. `mint fingerprint layout.toml#config` prints one bare 16-character lowercase value; `mint fingerprint layout.toml` fully validates the whole file and prints `block fingerprint` lines. Generated headers expose fingerprint fields as `<BLOCK>_<FIELD>_FINGERPRINT` macros.
 
 ### Checksums (`checksum`)
 
@@ -306,7 +311,7 @@ Run `mint --help` for the full argument list.
 - **Checksum type**: Must be `u32`. No other widths are supported.
 - **Ref type**: Must be unsigned (`u16`, `u32`, `u64`).
 - **Fingerprint type**: Must be `u64`; targets are `true` or another block in the same layout.
-- **`size`/`SIZE` cannot combine with `ref`, `checksum`, `fingerprint`, or `bitmap`.**
+- **`size`/`SIZE` cannot combine with scalar `ref`, `checksum`, `fingerprint`, or `bitmap`.** Reflists require one-dimensional `size`/`SIZE`.
 - **Strict mode**: Without `--strict`, out-of-range integer values saturate and float-to-int casts truncate (e.g., 300 into `u8` becomes 255, 1.5 into `u8` becomes 1). Fixed-point values scale by `2^F`, round ties-to-even, then clamp. With `--strict`, mint errors instead.
 
 ## Further reference

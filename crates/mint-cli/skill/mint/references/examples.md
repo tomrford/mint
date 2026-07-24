@@ -47,11 +47,11 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `name`     | string                    | Data source lookup key. Mutually exclusive with other sources.                                                                                      |
 | `const`    | string                    | Const lookup key from `[mint.const]` or an auto-promoted block header const. Mutually exclusive with other sources.                                 |
 | `bitmap`   | array of bitmap fields    | Bitfield packing. Mutually exclusive with other sources.                                                                                            |
-| `ref`      | string                    | Dotted path to another field in same block. Mutually exclusive with other sources.                                                                  |
+| `ref`      | string, unsigned integer or array | Same-block target path or absolute target address; arrays form reflists. Mutually exclusive with other sources.                              |
 | `checksum` | string                    | Name of a `[mint.checksum.<name>]` config, used inside `checksum = { checksum = \"name\", type = \"u32\" }`. Mutually exclusive with other sources. |
 | `fingerprint` | `true` or string       | This block's ABI fingerprint, or another block's fingerprint from the same layout. Mutually exclusive with other sources.                         |
-| `size`     | integer or `[rows, cols]` | Array/string dimensions. Pads if data is shorter. Cannot combine with `SIZE`, `ref`, `checksum`, `fingerprint`, or `bitmap`.                        |
-| `SIZE`     | integer or `[rows, cols]` | Strict array dimensions. Errors if data is shorter. Cannot combine with `size`, `ref`, `checksum`, `fingerprint`, or `bitmap`.                      |
+| `size`     | integer or `[rows, cols]` | Array/string dimensions. Pads if data is shorter. A one-dimensional reflist capacity zero-fills missing addresses. Cannot combine with `SIZE`, scalar `ref`, `checksum`, `fingerprint`, or `bitmap`. |
+| `SIZE`     | integer or `[rows, cols]` | Strict array dimensions. Errors if data is shorter. A reflist uses only a one-dimensional exact capacity. Cannot combine with `size`, scalar `ref`, `checksum`, `fingerprint`, or `bitmap`. |
 
 #### Source constraints
 
@@ -68,7 +68,8 @@ Each key is a dotted path representing struct nesting. The value is an inline ta
 | `name` (1D array)  | any                 | required (`size = N`)      | 1D array from data source                                  |
 | `name` (2D array)  | any                 | required (`size = [R, C]`) | 2D array from data source                                  |
 | `bitmap`           | integer types only  | no                         | Sum of `bits` must equal type width; fixed-point not allowed |
-| `ref`              | `u16`, `u32`, `u64` | no                         | Resolves to absolute address of target; fixed-point not allowed |
+| scalar `ref`       | `u16`, `u32`, `u64` | no                         | Same-block path or absolute unsigned literal; fixed-point not allowed |
+| reflist            | `u16`, `u32`, `u64` | required (`size = N`)      | Mixed path/literal address array; lowercase underfill is zero |
 | `checksum`         | `u32` only          | no                         | CRC over all preceding bytes in block; fixed-point not allowed |
 | `fingerprint`      | `u64` only          | no                         | Injects a nameless ABI fingerprint for this or another same-file block |
 
@@ -189,11 +190,16 @@ table.entries = { name = "TableEntries", type = "u16", size = 32 }
 table.count = { name = "TableCount", type = "u16" }
 entries_ptr = { ref = "table.entries", type = "u32" }
 count_ptr = { ref = "table.count", type = "u32" }
+none = { ref = 0, type = "u32" }
+external = { ref = 0x40001000, type = "u32" }
+ptrs = { ref = ["table.entries", 0, "table.count", 0x40001000], type = "u32", size = 8 }
 ```
 
-Ref targets are dotted paths rooted at the block's data section and are validated before field values are emitted. `ref = "table"` resolves to the address of the branch containing `table.entries`. Forward and backward refs both work. Cross-block refs are not supported.
+Path targets are dotted paths rooted at the block's data section and are validated before field values are emitted. `ref = "table"` resolves to the address of the branch containing `table.entries`. Forward and backward refs both work. Cross-block path refs are not supported.
 
-Resolved address: `start_address + field_offset_octets / address_unit_octets`. The address must fit the ref's `u16`, `u32` or `u64` storage type.
+Resolved path address: `start_address + field_offset_octets / address_unit_octets`. An unsigned integer literal is already an absolute address in target address units; mint does not rebase or convert it. Every address must fit the ref's `u16`, `u32` or `u64` storage type.
+
+Reflists require one-dimensional `size` or `SIZE`. Lowercase `size` encodes missing entries as zero addresses, independent of the block padding byte. Uppercase `SIZE` requires an exact entry count. Generated headers represent scalar refs and reflists with integer address storage, not C pointer objects.
 
 ## Excel data source
 

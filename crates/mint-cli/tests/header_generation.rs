@@ -101,6 +101,69 @@ int use_generated_header(config_t *config, data_t *data) {{
 }
 
 #[test]
+fn generated_reflist_header_compiles_as_integer_address_storage() {
+    let layout = common::write_layout_file(
+        "reflist-header",
+        r#"
+[mint]
+abi = "generic-le"
+
+[block.header]
+start_address = 0x1000
+length = 0x40
+
+[block.data]
+target = { value = 1, type = "u16" }
+ptrs = { ref = ["target", 0, 0x40001000], type = "u32", size = 5 }
+"#,
+    );
+    let header_path = common::unique_out_path("reflist", "h");
+    let output = mint_command()
+        .args(["header", &layout, "-o"])
+        .arg(&header_path)
+        .output()
+        .expect("mint header should run");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let source_path = header_path.with_extension("c");
+    let object_path = header_path.with_extension("o");
+    let header_name = header_path
+        .file_name()
+        .expect("header has a file name")
+        .to_string_lossy();
+    fs::write(
+        &source_path,
+        format!(
+            r#"#include "{header_name}"
+
+_Static_assert(BLOCK_PTRS_LEN == 5u, "reflist extent");
+_Static_assert(sizeof(((block_t *)0)->ptrs) == 5u * sizeof(uint32_t), "integer address storage");
+
+uint32_t first_ref(const block_t *block) {{
+  return block->ptrs[0];
+}}
+"#
+        ),
+    )
+    .expect("C source writes");
+
+    let compile = compile_c11(
+        &source_path,
+        header_path.parent().expect("header has a parent"),
+        &object_path,
+    );
+    assert!(
+        compile.status.success(),
+        "C compiler stderr: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+}
+
+#[test]
 fn validation_failure_does_not_touch_output() {
     let layout = common::write_layout_file(
         "invalid-header",

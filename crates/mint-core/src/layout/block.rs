@@ -1,5 +1,5 @@
 use super::abi::{Abi, Endianness, ScalarAbi};
-use super::entry::{EntrySource, LeafEntry};
+use super::entry::{EntrySource, LeafEntry, RefSource, SizeSource, append_array_element};
 use super::error::{LayoutError, in_field_path};
 use super::header::Header;
 use super::resolved::{ResolvedLayout, validate_static};
@@ -185,12 +185,12 @@ impl Block {
             };
             let bytes = (|| -> Result<Vec<u8>, LayoutError> {
                 match &leaf.source {
-                    EntrySource::Ref(target) => Self::emit_ref(
+                    EntrySource::Ref(_) => Self::emit_ref(
                         leaf,
-                        target,
                         &resolved,
                         &self.header,
                         &config,
+                        scalar_abi,
                         &mut staging_sink,
                         &field_path,
                     ),
@@ -288,33 +288,77 @@ impl Block {
 
     fn emit_ref(
         leaf: &LeafEntry,
-        target: &str,
         resolved: &ResolvedLayout<'_>,
         header: &Header,
         config: &BuildConfig<'_>,
+        scalar_abi: ScalarAbi,
         value_sink: &mut dyn ValueSink,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
-        let target_offset = resolved.coordinates(target).ok_or_else(|| {
-            LayoutError::DataValueExportFailed(format!(
-                "Ref target '{target}' not found in resolved layout."
-            ))
-        })?;
-        let target_offset = config.abi.offset_to_address_units(target_offset.offset)?;
-        let address = u64::from(header.start_address)
-            .checked_add(target_offset)
-            .ok_or_else(|| {
-                LayoutError::DataValueExportFailed(format!(
-                    "Address overflow resolving ref to '{target}'."
-                ))
-            })?;
-        let bytes =
-            DataValue::U64(address).to_bytes(leaf.scalar_type, config.abi.endianness(), true)?;
-        value_sink.record_value(
-            field_path,
-            serde_json::Value::Number(serde_json::Number::from(address)),
-        )?;
-        Ok(bytes)
+        let EntrySource::Ref(source) = &leaf.source else {
+            unreachable!("emit_ref requires a ref leaf");
+        };
+        let mut addresses = Vec::with_capacity(source.targets().len());
+        for target in source.targets() {
+            addresses.push(resolved.ref_address(target, header.start_address)?);
+        }
+
+        match source {
+            RefSource::Scalar(_) => {
+                let address = addresses[0];
+                let bytes = DataValue::U64(address).to_bytes(
+                    leaf.scalar_type,
+                    config.abi.endianness(),
+                    true,
+                )?;
+                value_sink.record_value(
+                    field_path,
+                    serde_json::Value::Number(serde_json::Number::from(address)),
+                )?;
+                Ok(bytes)
+            }
+            RefSource::List(_) => {
+                let Some(SizeSource::OneD(capacity)) = leaf.size()? else {
+                    unreachable!("ref list shape was validated during resolution");
+                };
+                let total_bytes = capacity.checked_mul(scalar_abi.array_stride).ok_or(
+                    LayoutError::DataValueExportFailed("Ref list size overflow.".to_owned()),
+                )?;
+                let mut bytes = Vec::new();
+                bytes.try_reserve_exact(total_bytes).map_err(|error| {
+                    LayoutError::DataValueExportFailed(format!(
+                        "failed to allocate {total_bytes}-byte ref list buffer: {error}"
+                    ))
+                })?;
+
+                for address in &addresses {
+                    let encoded = DataValue::U64(*address).to_bytes(
+                        leaf.scalar_type,
+                        config.abi.endianness(),
+                        true,
+                    )?;
+                    append_array_element(&mut bytes, &encoded, scalar_abi, config.padding);
+                }
+                let zero =
+                    DataValue::U64(0).to_bytes(leaf.scalar_type, config.abi.endianness(), true)?;
+                for _ in addresses.len()..capacity {
+                    append_array_element(&mut bytes, &zero, scalar_abi, config.padding);
+                }
+
+                value_sink.record_value(
+                    field_path,
+                    serde_json::Value::Array(
+                        addresses
+                            .into_iter()
+                            .map(|address| {
+                                serde_json::Value::Number(serde_json::Number::from(address))
+                            })
+                            .collect(),
+                    ),
+                )?;
+                Ok(bytes)
+            }
+        }
     }
 
     fn resolve_checksums(

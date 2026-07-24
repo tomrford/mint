@@ -119,13 +119,78 @@ pub enum EntrySource {
     #[serde(rename = "bitmap")]
     Bitmap(Vec<BitmapField>),
     #[serde(rename = "ref")]
-    Ref(String),
+    Ref(RefSource),
     #[serde(rename = "checksum")]
     Checksum(String),
     #[serde(rename = "const")]
     Const(String),
     #[serde(rename = "fingerprint")]
     Fingerprint(FingerprintTarget),
+}
+
+/// One address source within a scalar ref or reflist.
+#[derive(Debug, Clone)]
+pub enum RefTarget {
+    Path(String),
+    Address(u64),
+}
+
+/// Scalar ref or fixed-capacity list of refs.
+#[derive(Debug, Clone)]
+pub enum RefSource {
+    Scalar(RefTarget),
+    List(Vec<RefTarget>),
+}
+
+impl<'de> Deserialize<'de> for RefSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = toml::Value::deserialize(deserializer)?;
+        match value {
+            toml::Value::Array(values) => values
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    ref_target(value).map_err(|message| {
+                        D::Error::custom(format!("invalid ref target at index {index}: {message}"))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(Self::List),
+            value => ref_target(value)
+                .map(Self::Scalar)
+                .map_err(D::Error::custom),
+        }
+    }
+}
+
+fn ref_target(value: toml::Value) -> Result<RefTarget, String> {
+    match value {
+        toml::Value::String(path) => Ok(RefTarget::Path(path)),
+        toml::Value::Integer(address) if address >= 0 => Ok(RefTarget::Address(address as u64)),
+        toml::Value::Integer(address) => Err(format!(
+            "ref address must be an unsigned integer; got {address}"
+        )),
+        value => Err(format!(
+            "ref target must be a path string or unsigned integer address; got {}",
+            value.type_str()
+        )),
+    }
+}
+
+impl RefSource {
+    pub(crate) fn targets(&self) -> &[RefTarget] {
+        match self {
+            Self::Scalar(target) => std::slice::from_ref(target),
+            Self::List(targets) => targets,
+        }
+    }
+
+    pub(crate) fn is_list(&self) -> bool {
+        matches!(self, Self::List(_))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -385,14 +450,9 @@ impl LeafEntry {
     }
 
     /// Validates ref entry rules.
-    pub fn validate_ref(&self, target: &str) -> Result<(), LayoutError> {
+    pub fn validate_ref(&self, source: &RefSource) -> Result<(), LayoutError> {
         if self.scalar_type.fixed_point().is_some() {
             return Err(fixed_point_unsupported_error("Ref", self.scalar_type));
-        }
-        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
-            return Err(LayoutError::InvalidLayout(
-                "size/SIZE keys are forbidden with ref.".into(),
-            ));
         }
         if !matches!(
             self.scalar_type,
@@ -402,10 +462,52 @@ impl LeafEntry {
                 "Ref requires unsigned integer storage type (u16, u32, u64).".into(),
             ));
         }
-        if target.is_empty() {
-            return Err(LayoutError::InvalidLayout(
-                "Ref target path must not be empty.".into(),
-            ));
+
+        let (size, strict_len) = self.size_keys.resolve()?;
+        match (source, size) {
+            (RefSource::Scalar(_), None) => {}
+            (RefSource::Scalar(_), Some(_)) => {
+                return Err(LayoutError::InvalidLayout(
+                    "size/SIZE keys require a ref list, not a scalar ref.".into(),
+                ));
+            }
+            (RefSource::List(_), None) => {
+                return Err(LayoutError::InvalidLayout(
+                    "Ref list requires a one-dimensional size or SIZE.".into(),
+                ));
+            }
+            (RefSource::List(_), Some(SizeSource::TwoD(_))) => {
+                return Err(LayoutError::InvalidLayout(
+                    "Ref list supports only one-dimensional size/SIZE.".into(),
+                ));
+            }
+            (RefSource::List(targets), Some(SizeSource::OneD(capacity))) => {
+                if targets.len() > capacity {
+                    return Err(LayoutError::InvalidLayout(format!(
+                        "Ref list has {} entries, which exceeds its declared size ({capacity}).",
+                        targets.len()
+                    )));
+                }
+                if strict_len && targets.len() < capacity {
+                    return Err(LayoutError::InvalidLayout(format!(
+                        "Ref list has {} entries, which is smaller than its declared strict SIZE ({capacity}).",
+                        targets.len()
+                    )));
+                }
+            }
+        }
+
+        for (index, target) in source.targets().iter().enumerate() {
+            if matches!(target, RefTarget::Path(path) if path.is_empty()) {
+                let location = if source.is_list() {
+                    format!(" at index {index}")
+                } else {
+                    String::new()
+                };
+                return Err(LayoutError::InvalidLayout(format!(
+                    "Ref target path{location} must not be empty."
+                )));
+            }
         }
         Ok(())
     }
@@ -838,7 +940,12 @@ fn append_string(output: &mut Vec<u8>, bytes: Vec<u8>, scalar_abi: ScalarAbi, pa
     }
 }
 
-fn append_array_element(output: &mut Vec<u8>, bytes: &[u8], scalar_abi: ScalarAbi, padding: u8) {
+pub(crate) fn append_array_element(
+    output: &mut Vec<u8>,
+    bytes: &[u8],
+    scalar_abi: ScalarAbi,
+    padding: u8,
+) {
     debug_assert!(
         bytes.len() == scalar_abi.storage_size && scalar_abi.array_stride >= bytes.len(),
         "encoded scalar width must match its ABI storage size and fit the array stride"

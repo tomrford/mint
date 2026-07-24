@@ -80,7 +80,7 @@ bitmap = { type = "u64", bitmap = [{ bits = 64, name = "WholeField" }] }
         "uint16_t uq16_value; /* uq8.8 */",
         "uint32_t uq32_value; /* uq16.16 */",
         "uint64_t uq64_value; /* uq32.32 */",
-        "uint32_t pointer;",
+        "uint32_t pointer; /* ref address */",
         "uint32_t checksum;",
         "uint64_t bitmap; /* bitmap storage */",
     ] {
@@ -91,6 +91,32 @@ bitmap = { type = "u64", bitmap = [{ bits = 64, name = "WholeField" }] }
     }
     assert!(header.contains("#define TYPES_BITMAP_WHOLE_FIELD_SHIFT 0u"));
     assert!(header.contains("#define TYPES_BITMAP_WHOLE_FIELD_MASK UINT64_C(0xFFFFFFFFFFFFFFFF)"));
+}
+
+#[test]
+fn emits_reflists_as_integer_address_arrays() {
+    let header = generate(
+        "header-reflist",
+        r#"
+[mint]
+abi = "generic-le"
+
+[block.header]
+start_address = 0x1000
+length = 0x40
+
+[block.data]
+target = { value = 1, type = "u16" }
+ptrs = { ref = ["target", 0, 0x40001000], type = "u32", size = 5 }
+"#,
+        |path| vec![BlockSelector::all(path)],
+    );
+
+    assert!(header.contains("#define BLOCK_PTRS_LEN 5u"));
+    assert!(header.contains("uint32_t ptrs[BLOCK_PTRS_LEN]; /* ref addresses */"));
+    assert!(header.contains("_Static_assert(offsetof(block_t, ptrs) * CHAR_BIT == 4u * 8u"));
+    assert!(header.contains("_Static_assert(sizeof(block_t) * CHAR_BIT == 24u * 8u"));
+    assert!(!header.contains("void *"));
 }
 
 #[test]

@@ -54,9 +54,9 @@ mint header layout.toml -o layout.h
 mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
-The command renders and validates the complete header before writing it. Each block becomes a `<block>_t` typedef. Dotted paths become inline nested structs, array dimensions use generated macros, and named bitmap regions receive `_SHIFT` and `_MASK` macros. The output contains storage types and shape only; it does not contain data values, block addresses, packing directives, or explicit padding members.
+The command renders and validates the complete header before writing it. Each block becomes a `<block>_t` typedef. Dotted paths become inline nested structs, array dimensions use generated macros, and named bitmap regions receive `_SHIFT` and `_MASK` macros. Refs remain `uint16_t`, `uint32_t` or `uint64_t` address storage, including integer arrays for reflists; they are not emitted as C pointer objects. The output contains storage types and shape only; it does not contain data values, block addresses, packing directives, or explicit padding members.
 
-Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including dangling const names, scalar consts with array sizes, two-dimensional literals, zero-extent arrays, invalid checksum placement, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space.
+Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including dangling const names, scalar consts with array sizes, two-dimensional literals, zero-extent arrays, invalid checksum placement, invalid reflist lengths, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space.
 
 Generated structs use the selected ABI profile's aggregate rules and include C11 `_Static_assert` checks for every field offset and final structure size. The checks use `CHAR_BIT` so their expected values remain expressed in octets.
 
@@ -106,6 +106,8 @@ data c1c13126ea0f1e6b
 ```
 
 Stdout contains only these values. Diagnostics use stderr and failures return a non-zero exit code, so the command is suitable for build-system extraction. The fingerprint is also available as a macro when `mint header` encounters a `fingerprint` field.
+
+The fingerprint includes the effective ABI shape and ref topology. Resolved reflist targets contribute their target kind, shape and position. Literal addresses contribute an opaque marker but not their numeric values, so changing an external address does not change ABI compatibility.
 
 For configure-time CMake integration, track the layout as a configure dependency and pass the bare selected-block value into firmware compilation:
 

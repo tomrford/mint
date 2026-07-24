@@ -280,6 +280,206 @@ ptr = { ref = "target", type = "u32" }
 }
 
 #[test]
+fn scalar_ref_accepts_zero_and_arbitrary_literal_addresses() {
+    let toml = ref_layout(
+        0x1000,
+        r#"
+null_ptr = { ref = 0, type = "u32" }
+external_ptr = { ref = 0x40001000, type = "u32" }
+"#,
+    );
+
+    let (bytes, values) = load_and_build_with_values("ref_scalar_literals", &toml);
+    assert_eq!(&bytes[0..4], &0u32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &0x40001000u32.to_le_bytes());
+    assert_eq!(&values["null_ptr"], &serde_json::json!(0));
+    assert_eq!(&values["external_ptr"], &serde_json::json!(0x40001000u64));
+}
+
+#[test]
+fn reflist_resolves_mixed_targets_and_zero_fills_lowercase_size() {
+    let toml = ref_layout(
+        0x1000,
+        r#"
+target = { value = 0x42, type = "u16" }
+ptrs = { ref = ["target", 0, 0x40001000], type = "u32", size = 5 }
+"#,
+    );
+
+    let (bytes, values) = load_and_build_with_values("reflist_mixed", &toml);
+    assert_eq!(bytes.len(), 24);
+    assert_eq!(&bytes[4..8], &0x1000u32.to_le_bytes());
+    assert_eq!(&bytes[8..12], &0u32.to_le_bytes());
+    assert_eq!(&bytes[12..16], &0x40001000u32.to_le_bytes());
+    assert_eq!(&bytes[16..24], &[0; 8]);
+    assert_eq!(
+        &values["ptrs"],
+        &serde_json::json!([0x1000u64, 0, 0x40001000u64])
+    );
+}
+
+#[test]
+fn empty_reflist_zero_fills_its_capacity_instead_of_using_block_padding() {
+    let toml = ref_layout(
+        0,
+        r#"
+ptrs = { ref = [], type = "u16", size = 3 }
+"#,
+    );
+
+    let (bytes, values) = load_and_build_with_values("reflist_empty", &toml);
+    assert_eq!(bytes, [0; 6]);
+    assert_eq!(&values["ptrs"], &serde_json::json!([]));
+}
+
+#[test]
+fn reflist_honors_big_endian_encoding() {
+    let toml = ref_layout_with_abi(
+        0x1000,
+        "generic-be",
+        r#"
+target = { value = 1, type = "u32" }
+ptrs = { ref = ["target", 0x12345678], type = "u32", SIZE = 2 }
+"#,
+    );
+
+    let bytes = load_and_build("reflist_big_endian", &toml);
+    assert_eq!(&bytes[4..8], &0x1000u32.to_be_bytes());
+    assert_eq!(&bytes[8..12], &0x12345678u32.to_be_bytes());
+}
+
+#[test]
+fn c28x_reflist_converts_paths_but_keeps_literals_in_word_address_units() {
+    let toml = ref_layout_with_abi(
+        0x1000,
+        "ti-c28x-eabi",
+        r#"
+prefix = { value = 1, type = "u16" }
+target = { value = 2, type = "u16" }
+ptrs = { ref = ["target", 0x1234], type = "u32", SIZE = 2 }
+"#,
+    );
+
+    let bytes = load_and_build("reflist_c28x_addresses", &toml);
+    assert_eq!(bytes.len(), 12);
+    assert_eq!(&bytes[4..8], &0x1001u32.to_le_bytes());
+    assert_eq!(&bytes[8..12], &0x1234u32.to_le_bytes());
+}
+
+#[test]
+fn reflist_rejects_invalid_shapes_and_lengths() {
+    let cases = [
+        (
+            "reflist_missing_size",
+            r#"ptrs = { ref = ["target"], type = "u32" }"#,
+            "requires a one-dimensional size",
+        ),
+        (
+            "reflist_scalar_size",
+            r#"ptrs = { ref = "target", type = "u32", size = 1 }"#,
+            "require a ref list",
+        ),
+        (
+            "reflist_2d",
+            r#"ptrs = { ref = ["target"], type = "u32", size = [1, 1] }"#,
+            "only one-dimensional",
+        ),
+        (
+            "reflist_overfill",
+            r#"ptrs = { ref = ["target", 0], type = "u32", size = 1 }"#,
+            "exceeds its declared size",
+        ),
+        (
+            "reflist_strict_underfill",
+            r#"ptrs = { ref = ["target"], type = "u32", SIZE = 2 }"#,
+            "smaller than its declared strict SIZE",
+        ),
+        (
+            "reflist_empty_path",
+            r#"ptrs = { ref = ["target", ""], type = "u32", SIZE = 2 }"#,
+            "at index 1 must not be empty",
+        ),
+    ];
+
+    for (name, field, expected) in cases {
+        let toml = ref_layout(
+            0,
+            &format!(
+                r#"
+target = {{ value = 1, type = "u32" }}
+{field}
+"#
+            ),
+        );
+        let error = load_and_fail(name, &toml);
+        assert!(
+            error.contains(expected),
+            "expected '{expected}' for {name}, got: {error}"
+        );
+    }
+}
+
+#[test]
+fn reflist_reports_element_index_for_missing_paths_and_overflowing_literals() {
+    let missing = ref_layout(
+        0,
+        r#"
+target = { value = 1, type = "u32" }
+ptrs = { ref = ["target", "missing"], type = "u32", SIZE = 2 }
+"#,
+    );
+    let error = load_and_fail("reflist_missing_target", &missing);
+    assert!(error.contains("at index 1 'missing' not found"), "{error}");
+
+    let overflow = ref_layout(
+        0,
+        r#"
+ptrs = { ref = [0, 0x10000], type = "u16", SIZE = 2 }
+"#,
+    );
+    let error = load_and_fail("reflist_literal_overflow", &overflow);
+    assert!(
+        error.contains("at index 1 literal address 0x10000")
+            && error.contains("does not fit storage type u16"),
+        "{error}"
+    );
+}
+
+#[test]
+fn ref_rejects_negative_and_non_integer_literal_targets() {
+    let cases = [
+        (
+            "ref_negative_literal",
+            r#"ptr = { ref = -1, type = "u32" }"#,
+            "ref address must be an unsigned integer; got -1",
+        ),
+        (
+            "reflist_negative_literal",
+            r#"ptrs = { ref = [0, -1], type = "u32", SIZE = 2 }"#,
+            "invalid ref target at index 1: ref address must be an unsigned integer",
+        ),
+        (
+            "ref_float_literal",
+            r#"ptr = { ref = 1.5, type = "u32" }"#,
+            "ref target must be a path string or unsigned integer address; got float",
+        ),
+        (
+            "reflist_bool_literal",
+            r#"ptrs = { ref = [0, true], type = "u32", SIZE = 2 }"#,
+            "invalid ref target at index 1: ref target must be a path string or unsigned integer address; got boolean",
+        ),
+    ];
+
+    for (name, field, expected) in cases {
+        let error = load_and_fail(name, &ref_layout(0, field));
+        assert!(
+            error.contains(expected),
+            "expected '{expected}' for {name}, got: {error}"
+        );
+    }
+}
+
+#[test]
 fn ref_with_alignment_padding() {
     // u8 at offset 0, padding 3 bytes, u32 target at offset 4, u32 ptr at offset 8
     let toml = ref_layout(

@@ -1,7 +1,7 @@
 use super::MAX_RESOLVED_BLOCK_SIZE;
 use super::abi::{Abi, ScalarAbi};
 use super::block::{Block, Entry};
-use super::entry::{EntrySource, LeafEntry, SizeSource};
+use super::entry::{EntrySource, LeafEntry, RefSource, RefTarget, SizeSource};
 use super::error::{LayoutError, in_field_path};
 use super::scalar_type::ScalarType;
 use super::settings::MintConfig;
@@ -84,8 +84,8 @@ pub(crate) fn validate_static<'a>(
                 "Checksum must follow at least one data byte.".to_owned(),
             )),
             EntrySource::Checksum(name) => settings.checksum_config(name).map(|_| ()),
-            EntrySource::Ref(target) => {
-                validate_ref_address(path, target, leaf, &resolved, block.header.start_address)
+            EntrySource::Ref(source) => {
+                validate_ref_addresses(path, source, leaf, &resolved, block.header.start_address)
             }
             _ => Ok(()),
         };
@@ -109,13 +109,23 @@ impl<'a> ResolvedLayout<'a> {
         )?;
 
         for leaf in &leaves {
-            if let EntrySource::Ref(path) = &leaf.leaf.source
-                && !nodes.contains_key(path)
-            {
-                return Err(layout_size_error(format!(
-                    "ref target '{path}' not found in block. Available fields: [{}]",
-                    nodes.keys().cloned().collect::<Vec<_>>().join(", ")
-                )));
+            if let EntrySource::Ref(source) = &leaf.leaf.source {
+                for (index, target) in source.targets().iter().enumerate() {
+                    let RefTarget::Path(path) = target else {
+                        continue;
+                    };
+                    if !nodes.contains_key(path) {
+                        let location = if source.is_list() {
+                            format!(" at index {index}")
+                        } else {
+                            String::new()
+                        };
+                        return Err(layout_size_error(format!(
+                            "ref target{location} '{path}' not found in block. Available fields: [{}]",
+                            nodes.keys().cloned().collect::<Vec<_>>().join(", ")
+                        )));
+                    }
+                }
             }
         }
 
@@ -155,6 +165,31 @@ impl<'a> ResolvedLayout<'a> {
 
     pub(crate) fn abi(&self) -> Abi {
         self.abi
+    }
+
+    pub(crate) fn ref_address(
+        &self,
+        target: &RefTarget,
+        start_address: u32,
+    ) -> Result<u64, LayoutError> {
+        match target {
+            RefTarget::Address(address) => Ok(*address),
+            RefTarget::Path(path) => {
+                let target = self.coordinates(path).ok_or_else(|| {
+                    LayoutError::InvalidLayout(format!(
+                        "ref target '{path}' disappeared after resolution"
+                    ))
+                })?;
+                let target_offset = self.abi.offset_to_address_units(target.offset)?;
+                u64::from(start_address)
+                    .checked_add(target_offset)
+                    .ok_or_else(|| {
+                        LayoutError::InvalidLayout(format!(
+                            "address overflow resolving ref target '{path}'"
+                        ))
+                    })
+            }
+        }
     }
 }
 
@@ -298,39 +333,37 @@ fn collect_entry<'a>(
     }
 }
 
-fn validate_ref_address(
+fn validate_ref_addresses(
     path: &str,
-    target: &str,
+    source: &RefSource,
     leaf: &LeafEntry,
     resolved: &ResolvedLayout<'_>,
     start_address: u32,
 ) -> Result<(), LayoutError> {
-    let target_offset = resolved.coordinates(target).ok_or_else(|| {
-        LayoutError::InvalidLayout(format!(
-            "ref '{path}' target '{target}' disappeared after resolution"
-        ))
-    })?;
-    let target_offset = resolved
-        .abi()
-        .offset_to_address_units(target_offset.offset)?;
-    let address = u64::from(start_address)
-        .checked_add(target_offset)
-        .ok_or_else(|| {
-            LayoutError::InvalidLayout(format!(
-                "address overflow resolving ref '{path}' to target '{target}'"
-            ))
-        })?;
     let maximum = match leaf.scalar_type {
         ScalarType::U16 => u64::from(u16::MAX),
         ScalarType::U32 => u64::from(u32::MAX),
         ScalarType::U64 => u64::MAX,
         _ => unreachable!("ref storage was validated during resolution"),
     };
-    if address > maximum {
-        return Err(LayoutError::InvalidLayout(format!(
-            "ref '{path}' target '{target}' resolves to address 0x{address:X}, which does not fit storage type {}",
-            leaf.scalar_type
-        )));
+
+    for (index, target) in source.targets().iter().enumerate() {
+        let address = resolved.ref_address(target, start_address)?;
+        if address > maximum {
+            let target = match target {
+                RefTarget::Path(target) => format!("target '{target}'"),
+                RefTarget::Address(target) => format!("literal address 0x{target:X}"),
+            };
+            let location = if source.is_list() {
+                format!(" at index {index}")
+            } else {
+                String::new()
+            };
+            return Err(LayoutError::InvalidLayout(format!(
+                "ref '{path}'{location} {target} resolves to address 0x{address:X}, which does not fit storage type {}",
+                leaf.scalar_type
+            )));
+        }
     }
     Ok(())
 }
