@@ -434,3 +434,94 @@ fn json_accepts_integral_fractions_and_rejects_overflow() {
         .is_err()
     );
 }
+
+#[test]
+fn rejects_function_like_macros_pragmas_and_detached_tags() {
+    assert!(
+        compile_header(header(
+            r#"
+#include <stdint.h>
+#define WIDTH(x) (x)
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0
+ */
+typedef struct { uint16_t samples[WIDTH(4)]; } config_t;
+"#,
+        ))
+        .is_err()
+    );
+    assert!(compile_header(header("#pragma pack(1)\n")).is_err());
+    assert!(
+        compile_header(header(
+            r#"
+#include <stdint.h>
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0
+ */
+
+typedef struct { uint32_t id; } config_t;
+"#,
+        ))
+        .is_err()
+    );
+}
+
+#[test]
+fn hex_emits_ela_when_upper_address_changes() {
+    let schema = compile_header(header(
+        r#"
+#include <stdint.h>
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0xFFF0
+ */
+typedef struct { uint8_t bytes[32]; } config_t;
+"#,
+    ))
+    .unwrap();
+    let bytes = encode_json(
+        &schema,
+        &json(r#"{"bytes":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]}"#),
+    )
+    .unwrap();
+    let hex = render_hex(&schema, &bytes).unwrap();
+    assert!(hex.contains(":020000040000FA\n"));
+    assert!(hex.contains(":020000040001F9\n"), "{hex}");
+}
+
+#[test]
+fn c28x_rejects_uint8_and_encodes_float32() {
+    assert!(
+        compile_header(header(
+            r#"
+#include <stdint.h>
+/**
+ * @mint block
+ * @mint abi ti-c28x-eabi
+ * @mint start-address 0
+ */
+typedef struct { uint8_t x; } config_t;
+"#,
+        ))
+        .is_err()
+    );
+    let schema = compile_header(header(
+        r#"
+#include <stdint.h>
+/**
+ * @mint block
+ * @mint abi generic-be
+ * @mint start-address 0
+ */
+typedef struct { float32_t gain; } config_t;
+"#,
+    ))
+    .unwrap();
+    let bytes = encode_json(&schema, &json(r#"{"gain": 1.0}"#)).unwrap();
+    assert_eq!(bytes, [0x3F, 0x80, 0x00, 0x00]);
+}
