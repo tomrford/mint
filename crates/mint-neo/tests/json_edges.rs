@@ -44,7 +44,7 @@ fn encode_wide(value: &str) -> Result<Vec<u8>, mint_neo::Error> {
 }
 
 fn first_line(error: &mint_neo::Error) -> String {
-    error.render(&[]).lines().next().unwrap_or("").to_owned()
+    error.render().lines().next().unwrap_or("").to_owned()
 }
 
 fn pointer_of(error: &mint_neo::Error) -> Option<&str> {

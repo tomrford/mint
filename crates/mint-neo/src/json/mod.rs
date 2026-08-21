@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
+use crate::CompiledSchema;
 use crate::abi::{Endianness, Scalar, ScalarValue, write_scalar_bytes};
 use crate::diagnostic::Error;
 use crate::layout::{ArrayLayout, ResolvedLayout};
-use crate::schema::CompiledSchema;
 use crate::source::{Source, Span};
 use crate::types::{TypeId, TypeKind};
 

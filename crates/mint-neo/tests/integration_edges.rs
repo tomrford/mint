@@ -13,7 +13,7 @@ fn compile_err(name: &str, text: &str) -> mint_neo::Error {
 }
 
 fn render(error: &mint_neo::Error) -> String {
-    error.render(&[])
+    error.render()
 }
 
 fn spanned_text<'a>(error: &mint_neo::Error, text: &'a str) -> &'a str {

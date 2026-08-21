@@ -339,7 +339,7 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(schema.layout.octet_start().unwrap(), 0x200);
+    assert_eq!(schema.layout.octet_start, 0x200);
     assert_eq!(schema.layout.root_layout().size, 40);
 
     let values: Vec<String> = (1..=20).map(|value| value.to_string()).collect();
@@ -380,7 +380,7 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(high.layout.octet_start().unwrap(), 0x1_0000);
+    assert_eq!(high.layout.octet_start, 0x1_0000);
     let values: Vec<String> = (0..16).map(|value| value.to_string()).collect();
     let bytes = encode_json(
         &high,
@@ -408,7 +408,7 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(cross.layout.octet_start().unwrap(), 0xFFF0);
+    assert_eq!(cross.layout.octet_start, 0xFFF0);
     let values: Vec<String> = (1..=20).map(|value| value.to_string()).collect();
     let bytes = encode_json(
         &cross,

@@ -19,22 +19,42 @@ mod integers;
 mod json;
 mod layout;
 mod output;
-mod schema;
 mod source;
 mod syntax;
 mod types;
 
 pub use diagnostic::{Category, Diagnostic, Error};
 pub use inspect::InspectFormat;
-pub use schema::CompiledSchema;
 pub use source::Source;
 
+#[derive(Clone, Debug)]
+pub struct CompiledSchema {
+    pub source: Source,
+    pub layout: layout::ResolvedLayout,
+    pub fingerprint: u64,
+}
+
 pub fn compile_header(source: Source) -> Result<CompiledSchema, Error> {
-    schema::compile(source)
+    match compile(&source) {
+        Ok((layout, fingerprint)) => Ok(CompiledSchema {
+            source,
+            layout,
+            fingerprint,
+        }),
+        Err(error) => Err(error.with_source(source)),
+    }
+}
+
+fn compile(source: &Source) -> Result<(layout::ResolvedLayout, u64), Error> {
+    let parsed = syntax::ParsedFile::parse(source)?;
+    let types = types::compile_types(&parsed)?;
+    let layout = layout::resolve(types)?;
+    let fingerprint = fingerprint::calculate(&layout);
+    Ok((layout, fingerprint))
 }
 
 pub fn schema_fingerprint_hex(schema: &CompiledSchema) -> String {
-    fingerprint::hex(schema.fingerprint)
+    format!("{:016x}", schema.fingerprint)
 }
 
 pub fn encode_json(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> {

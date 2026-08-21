@@ -165,7 +165,7 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
     })
 }
 
-pub fn octet_start_address(
+fn octet_start_address(
     abi: Abi,
     start_address: u32,
     source: &str,
@@ -408,10 +408,6 @@ fn fail(schema: &SchemaTypes, category: Category, span: Span, message: impl Into
 impl ResolvedLayout {
     pub fn root_layout(&self) -> &TypeLayout {
         &self.layouts[self.root.0]
-    }
-
-    pub fn octet_start(&self) -> Result<u32, Error> {
-        Ok(self.octet_start)
     }
 
     pub fn padding_octets(&self) -> usize {
