@@ -312,6 +312,54 @@ fn rejects_excluded_reachable_constructs() {
             "#pragma pack(1)\n".to_owned(),
             "unsupported preprocessor directive (pragma)",
         ),
+        (
+            "postfix packed helper",
+            blocked(
+                "typedef struct {\n    uint8_t a;\n    uint32_t b;\n} packed_t __attribute__((packed));\n",
+                "typedef struct { packed_t item; } config_t;",
+            ),
+            "attributes and explicit alignment",
+        ),
+        (
+            "tagged packed struct",
+            blocked(
+                "struct __attribute__((packed)) Foo {\n    uint8_t a;\n    uint32_t b;\n};\n",
+                "typedef struct { struct Foo item; } config_t;",
+            ),
+            "attributes and explicit alignment",
+        ),
+        (
+            "aligned typedef",
+            blocked(
+                "typedef _Alignas(16) uint32_t aligned_t;\n",
+                "typedef struct { uint8_t lead; aligned_t id; } config_t;",
+            ),
+            "_Alignas",
+        ),
+        (
+            "atomic helper",
+            blocked(
+                "typedef _Atomic uint32_t atomic_t;\n",
+                "typedef struct { atomic_t id; } config_t;",
+            ),
+            "_Atomic",
+        ),
+        (
+            "duplicate member",
+            blocked(
+                "",
+                "typedef struct {\n    uint32_t id;\n    uint16_t id;\n} config_t;",
+            ),
+            "duplicate member",
+        ),
+        (
+            "flattened array dimensions",
+            blocked(
+                "typedef uint8_t t10_t[2][2][2][2][2][2][2][2][2][2];\n",
+                "typedef struct { t10_t grid[2][2][2][2][2][2][2]; } config_t;",
+            ),
+            "at most 16 dimensions",
+        ),
     ];
     for (name, source, needle) in cases {
         let error = compile_header(header(&source)).expect_err(name);
