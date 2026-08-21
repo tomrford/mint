@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::abi::{Abi, Scalar, ScalarAbi};
 use crate::diagnostic::{Category, Error};
-use crate::source::Span;
+use crate::source::{Source, Span};
 use crate::types::{MAX_RESOLVED_SIZE, SchemaTypes, TypeId, TypeKind};
 
 #[derive(Clone, Debug)]
@@ -11,7 +11,6 @@ pub struct ResolvedLayout {
     pub start_address: u32,
     pub start_address_span: Span,
     pub padding: u8,
-    pub source_name: String,
     pub root: TypeId,
     pub types: Vec<TypeKind>,
     pub layouts: Vec<TypeLayout>,
@@ -35,7 +34,6 @@ pub struct FieldLayout {
     pub offset: usize,
     pub size: usize,
     pub alignment: usize,
-    pub span: Span,
     pub fingerprint: bool,
     pub spelling: String,
 }
@@ -84,7 +82,7 @@ impl PaddingRange {
     }
 }
 
-pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
+pub fn resolve(schema: SchemaTypes, source: &Source) -> Result<ResolvedLayout, Error> {
     let mut layouts = vec![
         TypeLayout {
             size: 0,
@@ -95,13 +93,13 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
         };
         schema.types.len()
     ];
-    layout_type(&schema, schema.root, &mut layouts)?;
+    layout_type(&schema, source, schema.root, &mut layouts)?;
     let mut padding_ranges = Vec::new();
     collect_padding(&schema, &layouts, schema.root, 0, "", &mut padding_ranges);
     let root_layout = &layouts[schema.root.0];
     if root_layout.size > MAX_RESOLVED_SIZE {
         return Err(fail(
-            &schema,
+            source,
             Category::Schema,
             schema.root_span,
             format!(
@@ -113,14 +111,14 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
     let octet_start = octet_start_address(
         schema.abi,
         schema.start_address,
-        &schema.source_name,
+        source,
         schema.start_address_span,
     )?;
     if root_layout.alignment == 0
         || !u64::from(octet_start).is_multiple_of(root_layout.alignment as u64)
     {
         return Err(fail(
-            &schema,
+            source,
             Category::Schema,
             schema.start_address_span,
             format!(
@@ -133,7 +131,7 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
         .checked_add(root_layout.size as u64)
         .ok_or_else(|| {
             fail(
-                &schema,
+                source,
                 Category::Encoding,
                 schema.start_address_span,
                 "output range overflows the 32-bit address space",
@@ -141,7 +139,7 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
         })?;
     if output_end > u64::from(u32::MAX) + 1 {
         return Err(fail(
-            &schema,
+            source,
             Category::Encoding,
             schema.start_address_span,
             format!(
@@ -156,7 +154,6 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
         start_address: schema.start_address,
         start_address_span: schema.start_address_span,
         padding: schema.padding,
-        source_name: schema.source_name,
         root: schema.root,
         types: schema.types,
         layouts,
@@ -168,14 +165,14 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
 fn octet_start_address(
     abi: Abi,
     start_address: u32,
-    source: &str,
+    source: &Source,
     span: Span,
 ) -> Result<u32, Error> {
     u64::from(start_address)
         .checked_mul(abi.address_unit_octets() as u64)
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| {
-            Error::located(
+            Error::at(
                 Category::Encoding,
                 source,
                 span,
@@ -184,7 +181,12 @@ fn octet_start_address(
         })
 }
 
-fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> Result<(), Error> {
+fn layout_type(
+    schema: &SchemaTypes,
+    source: &Source,
+    id: TypeId,
+    layouts: &mut [TypeLayout],
+) -> Result<(), Error> {
     if layouts[id.0].size != 0 || layouts[id.0].scalar.is_some() {
         return Ok(());
     }
@@ -194,7 +196,7 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
             let scalar_abi = schema
                 .abi
                 .scalar(scalar)
-                .map_err(|message| fail(schema, Category::Schema, schema.root_span, message))?;
+                .map_err(|message| fail(source, Category::Schema, schema.root_span, message))?;
             layouts[id.0] = TypeLayout {
                 size: scalar_abi.storage_size,
                 alignment: scalar_abi.alignment,
@@ -209,14 +211,14 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
         } => {
             let element = *element;
             let dimensions = dimensions.clone();
-            layout_type(schema, element, layouts)?;
+            layout_type(schema, source, element, layouts)?;
             let stride = layouts[element.0].size;
             let alignment = layouts[element.0].alignment;
             let mut count = 1u64;
             for dim in &dimensions {
                 count = count.checked_mul(*dim).ok_or_else(|| {
                     fail(
-                        schema,
+                        source,
                         Category::Schema,
                         schema.root_span,
                         "array element count overflow",
@@ -228,7 +230,7 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
                 .and_then(|count| count.checked_mul(stride))
                 .ok_or_else(|| {
                     fail(
-                        schema,
+                        source,
                         Category::Schema,
                         schema.root_span,
                         "array byte count overflow",
@@ -250,7 +252,7 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
         TypeKind::Record { fields } => {
             let child_ids: Vec<TypeId> = fields.iter().map(|field| field.type_id).collect();
             for child_id in child_ids {
-                layout_type(schema, child_id, layouts)?;
+                layout_type(schema, source, child_id, layouts)?;
             }
             let mut field_layouts = Vec::new();
             let mut cursor = 0usize;
@@ -259,10 +261,10 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
                 let child_size = layouts[field.type_id.0].size;
                 let child_align = layouts[field.type_id.0].alignment;
                 let aligned = aligned_offset(cursor, child_align).map_err(|_| {
-                    fail(schema, Category::Schema, field.span, "alignment overflow")
+                    fail(source, Category::Schema, field.span, "alignment overflow")
                 })?;
                 cursor = aligned.checked_add(child_size).ok_or_else(|| {
-                    fail(schema, Category::Schema, field.span, "record size overflow")
+                    fail(source, Category::Schema, field.span, "record size overflow")
                 })?;
                 alignment = alignment.max(child_align);
                 field_layouts.push(FieldLayout {
@@ -271,7 +273,6 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
                     offset: aligned,
                     size: child_size,
                     alignment: child_align,
-                    span: field.span,
                     fingerprint: field.fingerprint,
                     spelling: field.spelling.clone(),
                 });
@@ -279,12 +280,12 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
             if cursor > 1 {
                 alignment = alignment.max(schema.abi.family().min_aggregate_alignment());
             }
-            let size = match field_layouts.last() {
+            let size = match fields.last() {
                 Some(last) => aligned_offset(cursor, alignment)
-                    .map_err(|_| fail(schema, Category::Schema, last.span, "alignment overflow"))?,
+                    .map_err(|_| fail(source, Category::Schema, last.span, "alignment overflow"))?,
                 None => aligned_offset(cursor, alignment).map_err(|_| {
                     fail(
-                        schema,
+                        source,
                         Category::Schema,
                         schema.root_span,
                         "alignment overflow",
@@ -401,8 +402,8 @@ fn aligned_offset(offset: usize, alignment: usize) -> Result<usize, ()> {
     offset.checked_add(alignment - remainder).ok_or(())
 }
 
-fn fail(schema: &SchemaTypes, category: Category, span: Span, message: impl Into<String>) -> Error {
-    Error::located(category, &schema.source_name, span, message)
+fn fail(source: &Source, category: Category, span: Span, message: impl Into<String>) -> Error {
+    Error::at(category, source, span, message)
 }
 
 impl ResolvedLayout {
