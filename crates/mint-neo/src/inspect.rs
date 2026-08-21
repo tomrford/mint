@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::diagnostic::{Category, Error};
 use crate::fingerprint;
-use crate::layout::PaddingRange;
+use crate::layout::{self, PaddingRange};
 use crate::schema::CompiledSchema;
 use crate::types::{TypeId, TypeKind};
 
@@ -13,7 +13,7 @@ pub enum InspectFormat {
 }
 
 #[derive(Serialize)]
-struct InspectReport {
+struct InspectReport<'a> {
     abi: String,
     start_address: u32,
     octet_start_address: u32,
@@ -24,7 +24,7 @@ struct InspectReport {
     padding_octets: usize,
     fields: Vec<InspectField>,
     arrays: Vec<InspectArray>,
-    padding_ranges: Vec<InspectPadding>,
+    padding_ranges: &'a [PaddingRange],
 }
 
 #[derive(Serialize)]
@@ -43,24 +43,8 @@ struct InspectArray {
     stride: usize,
 }
 
-#[derive(Serialize)]
-struct InspectPadding {
-    offset: usize,
-    size: usize,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    path: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    repeats: Vec<InspectPaddingRepeat>,
-}
-
-#[derive(Serialize)]
-struct InspectPaddingRepeat {
-    count: u64,
-    stride: usize,
-}
-
 pub fn render(schema: &CompiledSchema, format: InspectFormat) -> Result<String, Error> {
-    let report = report(schema)?;
+    let report = report(schema);
     match format {
         InspectFormat::Json => serde_json::to_string_pretty(&report).map_err(|error| {
             Error::named(
@@ -73,7 +57,7 @@ pub fn render(schema: &CompiledSchema, format: InspectFormat) -> Result<String, 
     }
 }
 
-fn report(schema: &CompiledSchema) -> Result<InspectReport, Error> {
+fn report(schema: &CompiledSchema) -> InspectReport<'_> {
     let root = schema.layout.root_layout();
     let mut fields = Vec::new();
     let mut arrays = Vec::new();
@@ -85,10 +69,10 @@ fn report(schema: &CompiledSchema) -> Result<InspectReport, Error> {
         &mut fields,
         &mut arrays,
     );
-    Ok(InspectReport {
+    InspectReport {
         abi: schema.layout.abi.name().to_owned(),
         start_address: schema.layout.start_address,
-        octet_start_address: schema.layout.octet_start()?,
+        octet_start_address: schema.layout.octet_start,
         root_size_octets: root.size,
         root_size_units: schema
             .layout
@@ -100,28 +84,7 @@ fn report(schema: &CompiledSchema) -> Result<InspectReport, Error> {
         padding_octets: schema.layout.padding_octets(),
         fields,
         arrays,
-        padding_ranges: schema
-            .layout
-            .padding_ranges
-            .iter()
-            .map(inspect_padding)
-            .collect(),
-    })
-}
-
-fn inspect_padding(range: &PaddingRange) -> InspectPadding {
-    InspectPadding {
-        offset: range.offset,
-        size: range.size,
-        path: range.path.clone(),
-        repeats: range
-            .repeats
-            .iter()
-            .map(|repeat| InspectPaddingRepeat {
-                count: repeat.count,
-                stride: repeat.stride,
-            })
-            .collect(),
+        padding_ranges: &schema.layout.padding_ranges,
     }
 }
 
@@ -136,11 +99,7 @@ fn collect(
     match &layout.types[type_id.0] {
         TypeKind::Record { .. } => {
             for field in &layout.layouts[type_id.0].fields {
-                let child_path = if path.is_empty() {
-                    field.name.clone()
-                } else {
-                    format!("{path}.{}", field.name)
-                };
+                let child_path = layout::child_path(path, &field.name);
                 fields.push(InspectField {
                     path: child_path.clone(),
                     r#type: field.spelling.clone(),
@@ -165,15 +124,15 @@ fn collect(
                     dimensions: array.dimensions.clone(),
                     stride: array.stride,
                 });
-                let child_path = format!("{path}[]");
+                let child_path = layout::array_path(path);
                 collect(layout, array.element, base, &child_path, fields, arrays);
             }
         }
-        TypeKind::Scalar { .. } | TypeKind::Enum => {}
+        TypeKind::Scalar { .. } => {}
     }
 }
 
-fn render_text(report: &InspectReport) -> String {
+fn render_text(report: &InspectReport<'_>) -> String {
     let mut out = String::new();
     out.push_str(&format!("abi: {}\n", report.abi));
     out.push_str(&format!(
@@ -210,14 +169,14 @@ fn render_text(report: &InspectReport) -> String {
     if report.padding_ranges.is_empty() {
         out.push_str("  (none)\n");
     } else {
-        for range in &report.padding_ranges {
+        for range in report.padding_ranges {
             out.push_str(&render_padding_line(range));
         }
     }
     out
 }
 
-fn render_padding_line(range: &InspectPadding) -> String {
+fn render_padding_line(range: &PaddingRange) -> String {
     let mut line = String::from("  ");
     if !range.path.is_empty() {
         line.push_str(&range.path);
@@ -235,13 +194,6 @@ fn render_padding_line(range: &InspectPadding) -> String {
     for repeat in &range.repeats {
         line.push_str(&format!(" × {} stride {}", repeat.count, repeat.stride));
     }
-    let total = range
-        .repeats
-        .iter()
-        .try_fold(1u64, |acc, repeat| acc.checked_mul(repeat.count))
-        .and_then(|count| usize::try_from(count).ok())
-        .and_then(|count| count.checked_mul(range.size))
-        .unwrap_or(usize::MAX);
-    line.push_str(&format!("  {total} octets\n"));
+    line.push_str(&format!("  {} octets\n", range.total_octets()));
     line
 }

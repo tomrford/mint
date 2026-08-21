@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 use crate::abi::{Abi, Scalar, ScalarAbi};
 use crate::diagnostic::{Category, Error};
 use crate::source::Span;
@@ -10,11 +12,10 @@ pub struct ResolvedLayout {
     pub start_address_span: Span,
     pub padding: u8,
     pub source_name: String,
-    pub root_name: String,
     pub root: TypeId,
     pub types: Vec<TypeKind>,
     pub layouts: Vec<TypeLayout>,
-    pub fingerprint_field: Option<String>,
+    pub octet_start: u32,
     pub padding_ranges: Vec<PaddingRange>,
 }
 
@@ -43,6 +44,7 @@ pub struct FieldLayout {
 pub struct ArrayLayout {
     pub element: TypeId,
     pub dimensions: Vec<u64>,
+    pub count: u64,
     pub stride: usize,
 }
 
@@ -50,15 +52,17 @@ pub struct ArrayLayout {
 ///
 /// Array padding is stored as the first occurrence plus a compact repeat
 /// list instead of one range per element.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PaddingRange {
     pub offset: usize,
     pub size: usize,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub path: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub repeats: Vec<PaddingRepeat>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct PaddingRepeat {
     pub count: u64,
     pub stride: usize,
@@ -112,7 +116,9 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
         &schema.source_name,
         schema.start_address_span,
     )?;
-    if root_layout.alignment == 0 || !octet_start.is_multiple_of(root_layout.alignment as u64) {
+    if root_layout.alignment == 0
+        || !u64::from(octet_start).is_multiple_of(root_layout.alignment as u64)
+    {
         return Err(fail(
             &schema,
             Category::Schema,
@@ -123,7 +129,7 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
             ),
         ));
     }
-    let output_end = octet_start
+    let output_end = u64::from(octet_start)
         .checked_add(root_layout.size as u64)
         .ok_or_else(|| {
             fail(
@@ -151,11 +157,10 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
         start_address_span: schema.start_address_span,
         padding: schema.padding,
         source_name: schema.source_name,
-        root_name: schema.root_name,
         root: schema.root,
         types: schema.types,
         layouts,
-        fingerprint_field: schema.fingerprint_field,
+        octet_start,
         padding_ranges,
     })
 }
@@ -165,10 +170,10 @@ pub fn octet_start_address(
     start_address: u32,
     source: &str,
     span: Span,
-) -> Result<u64, Error> {
+) -> Result<u32, Error> {
     u64::from(start_address)
         .checked_mul(abi.address_unit_octets() as u64)
-        .and_then(|value| u32::try_from(value).ok().map(u64::from))
+        .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| {
             Error::located(
                 Category::Encoding,
@@ -184,26 +189,19 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
         return Ok(());
     }
     match &schema.types[id.0] {
-        TypeKind::Scalar { scalar, .. } => {
+        TypeKind::Scalar { scalar } => {
+            let scalar = *scalar;
             let scalar_abi = schema
                 .abi
-                .scalar(*scalar)
+                .scalar(scalar)
                 .map_err(|message| fail(schema, Category::Schema, schema.root_span, message))?;
             layouts[id.0] = TypeLayout {
                 size: scalar_abi.storage_size,
                 alignment: scalar_abi.alignment,
                 fields: Vec::new(),
                 array: None,
-                scalar: Some((*scalar, scalar_abi)),
+                scalar: Some((scalar, scalar_abi)),
             };
-        }
-        TypeKind::Enum => {
-            return Err(fail(
-                schema,
-                Category::Schema,
-                schema.root_span,
-                "enum-typed members are not supported",
-            ));
         }
         TypeKind::Array {
             element,
@@ -212,18 +210,11 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
             let element = *element;
             let dimensions = dimensions.clone();
             layout_type(schema, element, layouts)?;
-            let elem = layouts[element.0].clone();
-            let mut count = 1usize;
+            let stride = layouts[element.0].size;
+            let alignment = layouts[element.0].alignment;
+            let mut count = 1u64;
             for dim in &dimensions {
-                let dim = usize::try_from(*dim).map_err(|_| {
-                    fail(
-                        schema,
-                        Category::Schema,
-                        schema.root_span,
-                        "array extent exceeds usize",
-                    )
-                })?;
-                count = count.checked_mul(dim).ok_or_else(|| {
+                count = count.checked_mul(*dim).ok_or_else(|| {
                     fail(
                         schema,
                         Category::Schema,
@@ -232,48 +223,54 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
                     )
                 })?;
             }
-            let stride = elem.size;
-            let size = count.checked_mul(stride).ok_or_else(|| {
-                fail(
-                    schema,
-                    Category::Schema,
-                    schema.root_span,
-                    "array byte count overflow",
-                )
-            })?;
+            let size = usize::try_from(count)
+                .ok()
+                .and_then(|count| count.checked_mul(stride))
+                .ok_or_else(|| {
+                    fail(
+                        schema,
+                        Category::Schema,
+                        schema.root_span,
+                        "array byte count overflow",
+                    )
+                })?;
             layouts[id.0] = TypeLayout {
                 size,
-                alignment: elem.alignment,
+                alignment,
                 fields: Vec::new(),
                 array: Some(ArrayLayout {
                     element,
                     dimensions,
+                    count,
                     stride,
                 }),
                 scalar: None,
             };
         }
-        TypeKind::Record { fields, .. } => {
-            let fields = fields.clone();
+        TypeKind::Record { fields } => {
+            let child_ids: Vec<TypeId> = fields.iter().map(|field| field.type_id).collect();
+            for child_id in child_ids {
+                layout_type(schema, child_id, layouts)?;
+            }
             let mut field_layouts = Vec::new();
             let mut cursor = 0usize;
             let mut alignment = 1usize;
-            for field in &fields {
-                layout_type(schema, field.type_id, layouts)?;
-                let child = layouts[field.type_id.0].clone();
-                let aligned = aligned_offset(cursor, child.alignment).map_err(|_| {
+            for field in fields {
+                let child_size = layouts[field.type_id.0].size;
+                let child_align = layouts[field.type_id.0].alignment;
+                let aligned = aligned_offset(cursor, child_align).map_err(|_| {
                     fail(schema, Category::Schema, field.span, "alignment overflow")
                 })?;
-                cursor = aligned.checked_add(child.size).ok_or_else(|| {
+                cursor = aligned.checked_add(child_size).ok_or_else(|| {
                     fail(schema, Category::Schema, field.span, "record size overflow")
                 })?;
-                alignment = alignment.max(child.alignment);
+                alignment = alignment.max(child_align);
                 field_layouts.push(FieldLayout {
                     name: field.name.clone(),
                     type_id: field.type_id,
                     offset: aligned,
-                    size: child.size,
-                    alignment: child.alignment,
+                    size: child_size,
+                    alignment: child_align,
                     span: field.span,
                     fingerprint: field.fingerprint,
                     spelling: field.spelling.clone(),
@@ -351,9 +348,7 @@ fn collect_padding(
             let Some(array) = &layout.array else {
                 return;
             };
-            let Some(count) = array_element_count(array, layout.size) else {
-                return;
-            };
+            let count = array.count;
             // One element prototype plus a compact repeat; never walk each index.
             let mut proto = Vec::new();
             collect_padding(
@@ -375,26 +370,11 @@ fn collect_padding(
                 padding.push(range);
             }
         }
-        TypeKind::Scalar { .. } | TypeKind::Enum => {}
+        TypeKind::Scalar { .. } => {}
     }
 }
 
-fn array_element_count(array: &ArrayLayout, size: usize) -> Option<u64> {
-    if array.stride == 0 || size == 0 {
-        return None;
-    }
-    if let Some(count) = array
-        .dimensions
-        .iter()
-        .try_fold(1u64, |acc, dim| acc.checked_mul(*dim))
-    {
-        return (count > 0).then_some(count);
-    }
-    let count = u64::try_from(size / array.stride).ok()?;
-    (count > 0).then_some(count)
-}
-
-fn child_path(path: &str, name: &str) -> String {
+pub(crate) fn child_path(path: &str, name: &str) -> String {
     if path.is_empty() {
         name.to_owned()
     } else {
@@ -402,7 +382,7 @@ fn child_path(path: &str, name: &str) -> String {
     }
 }
 
-fn array_path(path: &str) -> String {
+pub(crate) fn array_path(path: &str) -> String {
     if path.is_empty() {
         "[]".to_owned()
     } else {
@@ -431,20 +411,7 @@ impl ResolvedLayout {
     }
 
     pub fn octet_start(&self) -> Result<u32, Error> {
-        let start = octet_start_address(
-            self.abi,
-            self.start_address,
-            &self.source_name,
-            self.start_address_span,
-        )?;
-        u32::try_from(start).map_err(|_| {
-            Error::located(
-                Category::Encoding,
-                &self.source_name,
-                self.start_address_span,
-                "start-address does not fit a 32-bit octet address",
-            )
-        })
+        Ok(self.octet_start)
     }
 
     pub fn padding_octets(&self) -> usize {

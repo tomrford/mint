@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::abi::{Endianness, Scalar, ScalarValue, write_scalar_bytes};
-use crate::diagnostic::{Category, Error};
+use crate::diagnostic::Error;
 use crate::layout::{ArrayLayout, ResolvedLayout};
 use crate::schema::CompiledSchema;
 use crate::source::{Source, Span};
@@ -56,21 +56,13 @@ pub fn encode(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> 
         "",
         &mut bytes,
     )?;
-    if let Some(name) = &schema.layout.fingerprint_field {
-        let field = schema
-            .layout
-            .root_layout()
-            .fields
-            .iter()
-            .find(|field| field.name == *name)
-            .ok_or_else(|| {
-                Error::named(
-                    Category::Schema,
-                    &schema.source.name,
-                    "fingerprint field disappeared after resolution",
-                )
-                .with_source(schema.source.clone())
-            })?;
+    if let Some(field) = schema
+        .layout
+        .root_layout()
+        .fields
+        .iter()
+        .find(|field| field.fingerprint)
+    {
         write_at(
             &mut bytes,
             field.offset,
@@ -92,7 +84,7 @@ fn bind(
     bytes: &mut [u8],
 ) -> Result<(), Error> {
     match &layout.types[type_id.0] {
-        TypeKind::Scalar { scalar, .. } => {
+        TypeKind::Scalar { scalar } => {
             let Json::Number(span) = *value else {
                 return Err(scalar_mismatch(value, source, pointer));
             };
@@ -155,12 +147,6 @@ fn bind(
         TypeKind::Array { .. } => {
             bind_array(layout, type_id, offset, value, source, pointer, bytes, 0)
         }
-        TypeKind::Enum => Err(Error::data(
-            source,
-            value.span(),
-            pointer,
-            "enum-typed members are not supported",
-        )),
     }
 }
 
