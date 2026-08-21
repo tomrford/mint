@@ -293,3 +293,77 @@ nested.value = { const = "missing", type = "u32" }
         "{missing_const}"
     );
 }
+
+#[test]
+fn emits_named_typedefs_for_equal_aggregates() {
+    let header = generate(
+        "header-named-types",
+        r#"
+[mint]
+abi = "generic-le"
+
+[mint.types]
+inner_t = ["block.object_a.inner", "block.object_b.inner"]
+sample_t = ["block.object_a", "block.object_b"]
+
+[block.header]
+start_address = 0
+length = 0x40
+
+[block.data]
+object_a.inner.value = { value = 1, type = "u32" }
+object_a.tail = { value = 2, type = "u16" }
+object_a.name = { value = "A", type = "u8", size = 8 }
+object_b.inner.value = { value = 3, type = "u32" }
+object_b.tail = { value = 4, type = "u16" }
+object_b.name = { value = "B", type = "u8", size = 8 }
+"#,
+        |path| vec![BlockSelector::all(path)],
+    );
+
+    assert!(header.contains(
+        "typedef struct {\n  uint32_t value;\n} inner_t;\n\ntypedef struct {\n  inner_t inner;\n  uint16_t tail;\n  uint8_t name[8];\n} sample_t;\n"
+    ));
+    assert!(
+        header
+            .contains("typedef struct {\n  sample_t object_a;\n  sample_t object_b;\n} block_t;\n")
+    );
+    assert!(header.contains(
+        "_Static_assert(offsetof(sample_t, inner) * CHAR_BIT == 0u * 8u, \"Mint ABI offset mismatch for sample_t.inner\");"
+    ));
+    assert!(header.contains(
+        "_Static_assert(sizeof(sample_t) * CHAR_BIT == 16u * 8u, \"Mint ABI size mismatch for sample_t\");"
+    ));
+    assert!(header.contains(
+        "_Static_assert(offsetof(block_t, object_a.name) * CHAR_BIT == 6u * 8u, \"Mint ABI offset mismatch for block.object_a.name\");"
+    ));
+    assert!(header.contains("#define BLOCK_OBJECT_A_NAME_LEN 8u"));
+    assert!(header.contains("#define BLOCK_OBJECT_B_NAME_LEN 8u"));
+}
+
+#[test]
+fn names_a_single_aggregate_without_a_twin() {
+    let header = generate(
+        "header-singleton-type",
+        r#"
+[mint]
+abi = "generic-le"
+
+[mint.types]
+channel_t = ["block.channel"]
+
+[block.header]
+start_address = 0
+length = 0x20
+
+[block.data]
+channel.id = { value = 1, type = "u32" }
+other.id = { value = 2, type = "u16" }
+"#,
+        |path| vec![BlockSelector::all(path)],
+    );
+
+    assert!(header.contains("typedef struct {\n  uint32_t id;\n} channel_t;\n"));
+    assert!(header.contains("channel_t channel;"));
+    assert!(header.contains("struct {\n    uint16_t id;\n  } other;"));
+}

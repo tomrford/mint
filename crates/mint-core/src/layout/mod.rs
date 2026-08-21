@@ -8,6 +8,7 @@ pub mod header;
 pub(crate) mod resolved;
 pub mod scalar_type;
 pub mod settings;
+pub(crate) mod types;
 pub(crate) mod used_values;
 pub mod value;
 
@@ -47,6 +48,7 @@ fn parse_toml_layout_with_context(text: &str, context: &str) -> Result<Config, L
     let mut cfg: Config = toml::from_str(text)
         .map_err(|e| LayoutError::FileError(format!("failed to parse {}: {}", context, e)))?;
     promote_block_header_consts(&mut cfg)?;
+    types::validate(&cfg)?;
     Ok(cfg)
 }
 
@@ -75,7 +77,7 @@ pub(crate) fn validate_c_identifier(name: &str, kind: &str) -> Result<(), String
                 .next()
                 .is_some_and(|character| character.is_ascii_uppercase())
         })
-        || (kind == "block" && name.starts_with('_'));
+        || (matches!(kind, "block" | "type") && name.starts_with('_'));
     if reserved_underscore {
         return Err(format!("{kind} name '{name}' is reserved by C"));
     }

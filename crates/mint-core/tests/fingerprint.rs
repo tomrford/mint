@@ -70,6 +70,30 @@ compatibility = { fingerprint = true, type = "u64" }
 
     assert_eq!(first, second);
 
+    let labelled = fingerprint_of(
+        r#"
+[mint]
+abi = "generic-le"
+
+[mint.types]
+group_t = ["first.nested"]
+
+[first.header]
+start_address = 0x1000
+length = 0x100
+padding = 0xFF
+
+[first.data]
+alpha = { value = 1, type = "u16" }
+nested.beta = { value = [1, 2], type = "u8", size = 2 }
+flags = { type = "u8", bitmap = [{ bits = 1, value = 0 }, { bits = 7, name = "Mode" }] }
+target = { value = 3, type = "u32" }
+pointer = { ref = "target", type = "u32" }
+schema = { fingerprint = true, type = "u64" }
+"#,
+    );
+    assert_eq!(first, labelled);
+
     let automatic = fingerprint_of(&layout_with(
         "schema = { fingerprint = true, type = \"u64\" }",
     ));

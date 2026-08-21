@@ -1,6 +1,7 @@
 use super::abi::Abi;
 use super::error::LayoutError;
 use super::value::ValueSource;
+use indexmap::IndexMap;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -13,6 +14,8 @@ pub struct MintConfig {
     pub checksum: HashMap<String, ChecksumConfig>,
     #[serde(rename = "const", default)]
     pub consts: HashMap<String, ValueSource>,
+    #[serde(default)]
+    pub types: IndexMap<String, Vec<String>>,
 }
 
 impl MintConfig {

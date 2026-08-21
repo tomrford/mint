@@ -47,6 +47,15 @@ ip_octets = [192, 168, 1, 10]
 
 Each block also exposes `<block_name>.start_address` and `<block_name>.length` as consts. These promoted values use the block header values.
 
+Named nested aggregates are labelled in `[mint.types]`. Each type name is a C identifier. Each path is `block.aggregate` and must name an existing nested aggregate, not a leaf and not a whole block. Mint infers the stored shape from those objects, requires exact structural equality, and emits one typedef used at every listed member. Type names are unique in the generated header and cannot collide with a `{block}_t` typedef. Mint does not invent types, merge similar anonymous structs, or accept `type = "sample_t"` as a field source.
+
+```toml
+[mint.types]
+sample_t = ["config.object_a", "config.object_b"]
+```
+
+A single path only names the aggregate. Two or more paths also check that the members match: names, order, mint scalar types, array dimensions, nesting, relative offsets, size, alignment, and bitmap region names and widths. Data sources, values, `size` vs `SIZE`, and whether a leaf is a ref, checksum or fingerprint do not participate. Type names do not contribute to the block fingerprint.
+
 ### ABI profiles
 
 The required `abi` setting selects the layout rules used for every block in the file. The currently supported profiles are:
@@ -104,13 +113,13 @@ mint header layout.toml -o layout.h
 mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
-Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members. Ref members represent serialized target addresses, not C pointer objects.
+Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs unless `[mint.types]` names that aggregate. Named aggregates become a shared typedef used at each listed member. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members. Ref members represent serialized target addresses, not C pointer objects.
 
 Generated headers include C11 `_Static_assert` checks for every field offset and final structure size. The checks compare `sizeof` and `offsetof` through `CHAR_BIT`, so Mint's octet offsets remain valid on targets whose C addressable unit is wider than 8 bits. Compiling the header with the target compiler tests that compiler and flag combination; see the ABI table for the combinations that CI checks.
 
 Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
 
-The layout parser guarantees valid block and field names. Header generation runs the build's static validation for selected blocks, including resolved shape, const, checksum, ref and address-range rules. It also rejects block-prefix and generated macro collisions after conversion to upper snake case. It renders the complete header before writing the output file.
+The layout parser guarantees valid block and field names. Header generation runs the build's static validation for selected blocks, including resolved shape, named types, const, checksum, ref and address-range rules. It also rejects block-prefix and generated macro collisions after conversion to upper snake case. It renders the complete header before writing the output file.
 
 ### Field Attributes
 

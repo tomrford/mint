@@ -163,6 +163,10 @@ impl<'a> ResolvedLayout<'a> {
         self.nodes.get(path).copied()
     }
 
+    pub(crate) fn node(&self, path: &str) -> Option<&ResolvedNode<'_>> {
+        node_at(&self.root, path)
+    }
+
     pub(crate) fn abi(&self) -> Abi {
         self.abi
     }
@@ -207,7 +211,7 @@ pub(crate) enum ResolvedNode<'a> {
 }
 
 impl ResolvedNode<'_> {
-    fn coordinates(&self) -> ResolvedCoordinates {
+    pub(crate) fn coordinates(&self) -> ResolvedCoordinates {
         match self {
             Self::Branch { coordinates, .. } | Self::Leaf { coordinates, .. } => *coordinates,
         }
@@ -259,6 +263,20 @@ pub(crate) struct ResolvedTarget {
 pub(crate) enum TargetKind {
     Branch,
     Leaf,
+}
+
+fn node_at<'a>(root: &'a ResolvedNode<'a>, path: &str) -> Option<&'a ResolvedNode<'a>> {
+    if path.is_empty() {
+        return Some(root);
+    }
+    let mut node = root;
+    for segment in path.split('.') {
+        let ResolvedNode::Branch { children, .. } = node else {
+            return None;
+        };
+        node = &children.iter().find(|(name, _)| name == segment)?.1;
+    }
+    Some(node)
 }
 
 fn collect_entry<'a>(

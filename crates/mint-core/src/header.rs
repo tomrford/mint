@@ -1,14 +1,15 @@
 use crate::build::{BlockSelector, resolve_blocks};
 use crate::error::MintError;
 use crate::layout::abi::Abi;
-use crate::layout::block::{Block, Entry};
+use crate::layout::block::{Block, Config, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
 use crate::layout::resolved::{ResolvedNode, validate_static};
 use crate::layout::settings::MintConfig;
+use crate::layout::types::{self, NamedTypes};
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Generate a complete C11 header for the selected layout blocks.
 pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
@@ -26,6 +27,31 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let mut rendered = Vec::with_capacity(resolved.len());
     let mut names = NameRegistry::default();
     let mut guard_parts = Vec::with_capacity(resolved.len());
+    let mut named_typedefs = String::new();
+    let mut named_assertions = String::new();
+    let mut rendered_layouts = HashSet::new();
+
+    for selected in &resolved {
+        if !rendered_layouts.insert(selected.layout.clone()) {
+            continue;
+        }
+        let layout = layouts.get(&selected.layout).ok_or_else(|| {
+            LayoutError::FileError(format!(
+                "resolved layout missing from header map: {}",
+                selected.layout.display()
+            ))
+        })?;
+        let selected_blocks: HashSet<&str> = resolved
+            .iter()
+            .filter(|block| block.layout == selected.layout)
+            .map(|block| block.name.as_str())
+            .collect();
+        let named = types::collect(layout)?;
+        let (typedefs, assertions) =
+            render_named_typedefs(layout, &named, &selected_blocks, &mut names)?;
+        named_typedefs.push_str(&typedefs);
+        named_assertions.push_str(&assertions);
+    }
 
     for selected in resolved {
         let layout = layouts.get(&selected.layout).ok_or_else(|| {
@@ -48,10 +74,12 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
             ))
         })?;
 
+        let named = types::collect(layout)?;
         let result = render_block(
             &selected.name,
             block,
             &layout.mint,
+            &named,
             block_fingerprints,
             &mut names,
         );
@@ -84,9 +112,19 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
         }
     }
 
+    if !named_typedefs.is_empty() {
+        output.push('\n');
+        output.push_str(&named_typedefs);
+    }
+
     for block in &rendered {
         output.push('\n');
         output.push_str(&block.typedef);
+    }
+
+    if !named_assertions.is_empty() {
+        output.push('\n');
+        output.push_str(&named_assertions);
     }
 
     for block in &rendered {
@@ -114,6 +152,7 @@ struct MacroDefinition {
 struct NameRegistry {
     block_prefixes: HashMap<String, String>,
     macros: HashMap<String, String>,
+    typedefs: HashMap<String, String>,
 }
 
 impl NameRegistry {
@@ -137,18 +176,29 @@ impl NameRegistry {
         }
         Ok(())
     }
+
+    fn add_typedef(&mut self, name: &str, origin: String) -> Result<(), LayoutError> {
+        if let Some(existing) = self.typedefs.insert(name.to_owned(), origin.clone()) {
+            return Err(header_error(format!(
+                "'{existing}' and '{origin}' both generate typedef '{name}'"
+            )));
+        }
+        Ok(())
+    }
 }
 
 fn render_block(
     block_name: &str,
     block: &Block,
     settings: &MintConfig,
+    named: &NamedTypes,
     fingerprints: &IndexMap<String, u64>,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
     let typedef_name = format!("{block_name}_t");
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
+    names.add_typedef(&typedef_name, format!("block '{block_name}'"))?;
 
     let resolved = validate_static(block, settings)?;
 
@@ -177,6 +227,8 @@ fn render_block(
         &mut path,
         &mut typedef,
         settings.abi,
+        Some((block_name, named)),
+        true,
     )?;
     typedef.push_str(&format!("}} {typedef_name};\n"));
 
@@ -351,6 +403,69 @@ fn add_macro(
     Ok(())
 }
 
+fn render_named_typedefs(
+    layout: &Config,
+    named: &NamedTypes,
+    selected: &HashSet<&str>,
+    names: &mut NameRegistry,
+) -> Result<(String, String), LayoutError> {
+    let mut typedefs = String::new();
+    let mut assertions = String::new();
+    for typed in named.used_by(selected)? {
+        names.add_typedef(&typed.name, format!("named type '{}'", typed.name))?;
+        let first = typed
+            .members
+            .first()
+            .ok_or_else(|| header_error(format!("named type '{}' has no members", typed.name)))?;
+        let block = layout.blocks.get(&first.block).ok_or_else(|| {
+            header_error(format!(
+                "named type '{}' member '{}' disappeared",
+                typed.name,
+                first.display()
+            ))
+        })?;
+        let resolved = validate_static(block, &layout.mint)?;
+        let node = resolved.node(&first.path).ok_or_else(|| {
+            header_error(format!(
+                "named type '{}' path '{}' disappeared after resolution",
+                typed.name,
+                first.display()
+            ))
+        })?;
+        let entry = types::entry_at(&block.data, &first.path).ok_or_else(|| {
+            header_error(format!(
+                "named type '{}' path '{}' disappeared from the layout tree",
+                typed.name,
+                first.display()
+            ))
+        })?;
+        let Entry::Branch(children) = entry else {
+            return Err(header_error(format!(
+                "named type '{}' path '{}' is not an aggregate",
+                typed.name,
+                first.display()
+            )));
+        };
+
+        let mut path = first.path.split('.').map(str::to_owned).collect();
+        typedefs.push_str("typedef struct {\n");
+        render_fields(
+            children,
+            1,
+            "",
+            &mut path,
+            &mut typedefs,
+            layout.mint.abi,
+            Some((&first.block, named)),
+            false,
+        )?;
+        typedefs.push_str(&format!("}} {};\n\n", typed.name));
+        assertions.push_str(&render_named_type_assertions(&typed.name, node));
+    }
+    Ok((typedefs, assertions))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn render_fields(
     fields: &IndexMap<String, Entry>,
     depth: usize,
@@ -358,27 +473,47 @@ fn render_fields(
     path: &mut Vec<String>,
     output: &mut String,
     abi: Abi,
+    named: Option<(&str, &NamedTypes)>,
+    use_macros: bool,
 ) -> Result<(), LayoutError> {
     let indent = "  ".repeat(depth);
     for (name, node) in fields {
         path.push(name.clone());
+        if let Some((block, types)) = named
+            && let Some(type_name) = types.get(block, &path.join("."))
+        {
+            output.push_str(&format!("{indent}{type_name} {name};\n"));
+            path.pop();
+            continue;
+        }
         match node {
             Entry::Branch(children) => {
                 output.push_str(&format!("{indent}struct {{\n"));
-                render_fields(children, depth + 1, block_prefix, path, output, abi)?;
+                render_fields(
+                    children,
+                    depth + 1,
+                    block_prefix,
+                    path,
+                    output,
+                    abi,
+                    named,
+                    use_macros,
+                )?;
                 output.push_str(&format!("{indent}}} {name};\n"));
             }
             Entry::Leaf(leaf) => {
                 let c_type = abi.scalar(leaf.scalar_type)?.c_type;
                 let dimensions = match leaf.size()? {
                     None => String::new(),
-                    Some(SizeSource::OneD(_)) => {
+                    Some(SizeSource::OneD(_)) if use_macros => {
                         format!("[{}_LEN]", macro_path(block_prefix, path)?)
                     }
-                    Some(SizeSource::TwoD(_)) => {
+                    Some(SizeSource::OneD(length)) => format!("[{length}]"),
+                    Some(SizeSource::TwoD(_)) if use_macros => {
                         let prefix = macro_path(block_prefix, path)?;
                         format!("[{prefix}_ROWS][{prefix}_COLS]")
                     }
+                    Some(SizeSource::TwoD([rows, columns])) => format!("[{rows}][{columns}]"),
                 };
                 let comment = match &leaf.source {
                     EntrySource::Bitmap(_) => " /* bitmap storage */".to_owned(),
@@ -399,6 +534,41 @@ fn render_fields(
         path.pop();
     }
     Ok(())
+}
+
+fn render_named_type_assertions(type_name: &str, root: &ResolvedNode<'_>) -> String {
+    let base = root.coordinates().offset;
+    let mut output = String::new();
+    let mut path = Vec::new();
+    render_relative_assertions(type_name, root, base, &mut path, &mut output);
+    output.push_str(&format!(
+        "_Static_assert(sizeof({type_name}) * CHAR_BIT == {}u * 8u, \"Mint ABI size mismatch for {type_name}\");\n",
+        root.coordinates().size
+    ));
+    output
+}
+
+fn render_relative_assertions(
+    type_name: &str,
+    node: &ResolvedNode<'_>,
+    base: usize,
+    path: &mut Vec<String>,
+    output: &mut String,
+) {
+    let ResolvedNode::Branch { children, .. } = node else {
+        return;
+    };
+
+    for (name, child) in children {
+        path.push(name.clone());
+        let offset = child.coordinates().offset - base;
+        let member = path.join(".");
+        output.push_str(&format!(
+            "_Static_assert(offsetof({type_name}, {member}) * CHAR_BIT == {offset}u * 8u, \"Mint ABI offset mismatch for {type_name}.{member}\");\n"
+        ));
+        render_relative_assertions(type_name, child, base, path, output);
+        path.pop();
+    }
 }
 
 fn render_layout_assertions(
