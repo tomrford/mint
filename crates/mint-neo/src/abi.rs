@@ -114,6 +114,21 @@ impl Scalar {
         matches!(self, Self::F32 | Self::F64)
     }
 
+    /// Inclusive integer range, if this scalar is an integer type.
+    pub fn integer_range(self) -> Option<(i128, i128)> {
+        Some(match self {
+            Self::U8 => (0, i128::from(u8::MAX)),
+            Self::U16 => (0, i128::from(u16::MAX)),
+            Self::U32 => (0, i128::from(u32::MAX)),
+            Self::U64 => (0, i128::from(u64::MAX)),
+            Self::I8 => (i128::from(i8::MIN), i128::from(i8::MAX)),
+            Self::I16 => (i128::from(i16::MIN), i128::from(i16::MAX)),
+            Self::I32 => (i128::from(i32::MIN), i128::from(i32::MAX)),
+            Self::I64 => (i128::from(i64::MIN), i128::from(i64::MAX)),
+            Self::F32 | Self::F64 => return None,
+        })
+    }
+
     pub fn hash_tag(self) -> u8 {
         match self {
             Self::U8 => 0,
