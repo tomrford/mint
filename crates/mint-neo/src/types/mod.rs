@@ -451,6 +451,7 @@ impl<'a> Resolver<'a> {
         if let Some(id) = self.memo.get(&key).copied() {
             return Ok(id);
         }
+        self.reject_unsupported_on(def.node)?;
         if self.typedef_depth >= MAX_TYPEDEF_DEPTH {
             return Err(schema(
                 self.parsed,
@@ -495,6 +496,7 @@ impl<'a> Resolver<'a> {
             return Ok(id);
         }
         let body = if let Some(body) = spec.child_by_field_name("body") {
+            self.reject_unsupported_on(spec)?;
             body
         } else if let Some(name) = spec.child_by_field_name("name") {
             let tag = self.parsed.text(name);
@@ -521,12 +523,26 @@ impl<'a> Resolver<'a> {
             return self.cycle_error();
         }
         let mut fields = Vec::new();
+        let mut names = HashMap::new();
         let mut cursor = body.walk();
         for child in body.named_children(&mut cursor) {
             if child.kind() != "field_declaration" {
                 continue;
             }
-            fields.push(self.resolve_field(child, depth + 1)?);
+            let field = self.resolve_field(child, depth + 1)?;
+            if let Some(previous) = names.insert(field.name.clone(), field.span) {
+                return Err(schema(
+                    self.parsed,
+                    field.span,
+                    format!("duplicate member '{}'", field.name),
+                )
+                .related(
+                    &self.parsed.source.name,
+                    previous,
+                    "previous member is here",
+                ));
+            }
+            fields.push(field);
         }
         if fields.is_empty() {
             self.visiting.remove(&spec.start_byte());
@@ -630,7 +646,7 @@ impl<'a> Resolver<'a> {
             ));
         }
         if !dims.is_empty() {
-            type_id = self.canonicalize_array(type_id, dims)?;
+            type_id = self.canonicalize_array(type_id, dims, ParsedFile::span(declarator))?;
         }
         Ok(type_id)
     }
@@ -639,6 +655,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         mut element: TypeId,
         mut dimensions: Vec<u64>,
+        span: Span,
     ) -> Result<TypeId, Error> {
         if let TypeKind::Array {
             element: inner,
@@ -652,7 +669,7 @@ impl<'a> Resolver<'a> {
         if dimensions.len() > MAX_ARRAY_DIMENSIONS {
             return Err(schema(
                 self.parsed,
-                Span::point(0),
+                span,
                 format!("arrays may have at most {MAX_ARRAY_DIMENSIONS} dimensions"),
             ));
         }
@@ -982,16 +999,13 @@ fn collect_enum_constants(parsed: &ParsedFile<'_>, env: &mut ShapeEnv) -> Result
             let name_text = parsed.text(name);
             let span = ParsedFile::span(name);
             if let Some(previous) = env.insert_constant(name_text.to_owned(), stored, span) {
-                return Err(schema(
-                    parsed,
-                    span,
-                    format!("duplicate enumerator '{name_text}'"),
-                )
-                .related(
-                    parsed.source.name.clone(),
-                    previous,
-                    "previous enumerator is here",
-                ));
+                return Err(
+                    schema(parsed, span, format!("duplicate enumerator '{name_text}'")).related(
+                        parsed.source.name.clone(),
+                        previous,
+                        "previous enumerator is here",
+                    ),
+                );
             }
             next = value.saturating_add(1);
         }
