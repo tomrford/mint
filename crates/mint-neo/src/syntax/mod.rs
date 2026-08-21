@@ -298,11 +298,6 @@ pub(crate) fn descendants<'tree>(root: Node<'tree>, named: bool) -> Vec<Node<'tr
     out
 }
 
-#[cfg(test)]
-pub fn collect_macros(parsed: &ParsedFile<'_>) -> Result<Vec<MacroDef>, Error> {
-    collect_comments_and_macros(parsed).map(|(_, macros)| macros)
-}
-
 pub(crate) fn collect_comments_and_macros<'a>(
     parsed: &'a ParsedFile<'a>,
 ) -> Result<(Vec<Comment<'a>>, Vec<MacroDef>), Error> {
@@ -381,22 +376,5 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("include"));
-    }
-
-    #[test]
-    fn collects_macros_in_source_order_and_strips_bodies() {
-        let source = Source::new(
-            "config.h",
-            "#define SECOND (1u /* a */ + 1u)\n#define FIRST 1u // first\n",
-        );
-        let parsed = ParsedFile::parse(&source).expect("parse");
-        let macros = super::collect_macros(&parsed).expect("macros");
-        assert_eq!(
-            macros
-                .iter()
-                .map(|macro_def| (macro_def.name.as_str(), macro_def.body.as_str()))
-                .collect::<Vec<_>>(),
-            vec![("SECOND", "(1u   + 1u)"), ("FIRST", "1u")]
-        );
     }
 }

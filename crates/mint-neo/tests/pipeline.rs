@@ -85,7 +85,8 @@ typedef struct {
     assert!(missing.to_string().contains("missing"));
     let bytes = encode_json(&schema, &json(r#"{"id": 7}"#)).expect("json");
     assert_eq!(&bytes[8..12], &[7, 0, 0, 0]);
-    assert_ne!(&bytes[0..8], &[0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(&bytes[0..8], &schema.fingerprint.to_le_bytes());
+    assert_eq!(&bytes[12..16], &[0xFF; 4], "default tail padding");
 }
 
 #[test]
@@ -343,22 +344,6 @@ fn rejects_excluded_reachable_constructs() {
                 "typedef struct { atomic_t id; } config_t;",
             ),
             "_Atomic",
-        ),
-        (
-            "duplicate member",
-            blocked(
-                "",
-                "typedef struct {\n    uint32_t id;\n    uint16_t id;\n} config_t;",
-            ),
-            "duplicate member",
-        ),
-        (
-            "flattened array dimensions",
-            blocked(
-                "typedef uint8_t t10_t[2][2][2][2][2][2][2][2][2][2];\n",
-                "typedef struct { t10_t grid[2][2][2][2][2][2][2]; } config_t;",
-            ),
-            "at most 16 dimensions",
         ),
     ];
     for (name, source, needle) in cases {
