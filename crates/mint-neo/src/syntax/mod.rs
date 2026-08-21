@@ -132,8 +132,14 @@ impl<'a> ParsedFile<'a> {
     }
 
     fn error_is_macro_comment_residue(&self, node: Node<'_>) -> bool {
-        let (line, _) = self.source.locate(node.start_byte());
-        is_object_like_define_line(self.source.line_text(line))
+        if !preceded_by_block_comment_end(&self.source.text, node.start_byte()) {
+            return false;
+        }
+        if !is_shape_expression_text(&strip_c_comments(self.text(node))) {
+            return false;
+        }
+        let line_start = logical_preproc_line_start(&self.source.text, node.start_byte());
+        is_object_like_define_line(preproc_logical_rest(&self.source.text, line_start))
     }
 
     fn directive_error(&self, node: Node<'_>, kind: &str) -> Error {
@@ -151,6 +157,54 @@ fn collapse_ws(text: &str) -> String {
 
 fn normalize_directive(text: &str) -> String {
     collapse_ws(&strip_c_comments(text))
+}
+
+fn preceded_by_block_comment_end(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = offset.min(bytes.len());
+    while index > 0 && matches!(bytes[index - 1], b' ' | b'\t') {
+        index -= 1;
+    }
+    index >= 2 && bytes[index - 2] == b'*' && bytes[index - 1] == b'/'
+}
+
+fn is_shape_expression_text(text: &str) -> bool {
+    let stripped = collapse_ws(text);
+    !stripped.is_empty()
+        && stripped.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'_' | b'+' | b'-' | b'*' | b'/' | b'%' | b'(' | b')' | b' '
+                )
+        })
+}
+
+fn logical_preproc_line_start(text: &str, offset: usize) -> usize {
+    let bytes = text.as_bytes();
+    let offset = offset.min(bytes.len());
+    let mut start = text[..offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    loop {
+        if start == 0 {
+            return 0;
+        }
+        let newline = start - 1;
+        let escaped = if newline > 0 && bytes[newline - 1] == b'\r' {
+            newline > 1 && bytes[newline - 2] == b'\\'
+        } else {
+            newline > 0 && bytes[newline - 1] == b'\\'
+        };
+        if !escaped {
+            return start;
+        }
+        start = text[..newline]
+            .rfind('\n')
+            .map(|index| index + 1)
+            .unwrap_or(0);
+    }
 }
 
 fn is_object_like_define_line(line: &str) -> bool {

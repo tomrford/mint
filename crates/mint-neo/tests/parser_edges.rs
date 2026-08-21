@@ -223,6 +223,81 @@ typedef struct { uint32_t id; } first_t, second_t;
 }
 
 #[test]
+fn unreachable_packed_helper_is_trivia() {
+    let schema = compile(&mint_block(
+        "typedef struct { uint8_t a; uint32_t b; } unused_t __attribute__((packed));\n",
+        "typedef struct { uint32_t id; } config_t;",
+    ))
+    .expect("unreachable packed helper");
+    assert_eq!(schema.layout.root_layout().size, 4);
+}
+
+#[test]
+fn duplicate_member_names_report_the_previous_span() {
+    let error = compile_err(&mint_block(
+        "",
+        r#"
+typedef struct {
+    uint32_t id;
+    uint16_t id;
+} config_t;
+"#,
+    ));
+    assert!(error.contains("duplicate member"), "{error}");
+    assert!(error.contains("previous member is here"), "{error}");
+}
+
+#[test]
+fn flattened_array_dimension_limit_uses_declarator_span() {
+    let text = mint_block(
+        "typedef uint8_t t10_t[2][2][2][2][2][2][2][2][2][2];\n",
+        r#"
+typedef struct {
+    t10_t grid[2][2][2][2][2][2][2];
+} config_t;
+"#,
+    );
+    let error = compile(&text).expect_err("dimension limit");
+    let span = error.diagnostic.span.expect("span");
+    assert!(
+        span.end > span.start && span.start > 0,
+        "flattened dimension overflow must use a real declarator span, got {span:?}"
+    );
+    let excerpt = &text[span.start..span.end];
+    assert!(
+        excerpt.contains("grid"),
+        "span must cover the overflowing declarator, got {excerpt:?}"
+    );
+    assert!(!error.to_string().contains(" --> config.h:1:1"), "{error}");
+    assert!(
+        error.to_string().contains("at most 16 dimensions"),
+        "{error}"
+    );
+}
+
+#[test]
+fn malformed_object_like_defines_are_fatal() {
+    let cases = [
+        (
+            "garbage after comment",
+            "#define FOO 1 /* c */ @@@\n#define N 2u\n",
+        ),
+        ("invalid define name", "#define 1 2\n#define N 2u\n"),
+        ("empty define", "#define\n#define N 2u\n"),
+    ];
+    for (name, prelude) in cases {
+        let error = compile_err(&mint_block(
+            prelude,
+            "typedef struct { uint16_t values[N]; } config_t;",
+        ));
+        assert!(
+            error.contains("invalid C syntax"),
+            "{name}: expected invalid C syntax in {error}"
+        );
+    }
+}
+
+#[test]
 fn acyclic_typedef_alias_chain_is_bounded() {
     let mut text = String::from("#include <stdint.h>\ntypedef uint32_t t0;\n");
     for index in 1..=200 {
