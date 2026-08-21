@@ -56,3 +56,8 @@ pub fn abi_list() -> String {
 pub fn abi_show(name: &str) -> Result<String, Error> {
     abi::show_text(name)
 }
+
+/// Validate an ABI profile name. The CLI uses this as a clap value parser.
+pub fn validate_abi(name: &str) -> Result<(), String> {
+    name.parse::<abi::Abi>().map(|_| ())
+}
