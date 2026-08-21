@@ -3,22 +3,14 @@ use std::collections::{HashMap, HashSet};
 use crate::diagnostic::Error;
 use crate::integers::parse_c_unsigned;
 use crate::source::{Source, Span};
-use crate::syntax::strip_c_comments;
+use crate::syntax::{MacroDef, strip_c_comments};
 
 pub const MAX_MACRO_DEPTH: usize = 128;
 
 #[derive(Clone, Debug)]
 pub struct ShapeEnv {
-    macros: HashMap<String, Vec<ShapeValue>>,
-    constants: HashMap<String, ShapeValue>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ShapeValue {
-    pub value: u64,
-    pub span: Span,
-    pub function_like: bool,
-    pub body: Option<String>,
+    macros: HashMap<String, Vec<MacroDef>>,
+    constants: HashMap<String, (u64, Span)>,
 }
 
 impl ShapeEnv {
@@ -31,25 +23,12 @@ impl ShapeEnv {
 
     pub fn insert_constant(&mut self, name: String, value: u64, span: Span) -> Option<Span> {
         self.constants
-            .insert(
-                name,
-                ShapeValue {
-                    value,
-                    span,
-                    function_like: false,
-                    body: None,
-                },
-            )
-            .map(|previous| previous.span)
+            .insert(name, (value, span))
+            .map(|(_, previous)| previous)
     }
 
-    pub fn insert_macro(&mut self, name: String, span: Span, body: String, function_like: bool) {
-        self.macros.entry(name).or_default().push(ShapeValue {
-            value: 0,
-            span,
-            function_like,
-            body: Some(body),
-        });
+    pub fn insert_macro(&mut self, def: MacroDef) {
+        self.macros.entry(def.name.clone()).or_default().push(def);
     }
 }
 
@@ -219,20 +198,20 @@ impl Parser<'_> {
             if defs.len() > 1 {
                 return Err(self.duplicate_macros(name, &defs));
             }
-            if let Some(value) = defs.into_iter().find(|value| value.span.end <= self.at) {
-                if let Some(constant) = self.env.constants.get(name).cloned()
-                    && constant.span.end <= self.at
+            if let Some(def) = defs.into_iter().find(|def| def.span.end <= self.at) {
+                if let Some((_, constant_span)) = self.env.constants.get(name).copied()
+                    && constant_span.end <= self.at
                 {
-                    return Err(self.macro_enum_collision(name, &value, &constant));
+                    return Err(self.macro_enum_collision(name, def.span, constant_span));
                 }
-                return self.expand_macro(name, &value);
+                return self.expand_macro(name, &def);
             }
         }
-        if let Some(value) = self.env.constants.get(name).cloned() {
-            if value.span.end > self.at {
+        if let Some((value, span)) = self.env.constants.get(name).copied() {
+            if span.end > self.at {
                 return Err(self.error(format!("shape constant '{name}' is not available here")));
             }
-            return Ok(u128::from(value.value));
+            return Ok(u128::from(value));
         }
         if self.env.macros.contains_key(name) {
             return Err(self.error(format!("shape constant '{name}' is not available here")));
@@ -240,29 +219,26 @@ impl Parser<'_> {
         Err(self.error(format!("unknown shape constant '{name}'")))
     }
 
-    fn expand_macro(&mut self, name: &str, value: &ShapeValue) -> Result<u128, Error> {
-        if value.function_like {
+    fn expand_macro(&mut self, name: &str, def: &MacroDef) -> Result<u128, Error> {
+        if def.function_like {
             return Err(Error::schema(
                 self.source,
                 self.span,
                 format!("function-like macro '{name}' cannot be used as an array extent"),
             )
-            .related(&self.source.name, value.span, "macro defined here"));
+            .related(def.span, "macro defined here"));
         }
-        let Some(body) = &value.body else {
-            return Ok(u128::from(value.value));
-        };
         if self.depth >= MAX_MACRO_DEPTH {
             return Err(self.error(format!("macro expansion exceeds {MAX_MACRO_DEPTH} levels")));
         }
         if !self.visiting.insert(name.to_owned()) {
-            return Err(self.cycle(name, value));
+            return Err(self.cycle(name, def.span));
         }
         let result = evaluate_in(
             self.source,
-            value.span,
+            def.span,
             self.at,
-            body,
+            &def.body,
             self.env,
             self.visiting,
             self.depth + 1,
@@ -271,66 +247,45 @@ impl Parser<'_> {
         result
     }
 
-    fn duplicate_macros(&self, name: &str, defs: &[ShapeValue]) -> Error {
+    fn duplicate_macros(&self, name: &str, defs: &[MacroDef]) -> Error {
         let mut error = Error::schema(
             self.source,
             self.span,
             format!("duplicate referenced macro '{name}'"),
         );
-        for value in defs {
-            error = error.related(
-                &self.source.name,
-                value.span,
-                format!("'{name}' defined here"),
-            );
+        for def in defs {
+            error = error.related(def.span, format!("'{name}' defined here"));
         }
         error
     }
 
-    fn macro_enum_collision(
-        &self,
-        name: &str,
-        macro_def: &ShapeValue,
-        enumerator: &ShapeValue,
-    ) -> Error {
+    fn macro_enum_collision(&self, name: &str, macro_span: Span, enumerator_span: Span) -> Error {
         Error::schema(
             self.source,
             self.span,
             format!("shape constant '{name}' is defined as both a macro and an enumerator"),
         )
-        .related(&self.source.name, macro_def.span, "macro defined here")
-        .related(
-            &self.source.name,
-            enumerator.span,
-            "enumerator defined here",
-        )
+        .related(macro_span, "macro defined here")
+        .related(enumerator_span, "enumerator defined here")
     }
 
-    fn cycle(&self, name: &str, value: &ShapeValue) -> Error {
+    fn cycle(&self, name: &str, span: Span) -> Error {
         let mut error = Error::schema(
             self.source,
             self.span,
             format!("cyclic shape-constant dependency involving '{name}'"),
         )
-        .related(
-            &self.source.name,
-            value.span,
-            format!("'{name}' participates in the cycle"),
-        );
+        .related(span, format!("'{name}' participates in the cycle"));
         for participant in self.visiting.iter() {
             let span = self
                 .env
                 .macros
                 .get(participant)
                 .and_then(|defs| defs.first())
-                .map(|value| value.span)
-                .or_else(|| self.env.constants.get(participant).map(|value| value.span));
+                .map(|def| def.span)
+                .or_else(|| self.env.constants.get(participant).map(|(_, span)| *span));
             if let Some(span) = span {
-                error = error.related(
-                    &self.source.name,
-                    span,
-                    format!("'{participant}' participates in the cycle"),
-                );
+                error = error.related(span, format!("'{participant}' participates in the cycle"));
             }
         }
         error
@@ -442,18 +397,27 @@ fn scan_number(bytes: &[u8], mut index: usize) -> usize {
 mod tests {
     use super::{ShapeEnv, evaluate};
     use crate::source::{Source, Span};
+    use crate::syntax::MacroDef;
+
+    fn object_macro(name: &str, span: Span, body: &str) -> MacroDef {
+        MacroDef {
+            name: name.to_owned(),
+            span,
+            body: body.to_owned(),
+            function_like: false,
+        }
+    }
 
     #[test]
     fn evaluates_literals_and_macros() {
         let source = Source::new("t.h", "");
         let mut env = ShapeEnv::new();
-        env.insert_macro("CHANNEL_COUNT".into(), Span::new(0, 1), "4u".into(), false);
-        env.insert_macro(
-            "SAMPLE_COUNT".into(),
+        env.insert_macro(object_macro("CHANNEL_COUNT", Span::new(0, 1), "4u"));
+        env.insert_macro(object_macro(
+            "SAMPLE_COUNT",
             Span::new(1, 2),
-            "(CHANNEL_COUNT * 8u)".into(),
-            false,
-        );
+            "(CHANNEL_COUNT * 8u)",
+        ));
         assert_eq!(evaluate(&source, Span::new(10, 12), "4u", &env).unwrap(), 4);
         assert_eq!(
             evaluate(&source, Span::new(10, 22), "SAMPLE_COUNT", &env).unwrap(),
@@ -471,8 +435,8 @@ mod tests {
     fn rejects_duplicate_referenced_macros_and_enum_collisions() {
         let source = Source::new("t.h", "");
         let mut env = ShapeEnv::new();
-        env.insert_macro("N".into(), Span::new(0, 1), "1u".into(), false);
-        env.insert_macro("N".into(), Span::new(2, 3), "2u".into(), false);
+        env.insert_macro(object_macro("N", Span::new(0, 1), "1u"));
+        env.insert_macro(object_macro("N", Span::new(2, 3), "2u"));
         assert!(
             evaluate(&source, Span::new(10, 12), "N", &env)
                 .unwrap_err()
@@ -480,7 +444,7 @@ mod tests {
                 .contains("duplicate")
         );
         let mut env = ShapeEnv::new();
-        env.insert_macro("AXIS".into(), Span::new(0, 1), "3u".into(), false);
+        env.insert_macro(object_macro("AXIS", Span::new(0, 1), "3u"));
         let _ = env.insert_constant("AXIS".into(), 4, Span::new(2, 3));
         assert!(
             evaluate(&source, Span::new(10, 14), "AXIS", &env)
@@ -494,14 +458,13 @@ mod tests {
     fn bounds_acyclic_macro_expansion() {
         let source = Source::new("t.h", "");
         let mut env = ShapeEnv::new();
-        env.insert_macro("M0".into(), Span::new(0, 1), "1u".into(), false);
+        env.insert_macro(object_macro("M0", Span::new(0, 1), "1u"));
         for index in 1..=super::MAX_MACRO_DEPTH {
-            env.insert_macro(
-                format!("M{index}"),
+            env.insert_macro(object_macro(
+                &format!("M{index}"),
                 Span::new(index, index + 1),
-                format!("M{}", index - 1),
-                false,
-            );
+                &format!("M{}", index - 1),
+            ));
         }
         assert!(
             evaluate(

@@ -39,7 +39,6 @@ impl fmt::Display for Category {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Related {
-    pub source: String,
     pub span: Span,
     pub message: String,
 }
@@ -66,20 +65,20 @@ impl Diagnostic {
         }
     }
 
-    pub fn render(&self, files: &[&Source]) -> String {
+    pub fn render(&self, file: Option<&Source>) -> String {
         let mut out = format!("error[{}]: {}", self.category, self.message);
         if let Some(pointer) = &self.json_pointer {
             out.push_str(&format!(" ({pointer})"));
         }
         out.push('\n');
         if let Some(span) = self.span {
-            render_span(&mut out, files, &self.source, span, "");
+            render_span(&mut out, file, &self.source, span, "");
         }
         for related in &self.related {
             render_span(
                 &mut out,
-                files,
-                &related.source,
+                file,
+                &self.source,
                 related.span,
                 &format!("note: {}", related.message),
             );
@@ -88,10 +87,9 @@ impl Diagnostic {
     }
 }
 
-fn render_span(out: &mut String, files: &[&Source], name: &str, span: Span, note: &str) {
-    let Some(source) = files.iter().find(|source| source.name == name) else {
-        let (line, column) = (1, 1);
-        out.push_str(&format!(" --> {name}:{line}:{column}\n"));
+fn render_span(out: &mut String, file: Option<&Source>, name: &str, span: Span, note: &str) {
+    let Some(source) = file else {
+        out.push_str(&format!(" --> {name}:1:1\n"));
         if !note.is_empty() {
             out.push_str(&format!("  {note}\n"));
         }
@@ -117,13 +115,12 @@ fn render_span(out: &mut String, files: &[&Source], name: &str, span: Span, note
     }
 }
 
-/// One located failure. Header and JSON buffers live on `sources` so excerpts
-/// render without a second lookup table. `diagnostic` is boxed so `Result<T, Error>`
-/// stays small.
+/// One located failure. `diagnostic` is boxed so `Result<T, Error>` stays small.
+/// Header or JSON text lives on `source` when the constructor had a buffer.
 #[derive(Clone, Debug)]
 pub struct Error {
     pub diagnostic: Box<Diagnostic>,
-    pub sources: Vec<Source>,
+    source: Option<Source>,
 }
 
 impl Error {
@@ -134,23 +131,22 @@ impl Error {
     ) -> Self {
         Self {
             diagnostic: Box::new(Diagnostic::new(category, source, message)),
-            sources: Vec::new(),
+            source: None,
         }
     }
 
-    /// Located error with a source name only. Attach the buffer with
-    /// [`Self::with_source`] at a pipeline boundary when the text is owned later.
-    pub fn located(
-        category: Category,
-        source: impl Into<String>,
-        span: Span,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::named(category, source, message).span(span)
-    }
-
     pub fn at(category: Category, source: &Source, span: Span, message: impl Into<String>) -> Self {
-        Self::located(category, &source.name, span, message).with_source(source.clone())
+        Self {
+            diagnostic: Box::new(Diagnostic {
+                category,
+                source: source.name.clone(),
+                span: Some(span),
+                message: message.into(),
+                related: Vec::new(),
+                json_pointer: None,
+            }),
+            source: Some(source.clone()),
+        }
     }
 
     pub fn schema(source: &Source, span: Span, message: impl Into<String>) -> Self {
@@ -171,14 +167,8 @@ impl Error {
         self
     }
 
-    pub fn related(
-        mut self,
-        source: impl Into<String>,
-        span: Span,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn related(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.related.push(Related {
-            source: source.into(),
             span,
             message: message.into(),
         });
@@ -190,24 +180,12 @@ impl Error {
         self
     }
 
-    pub fn with_source(mut self, source: Source) -> Self {
-        if !self
-            .sources
-            .iter()
-            .any(|existing| existing.name == source.name)
-        {
-            self.sources.push(source);
-        }
-        self
-    }
-
     pub fn exit_code(&self) -> ExitCode {
         ExitCode::from(self.diagnostic.category.exit_code())
     }
 
     pub fn render(&self) -> String {
-        let files: Vec<&Source> = self.sources.iter().collect();
-        self.diagnostic.render(&files)
+        self.diagnostic.render(self.source.as_ref())
     }
 }
 

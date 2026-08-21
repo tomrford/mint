@@ -19,7 +19,6 @@ impl<'a> ParsedFile<'a> {
                     &source.name,
                     format!("failed to load C grammar: {error}"),
                 )
-                .with_source(source.clone())
             })?;
         let tree = parser.parse(&source.text, None).ok_or_else(|| {
             Error::named(
@@ -27,7 +26,6 @@ impl<'a> ParsedFile<'a> {
                 &source.name,
                 "C parser produced no syntax tree",
             )
-            .with_source(source.clone())
         })?;
         let parsed = Self { source, tree };
         parsed.reject_tree()?;
