@@ -23,6 +23,8 @@ use mint_neo::{
 #[command(
     name = "mint-neo",
     bin_name = "mint-neo",
+    version,
+    propagate_version = true,
     about = "Encode one C header and one resolved JSON object into one Intel HEX range"
 )]
 struct Cli {
@@ -79,7 +81,7 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => {
             let _ = error.print();
-            return ExitCode::from(2);
+            return clap_exit_code(&error);
         }
     };
     match run(cli) {
@@ -88,6 +90,13 @@ fn main() -> ExitCode {
             eprint!("{}", error.render(&[]));
             error.exit_code()
         }
+    }
+}
+
+fn clap_exit_code(error: &clap::Error) -> ExitCode {
+    match u8::try_from(error.exit_code()) {
+        Ok(code) => ExitCode::from(code),
+        Err(_) => ExitCode::from(2),
     }
 }
 
