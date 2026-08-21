@@ -1,26 +1,17 @@
 use std::collections::HashSet;
 
-use crate::abi::{Endianness, Scalar, ScalarValue, write_scalar_bytes};
+use crate::abi::{write_scalar_bytes, Endianness, Scalar, ScalarValue};
 use crate::diagnostic::{Category, Diagnostic, Error};
-use crate::layout::ResolvedLayout;
+use crate::layout::{ArrayLayout, ResolvedLayout};
 use crate::schema::CompiledSchema;
 use crate::source::{Source, Span};
 use crate::types::{TypeId, TypeKind};
 
 #[derive(Clone, Debug)]
 enum Json {
-    Null {
-        span: Span,
-    },
-    Bool {
-        #[allow(dead_code)]
-        value: bool,
-        span: Span,
-    },
-    Number {
-        raw: String,
-        span: Span,
-    },
+    Null(Span),
+    Bool(Span),
+    Number(Span),
     String {
         value: String,
         span: Span,
@@ -44,13 +35,11 @@ struct ObjectEntry {
 
 impl Json {
     fn span(&self) -> Span {
-        match self {
-            Self::Null { span }
-            | Self::Bool { span, .. }
-            | Self::Number { span, .. }
-            | Self::String { span, .. }
-            | Self::Array { span, .. }
-            | Self::Object { span, .. } => *span,
+        match *self {
+            Self::Null(span) | Self::Bool(span) | Self::Number(span) => span,
+            Self::String { span, .. } | Self::Array { span, .. } | Self::Object { span, .. } => {
+                span
+            }
         }
     }
 }
@@ -85,13 +74,12 @@ pub fn encode(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> 
                     "fingerprint field disappeared after resolution",
                 ))
             })?;
-        let value = ScalarValue::U(schema.fingerprint);
         write_at(
             &mut bytes,
             field.offset,
             Scalar::U64,
             schema.layout.abi.endianness(),
-            value,
+            ScalarValue::U(schema.fingerprint),
         );
     }
     Ok(bytes)
@@ -108,37 +96,10 @@ fn bind(
 ) -> Result<(), Error> {
     match &layout.types[type_id.0] {
         TypeKind::Scalar { scalar, .. } => {
-            let number = match value {
-                Json::Number { raw, span } => (raw, *span),
-                Json::Null { span } => {
-                    return Err(data(
-                        source,
-                        *span,
-                        pointer,
-                        "null is invalid for every field",
-                    ));
-                }
-                Json::Bool { span, .. } => {
-                    return Err(data(
-                        source,
-                        *span,
-                        pointer,
-                        "JSON booleans are invalid for every field",
-                    ));
-                }
-                Json::String { span, .. } => {
-                    return Err(data(
-                        source,
-                        *span,
-                        pointer,
-                        "JSON strings are invalid for every field",
-                    ));
-                }
-                Json::Array { span, .. } | Json::Object { span, .. } => {
-                    return Err(data(source, *span, pointer, "expected a JSON number"));
-                }
+            let Json::Number(span) = *value else {
+                return Err(scalar_mismatch(value, source, pointer));
             };
-            let encoded = convert_number(*scalar, number.0, source, number.1, pointer)?;
+            let encoded = convert_number(*scalar, source, span, pointer)?;
             write_at(bytes, offset, *scalar, layout.abi.endianness(), encoded);
             Ok(())
         }
@@ -206,6 +167,16 @@ fn bind(
     }
 }
 
+fn scalar_mismatch(value: &Json, source: &Source, pointer: &str) -> Error {
+    let message = match value {
+        Json::Null(_) => "null is invalid for every field",
+        Json::Bool(_) => "JSON booleans are invalid for every field",
+        Json::String { .. } => "JSON strings are invalid for every field",
+        _ => "expected a JSON number",
+    };
+    data(source, value.span(), pointer, message)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn bind_array(
     layout: &ResolvedLayout,
@@ -237,39 +208,23 @@ fn bind_array(
             format!("expected array length {expected}, found {}", items.len()),
         ));
     }
-    let next_stride = if dim + 1 == array.dimensions.len() {
-        array.stride
-    } else {
-        let tail: u64 = array.dimensions[dim + 1..].iter().copied().product();
-        array.stride * usize::try_from(tail).unwrap_or(0)
-    };
+    let stride = dim_stride(array, dim);
+    let last = dim + 1 == array.dimensions.len();
     for (index, item) in items.iter().enumerate() {
-        let child_pointer = format!("{pointer}/{index}");
-        let child_offset = offset + index * next_stride;
-        if dim + 1 == array.dimensions.len() {
-            bind(
-                layout,
-                array.element,
-                child_offset,
-                item,
-                source,
-                &child_pointer,
-                bytes,
-            )?;
+        let child = format!("{pointer}/{index}");
+        let at = offset + index * stride;
+        if last {
+            bind(layout, array.element, at, item, source, &child, bytes)?;
         } else {
-            bind_array(
-                layout,
-                type_id,
-                child_offset,
-                item,
-                source,
-                &child_pointer,
-                bytes,
-                dim + 1,
-            )?;
+            bind_array(layout, type_id, at, item, source, &child, bytes, dim + 1)?;
         }
     }
     Ok(())
+}
+
+fn dim_stride(array: &ArrayLayout, dim: usize) -> usize {
+    let tail: u64 = array.dimensions[dim + 1..].iter().copied().product();
+    array.stride * usize::try_from(tail).unwrap_or(0)
 }
 
 fn write_at(
@@ -285,67 +240,29 @@ fn write_at(
 
 fn convert_number(
     scalar: Scalar,
-    raw: &str,
     source: &Source,
     span: Span,
     pointer: &str,
 ) -> Result<ScalarValue, Error> {
-    if scalar.is_float() {
+    let raw = source.slice(span);
+    let Some((min, max)) = scalar.integer_range() else {
         return convert_float(scalar, raw, source, span, pointer);
-    }
+    };
     let integer =
         parse_exact_integer(raw).map_err(|message| data(source, span, pointer, message))?;
-    match scalar {
-        Scalar::U8 => in_range(integer, 0, i128::from(u8::MAX), raw, source, span, pointer)
-            .map(|value| ScalarValue::U(value as u64)),
-        Scalar::U16 => in_range(integer, 0, i128::from(u16::MAX), raw, source, span, pointer)
-            .map(|value| ScalarValue::U(value as u64)),
-        Scalar::U32 => in_range(integer, 0, i128::from(u32::MAX), raw, source, span, pointer)
-            .map(|value| ScalarValue::U(value as u64)),
-        Scalar::U64 => in_range(integer, 0, i128::from(u64::MAX), raw, source, span, pointer)
-            .map(|value| ScalarValue::U(value as u64)),
-        Scalar::I8 => in_range(
-            integer,
-            i128::from(i8::MIN),
-            i128::from(i8::MAX),
-            raw,
+    if integer < min || integer > max {
+        return Err(data(
             source,
             span,
             pointer,
-        )
-        .map(|value| ScalarValue::I(value as i64)),
-        Scalar::I16 => in_range(
-            integer,
-            i128::from(i16::MIN),
-            i128::from(i16::MAX),
-            raw,
-            source,
-            span,
-            pointer,
-        )
-        .map(|value| ScalarValue::I(value as i64)),
-        Scalar::I32 => in_range(
-            integer,
-            i128::from(i32::MIN),
-            i128::from(i32::MAX),
-            raw,
-            source,
-            span,
-            pointer,
-        )
-        .map(|value| ScalarValue::I(value as i64)),
-        Scalar::I64 => in_range(
-            integer,
-            i128::from(i64::MIN),
-            i128::from(i64::MAX),
-            raw,
-            source,
-            span,
-            pointer,
-        )
-        .map(|value| ScalarValue::I(value as i64)),
-        Scalar::F32 | Scalar::F64 => unreachable!(),
+            format!("integer '{raw}' is out of range"),
+        ));
     }
+    Ok(if scalar.is_signed() {
+        ScalarValue::I(integer as i64)
+    } else {
+        ScalarValue::U(integer as u64)
+    })
 }
 
 fn convert_float(
@@ -355,67 +272,29 @@ fn convert_float(
     span: Span,
     pointer: &str,
 ) -> Result<ScalarValue, Error> {
-    match scalar {
-        Scalar::F32 => {
-            let value = raw.parse::<f32>().map_err(|_| {
-                data(
-                    source,
-                    span,
-                    pointer,
-                    format!("invalid floating-point token '{raw}'"),
-                )
-            })?;
-            if !value.is_finite() {
-                return Err(data(
-                    source,
-                    span,
-                    pointer,
-                    format!("floating-point value '{raw}' overflows binary32"),
-                ));
-            }
-            Ok(ScalarValue::F(f64::from(value)))
-        }
-        Scalar::F64 => {
-            let value = raw.parse::<f64>().map_err(|_| {
-                data(
-                    source,
-                    span,
-                    pointer,
-                    format!("invalid floating-point token '{raw}'"),
-                )
-            })?;
-            if !value.is_finite() {
-                return Err(data(
-                    source,
-                    span,
-                    pointer,
-                    format!("floating-point value '{raw}' overflows binary64"),
-                ));
-            }
-            Ok(ScalarValue::F(value))
-        }
-        _ => unreachable!(),
-    }
-}
-
-fn in_range(
-    value: i128,
-    min: i128,
-    max: i128,
-    raw: &str,
-    source: &Source,
-    span: Span,
-    pointer: &str,
-) -> Result<i128, Error> {
-    if value < min || value > max {
-        return Err(data(
+    let invalid = || {
+        data(
             source,
             span,
             pointer,
-            format!("integer '{raw}' is out of range"),
-        ));
+            format!("invalid floating-point token '{raw}'"),
+        )
+    };
+    let (value, width) = match scalar {
+        Scalar::F32 => (f64::from(raw.parse::<f32>().map_err(|_| invalid())?), "32"),
+        Scalar::F64 => (raw.parse::<f64>().map_err(|_| invalid())?, "64"),
+        _ => unreachable!(),
+    };
+    if value.is_finite() {
+        Ok(ScalarValue::F(value))
+    } else {
+        Err(data(
+            source,
+            span,
+            pointer,
+            format!("floating-point value '{raw}' overflows binary{width}"),
+        ))
     }
-    Ok(value)
 }
 
 /// i128 has at most 39 decimal digits. Any integer with more digits, or a
@@ -426,22 +305,18 @@ const MAX_EXACT_INTEGER_DIGITS: usize = 39;
 
 fn parse_exact_integer(raw: &str) -> Result<i128, String> {
     let raw = raw.trim();
-    let (negative, body) = if let Some(rest) = raw.strip_prefix('-') {
-        (true, rest)
-    } else {
-        (false, raw)
+    let (negative, body) = match raw.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, raw),
     };
     if body.is_empty() {
         return Err(format!("invalid number '{raw}'"));
     }
     let (mantissa, exponent) = split_exponent(body)?;
-    let (int, frac) = match mantissa.split_once('.') {
-        Some((int, frac)) => (int, frac),
-        None => (mantissa, ""),
-    };
+    let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     if int.is_empty()
-        || !int.chars().all(|character| character.is_ascii_digit())
-        || !frac.chars().all(|character| character.is_ascii_digit())
+        || !int.bytes().all(|byte| byte.is_ascii_digit())
+        || !frac.bytes().all(|byte| byte.is_ascii_digit())
     {
         return Err(format!("invalid number '{raw}'"));
     }
@@ -456,47 +331,35 @@ fn parse_exact_integer(raw: &str) -> Result<i128, String> {
     if significant.is_empty() {
         return Ok(0);
     }
-    let shift = match i128::try_from(frac.len())
+    let shift = i128::try_from(frac.len())
         .ok()
         .and_then(|frac_len| exponent.checked_sub(frac_len))
-    {
-        Some(shift) => shift,
-        None => return Err(format!("number '{raw}' is not an integer")),
-    };
+        .ok_or_else(|| format!("number '{raw}' is not an integer"))?;
     let value = if shift >= 0 {
-        let Some(total_digits) = usize::try_from(shift)
+        let Some(_) = usize::try_from(shift)
             .ok()
             .and_then(|zeros| significant.len().checked_add(zeros))
+            .filter(|&digits| digits <= MAX_EXACT_INTEGER_DIGITS)
         else {
             return Err(format!("integer '{raw}' is out of supported range"));
         };
-        if total_digits > MAX_EXACT_INTEGER_DIGITS {
-            return Err(format!("integer '{raw}' is out of supported range"));
-        }
-        let mut value = significant
+        let value = significant
             .parse::<i128>()
             .map_err(|_| format!("integer '{raw}' is out of supported range"))?;
-        for _ in 0..shift {
-            value = value
-                .checked_mul(10)
-                .ok_or_else(|| format!("integer '{raw}' is out of supported range"))?;
-        }
-        value
+        scale_pow10(value, shift, raw)?
     } else {
-        let Some(drop) = shift.checked_neg().and_then(|n| usize::try_from(n).ok()) else {
-            return Err(format!("number '{raw}' is not an integer"));
-        };
-        if drop > significant.len() {
-            return Err(format!("number '{raw}' is not an integer"));
-        }
-        let keep_len = significant.len() - drop;
-        if significant.as_bytes()[keep_len..]
-            .iter()
-            .any(|&b| b != b'0')
+        let drop = shift
+            .checked_neg()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| format!("number '{raw}' is not an integer"))?;
+        if drop > significant.len()
+            || significant.as_bytes()[significant.len() - drop..]
+                .iter()
+                .any(|&byte| byte != b'0')
         {
             return Err(format!("number '{raw}' is not an integer"));
         }
-        let keep = &significant[..keep_len];
+        let keep = &significant[..significant.len() - drop];
         if keep.is_empty() {
             return Ok(0);
         }
@@ -515,15 +378,22 @@ fn parse_exact_integer(raw: &str) -> Result<i128, String> {
     }
 }
 
+fn scale_pow10(value: i128, shift: i128, raw: &str) -> Result<i128, String> {
+    if shift == 0 {
+        return Ok(value);
+    }
+    let exp = u32::try_from(shift).unwrap_or(u32::MAX);
+    10i128
+        .checked_pow(exp)
+        .and_then(|scale| value.checked_mul(scale))
+        .ok_or_else(|| format!("integer '{raw}' is out of supported range"))
+}
+
 fn split_exponent(body: &str) -> Result<(&str, i128), String> {
-    if let Some(index) = body.find(['e', 'E']) {
-        let (mantissa, exp) = body.split_at(index);
-        if mantissa.is_empty() {
-            return Err(format!("invalid exponent in '{body}'"));
-        }
-        Ok((mantissa, parse_exponent(&exp[1..], body)?))
-    } else {
-        Ok((body, 0))
+    match body.find(['e', 'E']) {
+        Some(0) => Err(format!("invalid exponent in '{body}'")),
+        Some(index) => Ok((&body[..index], parse_exponent(&body[index + 1..], body)?)),
+        None => Ok((body, 0)),
     }
 }
 
@@ -537,21 +407,10 @@ fn parse_exponent(text: &str, body: &str) -> Result<i128, String> {
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(invalid());
     }
-    let mut value: i128 = 0;
-    for byte in digits.bytes() {
-        let digit = i128::from(byte - b'0');
-        match value
-            .checked_mul(10)
-            .and_then(|next| next.checked_add(digit))
-        {
-            Some(next) => value = next,
-            None => return Ok(if negative { i128::MIN } else { i128::MAX }),
-        }
-    }
-    if negative {
-        Ok(value.checked_neg().unwrap_or(i128::MIN))
-    } else {
-        Ok(value)
+    match digits.parse::<i128>() {
+        Ok(value) if negative => Ok(value.checked_neg().unwrap_or(i128::MIN)),
+        Ok(value) => Ok(value),
+        Err(_) => Ok(if negative { i128::MIN } else { i128::MAX }),
     }
 }
 
@@ -593,19 +452,14 @@ impl JsonParser<'_> {
     fn value(&mut self) -> Result<Json, Error> {
         self.skip_ws();
         match self.peek() {
-            Some(b'n') => self.keyword(b"null", |span| Json::Null { span }),
-            Some(b't') => self.keyword(b"true", |span| Json::Bool { value: true, span }),
-            Some(b'f') => self.keyword(b"false", |span| Json::Bool { value: false, span }),
+            Some(b'n') => self.keyword(b"null").map(Json::Null),
+            Some(b't') => self.keyword(b"true").map(Json::Bool),
+            Some(b'f') => self.keyword(b"false").map(Json::Bool),
             Some(b'"') => self.string(),
             Some(b'[') => self.array(),
             Some(b'{') => self.object(),
-            Some(b'-') | Some(b'0'..=b'9') => self.number(),
-            _ => Err(data(
-                self.source,
-                Span::point(self.index),
-                "",
-                "expected a JSON value",
-            )),
+            Some(b'-' | b'0'..=b'9') => self.number(),
+            _ => Err(self.error_at("expected a JSON value")),
         }
     }
 
@@ -615,60 +469,34 @@ impl JsonParser<'_> {
         self.skip_ws();
         let mut entries = Vec::new();
         let mut keys = HashSet::new();
-        if self.peek() == Some(b'}') {
-            self.bump();
-            return Ok(Json::Object {
-                entries,
-                span: Span::new(start, self.index),
-            });
-        }
-        loop {
-            self.skip_ws();
-            let key = match self.string()? {
-                Json::String { value, span } => (value, span),
-                _ => unreachable!(),
-            };
-            if !keys.insert(key.0.clone()) {
-                return Err(data(
-                    self.source,
-                    key.1,
-                    "",
-                    format!("duplicate object property '{}'", key.0),
-                ));
-            }
-            self.skip_ws();
-            if self.peek() != Some(b':') {
-                return Err(data(
-                    self.source,
-                    Span::point(self.index),
-                    "",
-                    "expected ':'",
-                ));
-            }
-            self.bump();
-            let value = self.value()?;
-            entries.push(ObjectEntry {
-                key: key.0,
-                key_span: key.1,
-                value,
-            });
-            self.skip_ws();
-            match self.peek() {
-                Some(b',') => {
-                    self.bump();
-                    continue;
-                }
-                Some(b'}') => {
-                    self.bump();
-                    break;
-                }
-                _ => {
+        if !self.take(b'}') {
+            loop {
+                self.skip_ws();
+                let Json::String {
+                    value: key,
+                    span: key_span,
+                } = self.string()?
+                else {
+                    unreachable!()
+                };
+                if !keys.insert(key.clone()) {
                     return Err(data(
                         self.source,
-                        Span::point(self.index),
+                        key_span,
                         "",
-                        "expected ',' or '}'",
+                        format!("duplicate object property '{key}'"),
                     ));
+                }
+                self.skip_ws();
+                self.expect(b':', "expected ':'")?;
+                let value = self.value()?;
+                entries.push(ObjectEntry {
+                    key,
+                    key_span,
+                    value,
+                });
+                if !self.comma_or_close(b'}', "expected ',' or '}'")? {
+                    break;
                 }
             }
         }
@@ -683,32 +511,11 @@ impl JsonParser<'_> {
         self.bump();
         self.skip_ws();
         let mut items = Vec::new();
-        if self.peek() == Some(b']') {
-            self.bump();
-            return Ok(Json::Array {
-                items,
-                span: Span::new(start, self.index),
-            });
-        }
-        loop {
-            items.push(self.value()?);
-            self.skip_ws();
-            match self.peek() {
-                Some(b',') => {
-                    self.bump();
-                    continue;
-                }
-                Some(b']') => {
-                    self.bump();
+        if !self.take(b']') {
+            loop {
+                items.push(self.value()?);
+                if !self.comma_or_close(b']', "expected ',' or ']'")? {
                     break;
-                }
-                _ => {
-                    return Err(data(
-                        self.source,
-                        Span::point(self.index),
-                        "",
-                        "expected ',' or ']'",
-                    ));
                 }
             }
         }
@@ -720,15 +527,7 @@ impl JsonParser<'_> {
 
     fn string(&mut self) -> Result<Json, Error> {
         let start = self.index;
-        if self.peek() != Some(b'"') {
-            return Err(data(
-                self.source,
-                Span::point(self.index),
-                "",
-                "expected a string",
-            ));
-        }
-        self.bump();
+        self.expect(b'"', "expected a string")?;
         let mut value = String::new();
         while let Some(byte) = self.peek() {
             match byte {
@@ -752,56 +551,14 @@ impl JsonParser<'_> {
                         Some(b't') => value.push('\t'),
                         Some(b'u') => {
                             self.bump();
-                            let mut hex = String::new();
-                            for _ in 0..4 {
-                                let Some(digit) = self.peek() else {
-                                    return Err(data(
-                                        self.source,
-                                        Span::point(self.index),
-                                        "",
-                                        "invalid unicode escape",
-                                    ));
-                                };
-                                hex.push(digit as char);
-                                self.bump();
-                            }
-                            let code = u32::from_str_radix(&hex, 16).map_err(|_| {
-                                data(
-                                    self.source,
-                                    Span::point(self.index),
-                                    "",
-                                    "invalid unicode escape",
-                                )
-                            })?;
-                            value.push(char::from_u32(code).ok_or_else(|| {
-                                data(
-                                    self.source,
-                                    Span::point(self.index),
-                                    "",
-                                    "invalid unicode escape",
-                                )
-                            })?);
+                            value.push(self.unicode_escape()?);
                             continue;
                         }
-                        _ => {
-                            return Err(data(
-                                self.source,
-                                Span::point(self.index),
-                                "",
-                                "invalid escape",
-                            ));
-                        }
+                        _ => return Err(self.error_at("invalid escape")),
                     }
                     self.bump();
                 }
-                b if b < 0x20 => {
-                    return Err(data(
-                        self.source,
-                        Span::point(self.index),
-                        "",
-                        "unescaped control character",
-                    ));
-                }
+                b if b < 0x20 => return Err(self.error_at("unescaped control character")),
                 _ => {
                     let ch = self.source.text[self.index..]
                         .chars()
@@ -812,86 +569,104 @@ impl JsonParser<'_> {
                 }
             }
         }
-        Err(data(
-            self.source,
-            Span::point(self.index),
-            "",
-            "unterminated string",
-        ))
+        Err(self.error_at("unterminated string"))
+    }
+
+    fn unicode_escape(&mut self) -> Result<char, Error> {
+        let mut code = 0u32;
+        let mut valid = true;
+        for _ in 0..4 {
+            let Some(digit) = self.peek() else {
+                return Err(self.error_at("invalid unicode escape"));
+            };
+            self.bump();
+            let nibble = match digit {
+                b'0'..=b'9' => digit - b'0',
+                b'a'..=b'f' => digit - b'a' + 10,
+                b'A'..=b'F' => digit - b'A' + 10,
+                _ => {
+                    valid = false;
+                    0
+                }
+            };
+            code = (code << 4) | u32::from(nibble);
+        }
+        if !valid {
+            return Err(self.error_at("invalid unicode escape"));
+        }
+        char::from_u32(code).ok_or_else(|| self.error_at("invalid unicode escape"))
     }
 
     fn number(&mut self) -> Result<Json, Error> {
         let start = self.index;
-        if self.peek() == Some(b'-') {
-            self.bump();
-        }
+        let _ = self.take(b'-');
         match self.peek() {
             Some(b'0') => self.bump(),
             Some(b'1'..=b'9') => {
-                while matches!(self.peek(), Some(b'0'..=b'9')) {
-                    self.bump();
-                }
+                self.consume_digits();
             }
-            _ => {
-                return Err(data(
-                    self.source,
-                    Span::point(self.index),
-                    "",
-                    "invalid number",
-                ));
+            _ => return Err(self.error_at("invalid number")),
+        }
+        if self.take(b'.') && !self.consume_digits() {
+            return Err(self.error_at("invalid number"));
+        }
+        if self.take(b'e') || self.take(b'E') {
+            let _ = self.take(b'+') || self.take(b'-');
+            if !self.consume_digits() {
+                return Err(self.error_at("invalid number"));
             }
         }
-        if self.peek() == Some(b'.') {
-            self.bump();
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
-                return Err(data(
-                    self.source,
-                    Span::point(self.index),
-                    "",
-                    "invalid number",
-                ));
-            }
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.bump();
-            }
-        }
-        if matches!(self.peek(), Some(b'e' | b'E')) {
-            self.bump();
-            if matches!(self.peek(), Some(b'+' | b'-')) {
-                self.bump();
-            }
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
-                return Err(data(
-                    self.source,
-                    Span::point(self.index),
-                    "",
-                    "invalid number",
-                ));
-            }
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.bump();
-            }
-        }
-        Ok(Json::Number {
-            raw: self.source.text[start..self.index].to_owned(),
-            span: Span::new(start, self.index),
-        })
+        Ok(Json::Number(Span::new(start, self.index)))
     }
 
-    fn keyword(&mut self, token: &[u8], build: impl FnOnce(Span) -> Json) -> Result<Json, Error> {
+    fn keyword(&mut self, token: &[u8]) -> Result<Span, Error> {
         let start = self.index;
         for expected in token {
-            if self.peek() != Some(*expected) {
-                return Err(data(
-                    self.source,
-                    Span::point(self.index),
-                    "",
-                    "invalid JSON keyword",
-                ));
+            if !self.take(*expected) {
+                return Err(self.error_at("invalid JSON keyword"));
             }
+        }
+        Ok(Span::new(start, self.index))
+    }
+
+    fn comma_or_close(&mut self, close: u8, message: &'static str) -> Result<bool, Error> {
+        self.skip_ws();
+        if self.take(b',') {
+            Ok(true)
+        } else if self.take(close) {
+            Ok(false)
+        } else {
+            Err(self.error_at(message))
+        }
+    }
+
+    fn consume_digits(&mut self) -> bool {
+        let start = self.index;
+        while matches!(self.peek(), Some(b'0'..=b'9')) {
             self.bump();
         }
-        Ok(build(Span::new(start, self.index)))
+        self.index > start
+    }
+
+    fn expect(&mut self, byte: u8, message: &'static str) -> Result<(), Error> {
+        if self.take(byte) {
+            Ok(())
+        } else {
+            Err(self.error_at(message))
+        }
+    }
+
+    fn take(&mut self, byte: u8) -> bool {
+        if self.peek() == Some(byte) {
+            self.bump();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn error_at(&self, message: impl Into<String>) -> Error {
+        data(self.source, Span::point(self.index), "", message)
     }
 
     fn skip_ws(&mut self) {
