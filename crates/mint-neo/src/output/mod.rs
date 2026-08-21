@@ -1,22 +1,20 @@
+use crate::CompiledSchema;
 use crate::diagnostic::{Category, Error};
-use crate::schema::CompiledSchema;
 
 const RECORD_WIDTH: usize = 32;
 
 pub fn render_i32hex(schema: &CompiledSchema, bytes: &[u8]) -> Result<String, Error> {
-    let start = u64::from(schema.layout.octet_start()?);
-    let end = start
-        .checked_add(bytes.len() as u64)
-        .ok_or_else(|| encode(schema, "output range overflow"))?;
-    if end > u64::from(u32::MAX) + 1 {
+    let expected = schema.layout.root_layout().size;
+    if bytes.len() != expected {
         return Err(encode(
             schema,
             format!(
-                "octet-addressed output range 0x{start:08X}-0x{:08X} exceeds the 32-bit address space",
-                end.saturating_sub(1)
+                "encoded payload is {} octets, expected {expected}",
+                bytes.len()
             ),
         ));
     }
+    let start = u64::from(schema.layout.octet_start);
 
     let mut lines = Vec::new();
     let mut offset = 0usize;

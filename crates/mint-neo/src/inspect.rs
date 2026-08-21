@@ -1,9 +1,8 @@
 use serde::Serialize;
 
+use crate::CompiledSchema;
 use crate::diagnostic::{Category, Error};
-use crate::fingerprint;
 use crate::layout::{self, PaddingRange};
-use crate::schema::CompiledSchema;
 use crate::types::{TypeId, TypeKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -80,7 +79,7 @@ fn report(schema: &CompiledSchema) -> InspectReport<'_> {
             .offset_to_address_units(root.size)
             .unwrap_or(0),
         alignment: root.alignment,
-        fingerprint: fingerprint::hex(schema.fingerprint),
+        fingerprint: format!("{:016x}", schema.fingerprint),
         padding_octets: schema.layout.padding_octets(),
         fields,
         arrays,

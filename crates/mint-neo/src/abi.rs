@@ -102,16 +102,8 @@ impl Scalar {
         }
     }
 
-    pub fn is_integer(self) -> bool {
-        !matches!(self, Self::F32 | Self::F64)
-    }
-
     pub fn is_signed(self) -> bool {
         matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
-    }
-
-    pub fn is_float(self) -> bool {
-        matches!(self, Self::F32 | Self::F64)
     }
 
     /// Inclusive integer range, if this scalar is an integer type.
@@ -220,18 +212,12 @@ impl Abi {
 
     pub fn output_addressing(self) -> &'static str {
         match self {
-            Self::TiC28xEabi => {
-                "octet addresses (2 × target word address; standard Intel HEX and Motorola S-record)"
-            }
-            _ => "octet addresses (standard Intel HEX and Motorola S-record)",
+            Self::TiC28xEabi => "octet addresses (2 × target word address; standard Intel HEX)",
+            _ => "octet addresses (standard Intel HEX)",
         }
     }
 
-    pub fn guarantees_ieee_float(self) -> bool {
-        !matches!(self, Self::TiC28xEabi)
-    }
-
-    pub fn guarantees_ieee_double(self) -> bool {
+    pub fn guarantees_ieee(self) -> bool {
         !matches!(self, Self::TiC28xEabi)
     }
 
@@ -242,14 +228,7 @@ impl Abi {
                 self.name()
             ));
         }
-        let layout = self.family().scalar(scalar);
-        if layout.array_stride != layout.storage_size {
-            return Err(format!(
-                "ABI '{}' violates sizeof(T[1]) == sizeof(T) for {scalar}",
-                self.name()
-            ));
-        }
-        Ok(layout)
+        Ok(self.family().scalar(scalar))
     }
 
     pub fn offset_to_address_units(self, offset: usize) -> Result<u64, String> {
@@ -382,7 +361,7 @@ pub fn show_text(name: &str) -> Result<String, Error> {
     }
     out.push_str("all sizes, alignments and strides are in octets\n");
     out.push_str("float32_t and float64_t select IEEE-754 binary32 and binary64 on every ABI\n");
-    if !abi.guarantees_ieee_double() {
+    if !abi.guarantees_ieee() {
         out.push_str("C float and double are rejected on this ABI; use float32_t or float64_t\n");
     }
     Ok(out)
@@ -395,59 +374,67 @@ pub fn write_scalar_bytes(
     value: ScalarValue,
 ) {
     match (scalar, value) {
-        (Scalar::U8, ScalarValue::U(value)) => bytes.copy_from_slice(&[value as u8]),
+        (Scalar::U8, ScalarValue::U(value)) => bytes[0] = value as u8,
+        (Scalar::I8, ScalarValue::I(value)) => bytes[0] = value as u8,
         (Scalar::U16, ScalarValue::U(value)) => {
-            if let Ok(value) = u16::try_from(value) {
-                bytes.copy_from_slice(&to_bytes(value, endianness));
-            }
+            put(
+                bytes,
+                endianness,
+                (value as u16).to_le_bytes(),
+                (value as u16).to_be_bytes(),
+            );
         }
         (Scalar::U32, ScalarValue::U(value)) => {
-            if let Ok(value) = u32::try_from(value) {
-                bytes.copy_from_slice(&to_bytes(value, endianness));
-            }
+            put(
+                bytes,
+                endianness,
+                (value as u32).to_le_bytes(),
+                (value as u32).to_be_bytes(),
+            );
         }
-        (Scalar::U64, ScalarValue::U(value)) => bytes.copy_from_slice(&to_bytes(value, endianness)),
-        (Scalar::I8, ScalarValue::I(value)) => bytes[0] = value as i8 as u8,
+        (Scalar::U64, ScalarValue::U(value)) => {
+            put(bytes, endianness, value.to_le_bytes(), value.to_be_bytes());
+        }
         (Scalar::I16, ScalarValue::I(value)) => {
-            bytes.copy_from_slice(&to_bytes(value as i16, endianness));
+            put(
+                bytes,
+                endianness,
+                (value as i16).to_le_bytes(),
+                (value as i16).to_be_bytes(),
+            );
         }
         (Scalar::I32, ScalarValue::I(value)) => {
-            bytes.copy_from_slice(&to_bytes(value as i32, endianness));
+            put(
+                bytes,
+                endianness,
+                (value as i32).to_le_bytes(),
+                (value as i32).to_be_bytes(),
+            );
         }
         (Scalar::I64, ScalarValue::I(value)) => {
-            bytes.copy_from_slice(&to_bytes(value, endianness));
+            put(bytes, endianness, value.to_le_bytes(), value.to_be_bytes());
         }
         (Scalar::F32, ScalarValue::F(value)) => {
-            bytes.copy_from_slice(&to_bytes(value as f32, endianness));
+            put(
+                bytes,
+                endianness,
+                (value as f32).to_le_bytes(),
+                (value as f32).to_be_bytes(),
+            );
         }
-        (Scalar::F64, ScalarValue::F(value)) => bytes.copy_from_slice(&to_bytes(value, endianness)),
+        (Scalar::F64, ScalarValue::F(value)) => {
+            put(bytes, endianness, value.to_le_bytes(), value.to_be_bytes());
+        }
         _ => {}
     }
 }
 
-fn to_bytes<T: EndianBytes>(value: T, endianness: Endianness) -> T::Bytes {
-    value.to_endian_bytes(endianness)
+fn put<const N: usize>(bytes: &mut [u8], endianness: Endianness, le: [u8; N], be: [u8; N]) {
+    bytes.copy_from_slice(&match endianness {
+        Endianness::Little => le,
+        Endianness::Big => be,
+    });
 }
-
-trait EndianBytes {
-    type Bytes: AsRef<[u8]>;
-    fn to_endian_bytes(self, endianness: Endianness) -> Self::Bytes;
-}
-
-macro_rules! impl_endian_bytes {
-    ($($type:ty),* $(,)?) => {$(
-        impl EndianBytes for $type {
-            type Bytes = [u8; std::mem::size_of::<$type>()];
-            fn to_endian_bytes(self, endianness: Endianness) -> Self::Bytes {
-                match endianness {
-                    Endianness::Little => self.to_le_bytes(),
-                    Endianness::Big => self.to_be_bytes(),
-                }
-            }
-        }
-    )*};
-}
-impl_endian_bytes!(u16, u32, u64, i16, i32, i64, f32, f64);
 
 #[derive(Clone, Copy, Debug)]
 pub enum ScalarValue {

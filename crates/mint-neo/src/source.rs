@@ -54,26 +54,22 @@ impl Source {
         Ok(Self::new(path.display().to_string(), text))
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.text.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.text.is_empty()
-    }
-
-    pub fn slice(&self, span: Span) -> &str {
+    pub(crate) fn slice(&self, span: Span) -> &str {
         let start = span.start.min(self.text.len());
         let end = span.end.min(self.text.len());
         &self.text[start..end]
     }
 
-    pub fn byte(&self, offset: usize) -> Option<u8> {
+    pub(crate) fn byte(&self, offset: usize) -> Option<u8> {
         self.text.as_bytes().get(offset).copied()
     }
 
     /// 1-based line and byte column for `offset`.
-    pub fn locate(&self, offset: usize) -> (u32, u32) {
+    pub(crate) fn locate(&self, offset: usize) -> (u32, u32) {
         let offset = offset.min(self.text.len());
         let line_index = match self.line_starts.binary_search(&offset) {
             Ok(index) => index,
@@ -85,7 +81,7 @@ impl Source {
         (line, column)
     }
 
-    pub fn line_text(&self, line: u32) -> &str {
+    pub(crate) fn line_text(&self, line: u32) -> &str {
         let index = usize::try_from(line.saturating_sub(1)).unwrap_or(0);
         let start = *self.line_starts.get(index).unwrap_or(&0);
         let end = self
@@ -101,7 +97,7 @@ impl Source {
 
     /// True when `start..end` contains a blank line (two newlines with only
     /// horizontal whitespace between them).
-    pub fn has_blank_line(&self, start: usize, end: usize) -> bool {
+    pub(crate) fn has_blank_line(&self, start: usize, end: usize) -> bool {
         let bytes = self.text.as_bytes();
         let start = start.min(bytes.len());
         let end = end.min(bytes.len());
@@ -127,7 +123,7 @@ impl Source {
         false
     }
 
-    pub fn only_whitespace(&self, start: usize, end: usize) -> bool {
+    pub(crate) fn only_whitespace(&self, start: usize, end: usize) -> bool {
         self.text
             .get(start.min(self.text.len())..end.min(self.text.len()))
             .is_some_and(|text| text.bytes().all(|byte| byte.is_ascii_whitespace()))
