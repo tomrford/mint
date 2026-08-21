@@ -300,6 +300,14 @@ fn rejects_excluded_reachable_constructs() {
             "enum-typed members are not supported",
         ),
         (
+            "duplicate enumerator",
+            blocked(
+                "enum { ITEM_COUNT = 1, ITEM_COUNT = 2 };\n",
+                "typedef struct { uint16_t items[ITEM_COUNT]; } config_t;",
+            ),
+            "duplicate enumerator",
+        ),
+        (
             "pragma pack",
             "#pragma pack(1)\n".to_owned(),
             "unsupported preprocessor directive (pragma)",
