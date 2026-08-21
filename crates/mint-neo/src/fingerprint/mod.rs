@@ -63,7 +63,3 @@ fn hash_type(layout: &ResolvedLayout, id: TypeId, hasher: &mut blake3::Hasher) {
 fn hash_u64(value: u64, hasher: &mut blake3::Hasher) {
     hasher.update(&value.to_le_bytes());
 }
-
-pub fn hex(value: u64) -> String {
-    format!("{value:016x}")
-}

@@ -914,7 +914,7 @@ fn resolve_builtin(name: &str, abi: Abi) -> Result<Option<Scalar>, String> {
         "float32_t" => Scalar::F32,
         "float64_t" => Scalar::F64,
         "float" => {
-            if abi.guarantees_ieee_float() {
+            if abi.guarantees_ieee() {
                 Scalar::F32
             } else {
                 return Err(
@@ -923,7 +923,7 @@ fn resolve_builtin(name: &str, abi: Abi) -> Result<Option<Scalar>, String> {
             }
         }
         "double" => {
-            if abi.guarantees_ieee_double() {
+            if abi.guarantees_ieee() {
                 Scalar::F64
             } else {
                 return Err(

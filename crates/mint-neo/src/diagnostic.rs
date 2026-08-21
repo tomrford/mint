@@ -205,20 +205,15 @@ impl Error {
         ExitCode::from(self.diagnostic.category.exit_code())
     }
 
-    pub fn render(&self, files: &[&Source]) -> String {
-        let owned: Vec<&Source> = self.sources.iter().collect();
-        let files = if files.is_empty() {
-            owned.as_slice()
-        } else {
-            files
-        };
-        self.diagnostic.render(files)
+    pub fn render(&self) -> String {
+        let files: Vec<&Source> = self.sources.iter().collect();
+        self.diagnostic.render(&files)
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.render(&[]))
+        formatter.write_str(&self.render())
     }
 }
 

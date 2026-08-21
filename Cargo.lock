@@ -522,7 +522,6 @@ dependencies = [
  "mint-core",
  "serde",
  "serde_json",
- "thiserror",
  "tree-sitter",
  "tree-sitter-c",
 ]
