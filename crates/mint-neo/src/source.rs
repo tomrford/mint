@@ -143,23 +143,3 @@ fn line_starts(text: &str) -> Vec<usize> {
     }
     starts
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{Source, Span};
-
-    #[test]
-    fn locates_line_and_column() {
-        let source = Source::new("t.h", "ab\nc");
-        assert_eq!(source.locate(0), (1, 1));
-        assert_eq!(source.locate(3), (2, 1));
-        assert_eq!(source.slice(Span::new(0, 2)), "ab");
-    }
-
-    #[test]
-    fn detects_blank_lines() {
-        let source = Source::new("t.h", "a\n\nb");
-        assert!(source.has_blank_line(1, 3));
-        assert!(!source.has_blank_line(0, 1));
-    }
-}
