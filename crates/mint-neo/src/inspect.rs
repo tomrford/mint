@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use crate::diagnostic::Error;
 use crate::fingerprint;
+use crate::layout::PaddingRange;
 use crate::schema::CompiledSchema;
 use crate::types::{TypeId, TypeKind};
 
@@ -46,6 +47,16 @@ struct InspectArray {
 struct InspectPadding {
     offset: usize,
     size: usize,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    path: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    repeats: Vec<InspectPaddingRepeat>,
+}
+
+#[derive(Serialize)]
+struct InspectPaddingRepeat {
+    count: u64,
+    stride: usize,
 }
 
 pub fn render(schema: &CompiledSchema, format: InspectFormat) -> Result<String, Error> {
@@ -93,12 +104,25 @@ fn report(schema: &CompiledSchema) -> Result<InspectReport, Error> {
             .layout
             .padding_ranges
             .iter()
-            .map(|range| InspectPadding {
-                offset: range.offset,
-                size: range.size,
-            })
+            .map(inspect_padding)
             .collect(),
     })
+}
+
+fn inspect_padding(range: &PaddingRange) -> InspectPadding {
+    InspectPadding {
+        offset: range.offset,
+        size: range.size,
+        path: range.path.clone(),
+        repeats: range
+            .repeats
+            .iter()
+            .map(|repeat| InspectPaddingRepeat {
+                count: repeat.count,
+                stride: repeat.stride,
+            })
+            .collect(),
+    }
 }
 
 fn collect(
@@ -187,13 +211,37 @@ fn render_text(report: &InspectReport) -> String {
         out.push_str("  (none)\n");
     } else {
         for range in &report.padding_ranges {
-            out.push_str(&format!(
-                "  [{}, {})  {} octets\n",
-                range.offset,
-                range.offset + range.size,
-                range.size
-            ));
+            out.push_str(&render_padding_line(range));
         }
     }
     out
+}
+
+fn render_padding_line(range: &InspectPadding) -> String {
+    let mut line = String::from("  ");
+    if !range.path.is_empty() {
+        line.push_str(&range.path);
+        line.push(' ');
+    }
+    line.push_str(&format!(
+        "[{}, {})",
+        range.offset,
+        range.offset + range.size
+    ));
+    if range.repeats.is_empty() {
+        line.push_str(&format!("  {} octets\n", range.size));
+        return line;
+    }
+    for repeat in &range.repeats {
+        line.push_str(&format!(" × {} stride {}", repeat.count, repeat.stride));
+    }
+    let total = range
+        .repeats
+        .iter()
+        .try_fold(1u64, |acc, repeat| acc.checked_mul(repeat.count))
+        .and_then(|count| usize::try_from(count).ok())
+        .and_then(|count| count.checked_mul(range.size))
+        .unwrap_or(usize::MAX);
+    line.push_str(&format!("  {total} octets\n"));
+    line
 }

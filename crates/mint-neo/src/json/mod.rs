@@ -158,7 +158,7 @@ fn bind(
                     return Err(data(
                         source,
                         entry.key_span,
-                        pointer,
+                        &join_pointer(pointer, &entry.key),
                         format!("unexpected property '{}'", entry.key),
                     ));
                 };
@@ -418,6 +418,12 @@ fn in_range(
     Ok(value)
 }
 
+/// i128 has at most 39 decimal digits. Any integer with more digits, or a
+/// non-zero significand scaled by a larger non-negative power of ten, is
+/// outside the supported range. This bound is applied *before* scaling so a
+/// huge exponent never drives allocation or a long multiply loop.
+const MAX_EXACT_INTEGER_DIGITS: usize = 39;
+
 fn parse_exact_integer(raw: &str) -> Result<i128, String> {
     let raw = raw.trim();
     let (negative, body) = if let Some(rest) = raw.strip_prefix('-') {
@@ -439,46 +445,113 @@ fn parse_exact_integer(raw: &str) -> Result<i128, String> {
     {
         return Err(format!("invalid number '{raw}'"));
     }
-    let digits = format!("{int}{frac}");
-    let mut exp = exponent - isize::try_from(frac.len()).unwrap_or(0);
-    let mut digits = digits.trim_start_matches('0').to_owned();
-    if digits.is_empty() {
-        digits.push('0');
+    let combined;
+    let digits = if frac.is_empty() {
+        int
+    } else {
+        combined = format!("{int}{frac}");
+        combined.as_str()
+    };
+    let significant = digits.trim_start_matches('0');
+    if significant.is_empty() {
+        return Ok(0);
     }
-    while exp > 0 {
-        digits.push('0');
-        exp -= 1;
-    }
-    if exp < 0 {
-        let drop = usize::try_from(-exp).unwrap_or(0);
-        if drop > digits.len() {
+    let shift = match i128::try_from(frac.len())
+        .ok()
+        .and_then(|frac_len| exponent.checked_sub(frac_len))
+    {
+        Some(shift) => shift,
+        None => return Err(format!("number '{raw}' is not an integer")),
+    };
+    let value = if shift >= 0 {
+        let Some(total_digits) = usize::try_from(shift)
+            .ok()
+            .and_then(|zeros| significant.len().checked_add(zeros))
+        else {
+            return Err(format!("integer '{raw}' is out of supported range"));
+        };
+        if total_digits > MAX_EXACT_INTEGER_DIGITS {
+            return Err(format!("integer '{raw}' is out of supported range"));
+        }
+        let mut value = significant
+            .parse::<i128>()
+            .map_err(|_| format!("integer '{raw}' is out of supported range"))?;
+        for _ in 0..shift {
+            value = value
+                .checked_mul(10)
+                .ok_or_else(|| format!("integer '{raw}' is out of supported range"))?;
+        }
+        value
+    } else {
+        let Some(drop) = shift.checked_neg().and_then(|n| usize::try_from(n).ok()) else {
+            return Err(format!("number '{raw}' is not an integer"));
+        };
+        if drop > significant.len() {
             return Err(format!("number '{raw}' is not an integer"));
         }
-        let (keep, rest) = digits.split_at(digits.len() - drop);
-        if rest.chars().any(|character| character != '0') {
+        let keep_len = significant.len() - drop;
+        if significant.as_bytes()[keep_len..]
+            .iter()
+            .any(|&b| b != b'0')
+        {
             return Err(format!("number '{raw}' is not an integer"));
         }
-        digits = keep.to_owned();
-        if digits.is_empty() {
-            digits.push('0');
+        let keep = &significant[..keep_len];
+        if keep.is_empty() {
+            return Ok(0);
         }
+        if keep.len() > MAX_EXACT_INTEGER_DIGITS {
+            return Err(format!("integer '{raw}' is out of supported range"));
+        }
+        keep.parse::<i128>()
+            .map_err(|_| format!("integer '{raw}' is out of supported range"))?
+    };
+    if negative {
+        value
+            .checked_neg()
+            .ok_or_else(|| format!("integer '{raw}' is out of supported range"))
+    } else {
+        Ok(value)
     }
-    let value = digits
-        .parse::<i128>()
-        .map_err(|_| format!("integer '{raw}' is out of supported range"))?;
-    if negative { Ok(-value) } else { Ok(value) }
 }
 
-fn split_exponent(body: &str) -> Result<(&str, isize), String> {
+fn split_exponent(body: &str) -> Result<(&str, i128), String> {
     if let Some(index) = body.find(['e', 'E']) {
         let (mantissa, exp) = body.split_at(index);
-        let exp = &exp[1..];
-        let exp = exp
-            .parse::<isize>()
-            .map_err(|_| format!("invalid exponent in '{body}'"))?;
-        Ok((mantissa, exp))
+        if mantissa.is_empty() {
+            return Err(format!("invalid exponent in '{body}'"));
+        }
+        Ok((mantissa, parse_exponent(&exp[1..], body)?))
     } else {
         Ok((body, 0))
+    }
+}
+
+fn parse_exponent(text: &str, body: &str) -> Result<i128, String> {
+    let invalid = || format!("invalid exponent in '{body}'");
+    let text = text.strip_prefix('+').unwrap_or(text);
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(invalid());
+    }
+    let mut value: i128 = 0;
+    for byte in digits.bytes() {
+        let digit = i128::from(byte - b'0');
+        match value
+            .checked_mul(10)
+            .and_then(|next| next.checked_add(digit))
+        {
+            Some(next) => value = next,
+            None => return Ok(if negative { i128::MIN } else { i128::MAX }),
+        }
+    }
+    if negative {
+        Ok(value.checked_neg().unwrap_or(i128::MIN))
+    } else {
+        Ok(value)
     }
 }
 
@@ -488,11 +561,12 @@ fn join_pointer(pointer: &str, key: &str) -> String {
 }
 
 fn data(source: &Source, span: Span, pointer: &str, message: impl Into<String>) -> Error {
-    Error::one(
-        Diagnostic::new(Category::Data, &source.name, message)
-            .at(span)
-            .pointer(pointer),
-    )
+    let diagnostic = Diagnostic::new(Category::Data, &source.name, message).at(span);
+    Error::one(if pointer.is_empty() {
+        diagnostic
+    } else {
+        diagnostic.pointer(pointer)
+    })
 }
 
 fn parse_json(source: &Source) -> Result<Json, Error> {

@@ -49,6 +49,9 @@ impl<'a> ParsedFile<'a> {
         let mut stack = vec![self.root()];
         while let Some(node) = stack.pop() {
             if node.is_error() || node.kind() == "ERROR" {
+                if self.error_is_macro_comment_residue(node) {
+                    continue;
+                }
                 return Err(Error::one(
                     Diagnostic::new(Category::Schema, &self.source.name, "invalid C syntax")
                         .at(Self::span(node)),
@@ -77,17 +80,19 @@ impl<'a> ParsedFile<'a> {
         while let Some(node) = stack.pop() {
             match node.kind() {
                 "preproc_include" => self.check_include(node)?,
-                "preproc_def" | "preproc_function_def" => {}
+                "preproc_def" | "preproc_function_def" => {
+                    // Object-like and function-like definitions are trivia
+                    // unless a reachable extent names them. Do not inspect
+                    // replacement lists or `preproc_params`.
+                    continue;
+                }
+                "preproc_params" | "preproc_arg" | "preproc_directive" | "preproc_defined" => {}
                 "preproc_call" => self.check_pragma(node)?,
                 "preproc_if" | "preproc_ifdef" | "preproc_ifndef" | "preproc_else"
                 | "preproc_elif" | "preproc_elifdef" | "preproc_endif" | "preproc_elifndef" => {
                     return Err(self.directive_error(node, "conditional preprocessing"));
                 }
-                kind if kind.starts_with("preproc_")
-                    && kind != "preproc_arg"
-                    && kind != "preproc_directive"
-                    && kind != "preproc_defined" =>
-                {
+                kind if kind.starts_with("preproc_") => {
                     return Err(self.directive_error(node, kind));
                 }
                 "_Pragma" => {
@@ -107,25 +112,29 @@ impl<'a> ParsedFile<'a> {
     }
 
     fn check_include(&self, node: Node<'_>) -> Result<(), Error> {
-        let text = self.text(node).trim();
+        let text = normalize_directive(self.text(node));
         const ALLOWED: [&str; 4] = [
             "#include <stdint.h>",
             "#include <stdfloat.h>",
             "#include <stddef.h>",
             "#include <stdbool.h>",
         ];
-        if ALLOWED.contains(&text) {
+        if ALLOWED.contains(&text.as_str()) {
             return Ok(());
         }
         Err(self.directive_error(node, "include"))
     }
 
     fn check_pragma(&self, node: Node<'_>) -> Result<(), Error> {
-        let text = collapse_ws(self.text(node));
-        if text == "#pragma once" {
+        if normalize_directive(self.text(node)) == "#pragma once" {
             return Ok(());
         }
         Err(self.directive_error(node, "pragma"))
+    }
+
+    fn error_is_macro_comment_residue(&self, node: Node<'_>) -> bool {
+        let (line, _) = self.source.locate(node.start_byte());
+        is_object_like_define_line(self.source.line_text(line))
     }
 
     fn directive_error(&self, node: Node<'_>, kind: &str) -> Error {
@@ -178,6 +187,85 @@ fn collapse_ws(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn normalize_directive(text: &str) -> String {
+    collapse_ws(&strip_c_comments(text))
+}
+
+fn is_object_like_define_line(line: &str) -> bool {
+    let stripped = collapse_ws(&strip_c_comments(line));
+    let Some(rest) = stripped.strip_prefix("#define") else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let Some(first) = rest.chars().next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    let name_len = rest
+        .find(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .unwrap_or(rest.len());
+    !rest[name_len..].starts_with('(')
+}
+
+fn preproc_logical_rest(text: &str, start: usize) -> &str {
+    let bytes = text.as_bytes();
+    let start = start.min(bytes.len());
+    let mut index = start;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' && bytes.get(index + 1) == Some(&b'\n') {
+            index += 2;
+            continue;
+        }
+        if bytes[index] == b'\\'
+            && bytes.get(index + 1) == Some(&b'\r')
+            && bytes.get(index + 2) == Some(&b'\n')
+        {
+            index += 3;
+            continue;
+        }
+        if bytes[index] == b'\n' {
+            break;
+        }
+        index += 1;
+    }
+    &text[start..index]
+}
+
+/// Replace C comments with whitespace so directive and macro text can be
+/// compared and evaluated without treating comment punctuation as tokens.
+pub fn strip_c_comments(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'/') {
+            index += 2;
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            continue;
+        }
+        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            index += 2;
+            while index + 1 < bytes.len() && !(bytes[index] == b'*' && bytes[index + 1] == b'/') {
+                index += 1;
+            }
+            if index + 1 < bytes.len() {
+                index += 2;
+            } else {
+                index = bytes.len();
+            }
+            out.push(b' ');
+            continue;
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn collect_comments<'a>(parsed: &'a ParsedFile<'a>) -> Vec<Comment<'a>> {
     let mut comments = Vec::new();
     let mut stack = vec![parsed.root()];
@@ -219,10 +307,10 @@ pub fn collect_macros(parsed: &ParsedFile<'_>) -> Result<Vec<MacroDef>, Error> {
                         .at(ParsedFile::span(node)),
                     )
                 })?;
-                let body = node
-                    .child_by_field_name("value")
-                    .map(|value| parsed.text(value).trim().to_owned())
-                    .unwrap_or_default();
+                let body =
+                    strip_c_comments(preproc_logical_rest(&parsed.source.text, name.end_byte()))
+                        .trim()
+                        .to_owned();
                 macros.push(MacroDef {
                     name: parsed.text(name).to_owned(),
                     span: ParsedFile::span(name),
@@ -251,10 +339,12 @@ pub fn collect_macros(parsed: &ParsedFile<'_>) -> Result<Vec<MacroDef>, Error> {
             _ => {}
         }
         let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
+        let children: Vec<_> = node.named_children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
             stack.push(child);
         }
     }
+    macros.sort_by_key(|macro_def| macro_def.span.start);
     Ok(macros)
 }
 
@@ -311,5 +401,51 @@ typedef struct {
             Err(error) => error,
         };
         assert!(error.to_string().contains("include"));
+    }
+
+    #[test]
+    fn accepts_trailing_comments_on_includes_and_pragma_once() {
+        let source = Source::new(
+            "config.h",
+            "#pragma once // guard\n#include <stdint.h> /* types */\n",
+        );
+        ParsedFile::parse(&source).expect("trivia comments");
+    }
+
+    #[test]
+    fn unused_function_like_macros_are_trivia() {
+        let source = Source::new(
+            "config.h",
+            "#define WIDTH(x) (x)\n#define PAIR(a, b) ((a) + (b))\n#define N 2u\n",
+        );
+        let parsed = ParsedFile::parse(&source).expect("function-like trivia");
+        let macros = super::collect_macros(&parsed).expect("macros");
+        assert!(
+            macros
+                .iter()
+                .any(|macro_def| macro_def.name == "WIDTH" && macro_def.function_like)
+        );
+        assert!(
+            macros
+                .iter()
+                .any(|macro_def| macro_def.name == "PAIR" && macro_def.function_like)
+        );
+    }
+
+    #[test]
+    fn collects_macros_in_source_order_and_strips_bodies() {
+        let source = Source::new(
+            "config.h",
+            "#define SECOND (1u /* a */ + 1u)\n#define FIRST 1u // first\n",
+        );
+        let parsed = ParsedFile::parse(&source).expect("parse");
+        let macros = super::collect_macros(&parsed).expect("macros");
+        assert_eq!(
+            macros
+                .iter()
+                .map(|macro_def| (macro_def.name.as_str(), macro_def.body.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("SECOND", "(1u   + 1u)"), ("FIRST", "1u")]
+        );
     }
 }
