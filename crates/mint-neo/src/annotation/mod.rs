@@ -27,6 +27,41 @@ impl MintTags {
             && self.padding.is_none()
             && self.fingerprint.is_none()
     }
+
+    pub fn has_block_metadata(&self) -> bool {
+        self.block.is_some()
+            || self.abi.is_some()
+            || self.start_address.is_some()
+            || self.padding.is_some()
+    }
+
+    pub fn merge(&mut self, src: Self) -> Result<(), &'static str> {
+        take_slot(&mut self.block, src.block, "block")?;
+        take_slot(&mut self.abi, src.abi, "abi")?;
+        take_slot(&mut self.start_address, src.start_address, "start-address")?;
+        take_slot(&mut self.padding, src.padding, "padding")?;
+        take_slot(&mut self.fingerprint, src.fingerprint, "fingerprint")?;
+        self.span = if self.span.is_empty() {
+            src.span
+        } else {
+            self.span.merge(src.span)
+        };
+        Ok(())
+    }
+}
+
+fn take_slot<T>(
+    dst: &mut Option<T>,
+    src: Option<T>,
+    tag: &'static str,
+) -> Result<(), &'static str> {
+    if let Some(src) = src {
+        if dst.is_some() {
+            return Err(tag);
+        }
+        *dst = Some(src);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -115,12 +150,12 @@ pub fn parse_comment(source: &Source, comment: &RawComment) -> Result<Option<Min
         kind: Some(kind),
         ..MintTags::default()
     };
-    for (line_index, line) in body.lines().enumerate() {
+    for line in body.lines() {
         let line = line.trim();
         if line.is_empty() || !line.starts_with("@mint") {
             continue;
         }
-        parse_tag_line(source, comment, line_index, line, &mut tags)?;
+        parse_tag_line(source, comment, line, &mut tags)?;
     }
     if tags.is_empty() {
         if contains_mint {
@@ -141,7 +176,6 @@ pub fn parse_comment(source: &Source, comment: &RawComment) -> Result<Option<Min
 fn parse_tag_line(
     source: &Source,
     comment: &RawComment,
-    _line_index: usize,
     line: &str,
     tags: &mut MintTags,
 ) -> Result<(), Error> {
@@ -158,84 +192,54 @@ fn parse_tag_line(
     })?;
     let value = parts.next();
     let extra = parts.next();
+    let mut parsed = MintTags {
+        span: comment.span,
+        ..MintTags::default()
+    };
     match tag {
         "block" => {
             if value.is_some() {
                 return Err(tag_extra(source, comment, tag));
             }
-            if tags.block.is_some() {
-                return Err(duplicate(source, comment, tag));
-            }
-            tags.block = Some(comment.span);
+            parsed.block = Some(comment.span);
         }
         "fingerprint" => {
             if value.is_some() {
                 return Err(tag_extra(source, comment, tag));
             }
-            if tags.fingerprint.is_some() {
-                return Err(duplicate(source, comment, tag));
-            }
-            tags.fingerprint = Some(comment.span);
+            parsed.fingerprint = Some(comment.span);
         }
         "abi" => {
-            let value = value.ok_or_else(|| missing_value(source, comment, tag))?;
-            if extra.is_some() {
-                return Err(tag_extra(source, comment, tag));
-            }
-            if tags.abi.is_some() {
-                return Err(duplicate(source, comment, tag));
-            }
-            tags.abi = Some((value.to_owned(), comment.span));
+            parsed.abi = Some((
+                tag_value(source, comment, tag, value, extra)?.to_owned(),
+                comment.span,
+            ));
         }
         "start-address" => {
-            let value = value.ok_or_else(|| missing_value(source, comment, tag))?;
-            if extra.is_some() {
-                return Err(tag_extra(source, comment, tag));
-            }
-            if tags.start_address.is_some() {
-                return Err(duplicate(source, comment, tag));
-            }
-            let parsed = parse_c_unsigned(value).map_err(|message| {
-                Error::one(
-                    Diagnostic::new(Category::Schema, &source.name, message).at(comment.span),
-                )
-            })?;
-            let start = u32::try_from(parsed).map_err(|_| {
-                Error::one(
-                    Diagnostic::new(
-                        Category::Schema,
-                        &source.name,
-                        "start-address must fit an unsigned 32-bit value",
-                    )
-                    .at(comment.span),
-                )
-            })?;
-            tags.start_address = Some((start, comment.span));
+            parsed.start_address = Some((
+                tag_int(
+                    source,
+                    comment,
+                    tag,
+                    value,
+                    extra,
+                    "start-address must fit an unsigned 32-bit value",
+                )?,
+                comment.span,
+            ));
         }
         "padding" => {
-            let value = value.ok_or_else(|| missing_value(source, comment, tag))?;
-            if extra.is_some() {
-                return Err(tag_extra(source, comment, tag));
-            }
-            if tags.padding.is_some() {
-                return Err(duplicate(source, comment, tag));
-            }
-            let parsed = parse_c_unsigned(value).map_err(|message| {
-                Error::one(
-                    Diagnostic::new(Category::Schema, &source.name, message).at(comment.span),
-                )
-            })?;
-            let padding = u8::try_from(parsed).map_err(|_| {
-                Error::one(
-                    Diagnostic::new(
-                        Category::Schema,
-                        &source.name,
-                        "padding must be one unsigned octet",
-                    )
-                    .at(comment.span),
-                )
-            })?;
-            tags.padding = Some((padding, comment.span));
+            parsed.padding = Some((
+                tag_int(
+                    source,
+                    comment,
+                    tag,
+                    value,
+                    extra,
+                    "padding must be one unsigned octet",
+                )?,
+                comment.span,
+            ));
         }
         other => {
             return Err(Error::one(
@@ -248,7 +252,38 @@ fn parse_tag_line(
             ));
         }
     }
-    Ok(())
+    tags.merge(parsed)
+        .map_err(|tag| duplicate(source, comment, tag))
+}
+
+fn tag_value<'a>(
+    source: &Source,
+    comment: &RawComment,
+    tag: &str,
+    value: Option<&'a str>,
+    extra: Option<&str>,
+) -> Result<&'a str, Error> {
+    if extra.is_some() {
+        return Err(tag_extra(source, comment, tag));
+    }
+    value.ok_or_else(|| missing_value(source, comment, tag))
+}
+
+fn tag_int<T: TryFrom<u128>>(
+    source: &Source,
+    comment: &RawComment,
+    tag: &str,
+    value: Option<&str>,
+    extra: Option<&str>,
+    overflow: &str,
+) -> Result<T, Error> {
+    let parsed =
+        parse_c_unsigned(tag_value(source, comment, tag, value, extra)?).map_err(|message| {
+            Error::one(Diagnostic::new(Category::Schema, &source.name, message).at(comment.span))
+        })?;
+    T::try_from(parsed).map_err(|_| {
+        Error::one(Diagnostic::new(Category::Schema, &source.name, overflow).at(comment.span))
+    })
 }
 
 fn strip_doxygen(text: &str) -> String {

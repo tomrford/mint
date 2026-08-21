@@ -28,8 +28,7 @@ impl<'a> ParsedFile<'a> {
             ))
         })?;
         let parsed = Self { source, tree };
-        parsed.reject_errors()?;
-        parsed.reject_unsupported_directives()?;
+        parsed.reject_tree()?;
         Ok(parsed)
     }
 
@@ -45,9 +44,9 @@ impl<'a> ParsedFile<'a> {
         self.source.slice(Self::span(node))
     }
 
-    fn reject_errors(&self) -> Result<(), Error> {
-        let mut stack = vec![self.root()];
-        while let Some(node) = stack.pop() {
+    fn reject_tree(&self) -> Result<(), Error> {
+        let mut stack = vec![(self.root(), false)];
+        while let Some((node, in_macro)) = stack.pop() {
             if node.is_error() || node.kind() == "ERROR" {
                 if self.error_is_macro_comment_residue(node) {
                     continue;
@@ -67,66 +66,66 @@ impl<'a> ParsedFile<'a> {
                     .at(Self::span(node)),
                 ));
             }
+            if !in_macro {
+                self.reject_directive(node)?;
+            }
+            let in_macro =
+                in_macro || matches!(node.kind(), "preproc_def" | "preproc_function_def");
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                stack.push(child);
+                stack.push((child, in_macro));
             }
         }
         Ok(())
     }
 
-    fn reject_unsupported_directives(&self) -> Result<(), Error> {
-        let mut stack = vec![self.root()];
-        while let Some(node) = stack.pop() {
-            match node.kind() {
-                "preproc_include" => self.check_include(node)?,
-                "preproc_def" | "preproc_function_def" => {
-                    // Object-like and function-like definitions are trivia
-                    // unless a reachable extent names them. Do not inspect
-                    // replacement lists or `preproc_params`.
-                    continue;
-                }
-                "preproc_params" | "preproc_arg" | "preproc_directive" | "preproc_defined" => {}
-                "preproc_call" => self.check_pragma(node)?,
-                "preproc_if" | "preproc_ifdef" | "preproc_ifndef" | "preproc_else"
-                | "preproc_elif" | "preproc_elifdef" | "preproc_endif" | "preproc_elifndef" => {
-                    return Err(self.directive_error(node, "conditional preprocessing"));
-                }
-                kind if kind.starts_with("preproc_") => {
-                    return Err(self.directive_error(node, kind));
-                }
-                "_Pragma" => {
-                    return Err(self.directive_error(node, "_Pragma"));
-                }
-                _ => {}
+    fn reject_directive(&self, node: Node<'_>) -> Result<(), Error> {
+        match node.kind() {
+            "preproc_include" => self.check_include(node)?,
+            "preproc_def" | "preproc_function_def" => {}
+            "preproc_params" | "preproc_arg" | "preproc_directive" | "preproc_defined" => {}
+            "preproc_call" => self.check_pragma(node)?,
+            "preproc_if" | "preproc_ifdef" | "preproc_ifndef" | "preproc_else" | "preproc_elif"
+            | "preproc_elifdef" | "preproc_endif" | "preproc_elifndef" => {
+                return Err(self.directive_error(node, "conditional preprocessing"));
             }
-            if self.text(node).starts_with("_Pragma") && node.kind() == "identifier" {
+            kind if kind.starts_with("preproc_") => {
+                return Err(self.directive_error(node, kind));
+            }
+            "_Pragma" => {
                 return Err(self.directive_error(node, "_Pragma"));
             }
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                stack.push(child);
-            }
+            _ => {}
+        }
+        if self.text(node).starts_with("_Pragma") && node.kind() == "identifier" {
+            return Err(self.directive_error(node, "_Pragma"));
         }
         Ok(())
     }
 
     fn check_include(&self, node: Node<'_>) -> Result<(), Error> {
-        let text = normalize_directive(self.text(node));
-        const ALLOWED: [&str; 4] = [
-            "#include <stdint.h>",
-            "#include <stdfloat.h>",
-            "#include <stddef.h>",
-            "#include <stdbool.h>",
-        ];
-        if ALLOWED.contains(&text.as_str()) {
+        const ALLOWED: [&str; 4] = ["<stdint.h>", "<stdfloat.h>", "<stddef.h>", "<stdbool.h>"];
+        let Some(path) = node.child_by_field_name("path") else {
+            return Err(self.directive_error(node, "include"));
+        };
+        let path_text = self.text(path);
+        if path.kind() == "system_lib_string"
+            && ALLOWED.contains(&path_text)
+            && normalize_directive(self.text(node)) == format!("#include {path_text}")
+        {
             return Ok(());
         }
         Err(self.directive_error(node, "include"))
     }
 
     fn check_pragma(&self, node: Node<'_>) -> Result<(), Error> {
-        if normalize_directive(self.text(node)) == "#pragma once" {
+        let directive = node
+            .child_by_field_name("directive")
+            .map(|node| self.text(node));
+        let argument = node
+            .child_by_field_name("argument")
+            .map(|node| normalize_directive(self.text(node)));
+        if directive == Some("#pragma") && argument.as_deref() == Some("once") {
             return Ok(());
         }
         Err(self.directive_error(node, "pragma"))
@@ -266,86 +265,85 @@ pub fn strip_c_comments(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-pub fn collect_comments<'a>(parsed: &'a ParsedFile<'a>) -> Vec<Comment<'a>> {
-    let mut comments = Vec::new();
-    let mut stack = vec![parsed.root()];
+pub(crate) fn descendants<'tree>(root: Node<'tree>, named: bool) -> Vec<Node<'tree>> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "comment" {
-            comments.push(Comment {
-                span: ParsedFile::span(node),
-                text: parsed.text(node),
-            });
-        }
+        out.push(node);
         let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
+        let children: Vec<_> = if named {
+            node.named_children(&mut cursor).collect()
+        } else {
+            node.children(&mut cursor).collect()
+        };
+        for child in children.into_iter().rev() {
             stack.push(child);
         }
     }
+    out
+}
+
+#[cfg(test)]
+pub fn collect_macros(parsed: &ParsedFile<'_>) -> Result<Vec<MacroDef>, Error> {
+    collect_comments_and_macros(parsed).map(|(_, macros)| macros)
+}
+
+pub(crate) fn collect_comments_and_macros<'a>(
+    parsed: &'a ParsedFile<'a>,
+) -> Result<(Vec<Comment<'a>>, Vec<MacroDef>), Error> {
+    let mut comments = Vec::new();
+    let mut macros = Vec::new();
+    for node in descendants(parsed.root(), false) {
+        match node.kind() {
+            "comment" => comments.push(Comment {
+                span: ParsedFile::span(node),
+                text: parsed.text(node),
+            }),
+            "preproc_def" | "preproc_function_def" => macros.push(collect_macro(parsed, node)?),
+            _ => {}
+        }
+    }
     comments.sort_by_key(|comment| comment.span.start);
-    comments
+    macros.sort_by_key(|macro_def| macro_def.span.start);
+    Ok((comments, macros))
+}
+
+fn collect_macro(parsed: &ParsedFile<'_>, node: Node<'_>) -> Result<MacroDef, Error> {
+    let function_like = node.kind() == "preproc_function_def";
+    let name = node.child_by_field_name("name").ok_or_else(|| {
+        let kind = if function_like {
+            "function-like macro"
+        } else {
+            "object-like macro"
+        };
+        Error::one(
+            Diagnostic::new(
+                Category::Schema,
+                &parsed.source.name,
+                format!("{kind} is missing a name"),
+            )
+            .at(ParsedFile::span(node)),
+        )
+    })?;
+    let body = if function_like {
+        String::new()
+    } else {
+        strip_c_comments(preproc_logical_rest(&parsed.source.text, name.end_byte()))
+            .trim()
+            .to_owned()
+    };
+    Ok(MacroDef {
+        name: parsed.text(name).to_owned(),
+        span: ParsedFile::span(name),
+        body,
+        function_like,
+    })
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Comment<'a> {
     pub span: Span,
     pub text: &'a str,
-}
-
-pub fn collect_macros(parsed: &ParsedFile<'_>) -> Result<Vec<MacroDef>, Error> {
-    let mut macros = Vec::new();
-    let mut stack = vec![parsed.root()];
-    while let Some(node) = stack.pop() {
-        match node.kind() {
-            "preproc_def" => {
-                let name = node.child_by_field_name("name").ok_or_else(|| {
-                    Error::one(
-                        Diagnostic::new(
-                            Category::Schema,
-                            &parsed.source.name,
-                            "object-like macro is missing a name",
-                        )
-                        .at(ParsedFile::span(node)),
-                    )
-                })?;
-                let body =
-                    strip_c_comments(preproc_logical_rest(&parsed.source.text, name.end_byte()))
-                        .trim()
-                        .to_owned();
-                macros.push(MacroDef {
-                    name: parsed.text(name).to_owned(),
-                    span: ParsedFile::span(name),
-                    body,
-                    function_like: false,
-                });
-            }
-            "preproc_function_def" => {
-                let name = node.child_by_field_name("name").ok_or_else(|| {
-                    Error::one(
-                        Diagnostic::new(
-                            Category::Schema,
-                            &parsed.source.name,
-                            "function-like macro is missing a name",
-                        )
-                        .at(ParsedFile::span(node)),
-                    )
-                })?;
-                macros.push(MacroDef {
-                    name: parsed.text(name).to_owned(),
-                    span: ParsedFile::span(name),
-                    body: String::new(),
-                    function_like: true,
-                });
-            }
-            _ => {}
-        }
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.named_children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
-    macros.sort_by_key(|macro_def| macro_def.span.start);
-    Ok(macros)
 }
 
 #[derive(Clone, Debug)]
