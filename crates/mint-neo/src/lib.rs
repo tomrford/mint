@@ -35,20 +35,18 @@ pub struct CompiledSchema {
 }
 
 pub fn compile_header(source: Source) -> Result<CompiledSchema, Error> {
-    match compile(&source) {
-        Ok((layout, fingerprint)) => Ok(CompiledSchema {
-            source,
-            layout,
-            fingerprint,
-        }),
-        Err(error) => Err(error.with_source(source)),
-    }
+    let (layout, fingerprint) = compile(&source)?;
+    Ok(CompiledSchema {
+        source,
+        layout,
+        fingerprint,
+    })
 }
 
 fn compile(source: &Source) -> Result<(layout::ResolvedLayout, u64), Error> {
     let parsed = syntax::ParsedFile::parse(source)?;
     let types = types::compile_types(&parsed)?;
-    let layout = layout::resolve(types)?;
+    let layout = layout::resolve(types, source)?;
     let fingerprint = fingerprint::calculate(&layout);
     Ok((layout, fingerprint))
 }

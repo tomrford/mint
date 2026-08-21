@@ -7,7 +7,7 @@ use crate::annotation::{
     CommentKind, MintTags, attach_leading, attach_trailing, group_comments, parse_comment,
 };
 use crate::constants::{ShapeEnv, evaluate, evaluate_any};
-use crate::diagnostic::{Category, Error};
+use crate::diagnostic::Error;
 use crate::source::Span;
 use crate::syntax::{Comment, ParsedFile, collect_comments_and_macros, descendants};
 
@@ -48,7 +48,6 @@ pub struct SchemaTypes {
     pub start_address: u32,
     pub start_address_span: Span,
     pub padding: u8,
-    pub source_name: String,
     pub root_span: Span,
     pub root: TypeId,
     pub types: Vec<TypeKind>,
@@ -59,12 +58,7 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
     let attachments = collect_attachments(parsed, comments)?;
     let mut env = ShapeEnv::new();
     for macro_def in macros {
-        env.insert_macro(
-            macro_def.name,
-            macro_def.span,
-            macro_def.body,
-            macro_def.function_like,
-        );
+        env.insert_macro(macro_def);
     }
     collect_enum_constants(parsed, &mut env)?;
 
@@ -114,7 +108,6 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
         start_address,
         start_address_span,
         padding,
-        source_name: parsed.source.name.clone(),
         root_span: root.span,
         root: root_id,
         types: resolver.types,
@@ -329,11 +322,7 @@ impl<'a> Resolver<'a> {
                     ParsedFile::span(node),
                     format!("duplicate typedef '{name}'"),
                 )
-                .related(
-                    &self.parsed.source.name,
-                    ParsedFile::span(prev.node),
-                    "previous definition",
-                ));
+                .related(ParsedFile::span(prev.node), "previous definition"));
             }
         }
         Ok(())
@@ -353,11 +342,7 @@ impl<'a> Resolver<'a> {
                 ParsedFile::span(spec),
                 format!("duplicate struct tag '{tag}'"),
             )
-            .related(
-                &self.parsed.source.name,
-                ParsedFile::span(prev),
-                "previous definition",
-            ));
+            .related(ParsedFile::span(prev), "previous definition"));
         }
         Ok(())
     }
@@ -536,11 +521,7 @@ impl<'a> Resolver<'a> {
                     field.span,
                     format!("duplicate member '{}'", field.name),
                 )
-                .related(
-                    &self.parsed.source.name,
-                    previous,
-                    "previous member is here",
-                ));
+                .related(previous, "previous member is here"));
             }
             fields.push(field);
         }
@@ -794,17 +775,22 @@ impl<'a> Resolver<'a> {
     }
 
     fn cycle_error(&self) -> Result<TypeId, Error> {
-        let mut error = Error::named(
-            Category::Schema,
-            &self.parsed.source.name,
+        let mut spans = self.visiting.values().copied();
+        let Some(first) = spans.next() else {
+            return Err(Error::schema(
+                self.parsed.source,
+                Span::point(0),
+                "cyclic by-value record dependency",
+            ));
+        };
+        let mut error = Error::schema(
+            self.parsed.source,
+            first,
             "cyclic by-value record dependency",
         )
-        .with_source(self.parsed.source.clone());
-        for span in self.visiting.values() {
-            error = error.related(&self.parsed.source.name, *span, "participates in the cycle");
-            if error.diagnostic.span.is_none() {
-                error = error.span(*span);
-            }
+        .related(first, "participates in the cycle");
+        for span in spans {
+            error = error.related(span, "participates in the cycle");
         }
         Err(error)
     }
@@ -1000,11 +986,8 @@ fn collect_enum_constants(parsed: &ParsedFile<'_>, env: &mut ShapeEnv) -> Result
             let span = ParsedFile::span(name);
             if let Some(previous) = env.insert_constant(name_text.to_owned(), stored, span) {
                 return Err(
-                    schema(parsed, span, format!("duplicate enumerator '{name_text}'")).related(
-                        parsed.source.name.clone(),
-                        previous,
-                        "previous enumerator is here",
-                    ),
+                    schema(parsed, span, format!("duplicate enumerator '{name_text}'"))
+                        .related(previous, "previous enumerator is here"),
                 );
             }
             next = value.saturating_add(1);

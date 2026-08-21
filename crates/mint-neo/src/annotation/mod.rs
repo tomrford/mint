@@ -183,31 +183,32 @@ fn parse_tag_line(
         .ok_or_else(|| Error::schema(source, comment.span, "expected an @mint tag name"))?;
     let value = parts.next();
     let extra = parts.next();
-    let mut parsed = MintTags {
-        span: comment.span,
-        ..MintTags::default()
-    };
     match tag {
         "block" => {
             if value.is_some() {
                 return Err(tag_extra(source, comment, tag));
             }
-            parsed.block = Some(comment.span);
+            set_once(&mut tags.block, comment.span, source, comment, tag)
         }
         "fingerprint" => {
             if value.is_some() {
                 return Err(tag_extra(source, comment, tag));
             }
-            parsed.fingerprint = Some(comment.span);
+            set_once(&mut tags.fingerprint, comment.span, source, comment, tag)
         }
-        "abi" => {
-            parsed.abi = Some((
+        "abi" => set_once(
+            &mut tags.abi,
+            (
                 tag_value(source, comment, tag, value, extra)?.to_owned(),
                 comment.span,
-            ));
-        }
-        "start-address" => {
-            parsed.start_address = Some((
+            ),
+            source,
+            comment,
+            tag,
+        ),
+        "start-address" => set_once(
+            &mut tags.start_address,
+            (
                 tag_int(
                     source,
                     comment,
@@ -217,10 +218,14 @@ fn parse_tag_line(
                     "start-address must fit an unsigned 32-bit value",
                 )?,
                 comment.span,
-            ));
-        }
-        "padding" => {
-            parsed.padding = Some((
+            ),
+            source,
+            comment,
+            tag,
+        ),
+        "padding" => set_once(
+            &mut tags.padding,
+            (
                 tag_int(
                     source,
                     comment,
@@ -230,18 +235,31 @@ fn parse_tag_line(
                     "padding must be one unsigned octet",
                 )?,
                 comment.span,
-            ));
-        }
-        other => {
-            return Err(Error::schema(
-                source,
-                comment.span,
-                format!("unknown @mint tag '{other}'"),
-            ));
-        }
+            ),
+            source,
+            comment,
+            tag,
+        ),
+        other => Err(Error::schema(
+            source,
+            comment.span,
+            format!("unknown @mint tag '{other}'"),
+        )),
     }
-    tags.merge(parsed)
-        .map_err(|tag| duplicate(source, comment, tag))
+}
+
+fn set_once<T>(
+    slot: &mut Option<T>,
+    value: T,
+    source: &Source,
+    comment: &RawComment,
+    tag: &str,
+) -> Result<(), Error> {
+    if slot.is_some() {
+        return Err(duplicate(source, comment, tag));
+    }
+    *slot = Some(value);
+    Ok(())
 }
 
 fn tag_value<'a>(
