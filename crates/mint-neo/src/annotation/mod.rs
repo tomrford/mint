@@ -318,9 +318,54 @@ fn duplicate(source: &Source, comment: &RawComment, tag: &str) -> Error {
 }
 
 pub fn attach_leading(source: &Source, comment_end: usize, decl_start: usize) -> bool {
-    comment_end <= decl_start
-        && source.only_whitespace(comment_end, decl_start)
-        && !source.has_blank_line(comment_end, decl_start)
+    comment_end <= decl_start && only_trivia_without_blank_line(source, comment_end, decl_start)
+}
+
+/// A leading `@mint` comment attaches to the next non-comment token when the
+/// gap is only whitespace and comments, with no blank line.
+fn only_trivia_without_blank_line(source: &Source, start: usize, end: usize) -> bool {
+    let bytes = source.text.as_bytes();
+    let start = start.min(bytes.len());
+    let end = end.min(bytes.len());
+    let mut index = start;
+    let mut prev_newline = false;
+    let mut only_horizontal_ws = true;
+    while index < end {
+        match bytes[index] {
+            b' ' | b'\t' => index += 1,
+            b'\r' => index += 1,
+            b'\n' => {
+                if prev_newline && only_horizontal_ws {
+                    return false;
+                }
+                prev_newline = true;
+                only_horizontal_ws = true;
+                index += 1;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                prev_newline = false;
+                only_horizontal_ws = false;
+                index += 2;
+                while index < end && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                prev_newline = false;
+                only_horizontal_ws = false;
+                index += 2;
+                while index + 1 < end && !(bytes[index] == b'*' && bytes[index + 1] == b'/') {
+                    index += 1;
+                }
+                if index + 1 >= end {
+                    return false;
+                }
+                index += 2;
+            }
+            _ => return false,
+        }
+    }
+    true
 }
 
 pub fn attach_trailing(source: &Source, semicolon: usize, comment_start: usize) -> bool {
@@ -351,6 +396,21 @@ mod tests {
         assert!(tags.block.is_some());
         assert_eq!(tags.abi.unwrap().0, "generic-le");
         assert_eq!(tags.start_address.unwrap().0, 0x8000);
+    }
+
+    #[test]
+    fn leading_attachment_skips_intervening_comments() {
+        let source = Source::new(
+            "t.h",
+            "/** mint */\n/* ordinary */\n/// docs\ntypedef int x;\n",
+        );
+        let mint_end = source.text.find("*/").expect("mint") + 2;
+        let decl = source.text.find("typedef").expect("typedef");
+        assert!(super::attach_leading(&source, mint_end, decl));
+        let blank = Source::new("t.h", "/** mint */\n\ntypedef int x;\n");
+        let blank_end = blank.text.find("*/").expect("mint") + 2;
+        let blank_decl = blank.text.find("typedef").expect("typedef");
+        assert!(!super::attach_leading(&blank, blank_end, blank_decl));
     }
 
     #[test]

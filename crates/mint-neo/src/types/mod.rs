@@ -12,6 +12,7 @@ use crate::source::Span;
 use crate::syntax::{Comment, ParsedFile, collect_comments, collect_macros};
 
 pub const MAX_RECORD_DEPTH: usize = 128;
+pub const MAX_TYPEDEF_DEPTH: usize = 128;
 pub const MAX_ARRAY_DIMENSIONS: usize = 16;
 pub const MAX_RESOLVED_SIZE: usize = 256 * 1024 * 1024;
 
@@ -48,8 +49,11 @@ pub struct Field {
 pub struct SchemaTypes {
     pub abi: Abi,
     pub start_address: u32,
+    pub start_address_span: Span,
     pub padding: u8,
+    pub source_name: String,
     pub root_name: String,
+    pub root_span: Span,
     pub root: TypeId,
     pub types: Vec<TypeKind>,
     pub fingerprint_field: Option<String>,
@@ -77,17 +81,13 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
         )
     })?;
     let abi = crate::abi::parse_abi(&abi_text.0, &parsed.source.name, abi_text.1)?;
-    let start_address = root
-        .tags
-        .start_address
-        .ok_or_else(|| {
-            schema(
-                parsed,
-                root.span,
-                "@mint start-address is required on the root record",
-            )
-        })?
-        .0;
+    let (start_address, start_address_span) = root.tags.start_address.ok_or_else(|| {
+        schema(
+            parsed,
+            root.span,
+            "@mint start-address is required on the root record",
+        )
+    })?;
     let padding = root.tags.padding.map(|(value, _)| value).unwrap_or(0xFF);
     if root.tags.fingerprint.is_some() {
         return Err(schema(
@@ -107,6 +107,7 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
         typedefs: HashMap::new(),
         struct_defs: HashMap::new(),
         visiting: HashMap::new(),
+        typedef_depth: 0,
     };
     resolver.index_file_scope()?;
     let root_id = resolver.resolve_root(root.node)?;
@@ -115,8 +116,11 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
     Ok(SchemaTypes {
         abi,
         start_address,
+        start_address_span,
         padding,
+        source_name: parsed.source.name.clone(),
         root_name: root.name,
+        root_span: root.span,
         root: root_id,
         types: resolver.types,
         fingerprint_field,
@@ -167,15 +171,43 @@ fn collect_attachments(parsed: &ParsedFile<'_>) -> Result<HashMap<usize, MintTag
                 "@mint comment does not attach to a declaration",
             ));
         };
+        reject_invalid_location(parsed, target, &tags)?;
         let entry = attachments.entry(target.span.start).or_default();
         merge_tags(parsed, entry, tags)?;
     }
     Ok(attachments)
 }
 
+fn reject_invalid_location(
+    parsed: &ParsedFile<'_>,
+    target: &Target,
+    tags: &MintTags,
+) -> Result<(), Error> {
+    let has_block_meta = tags.block.is_some()
+        || tags.abi.is_some()
+        || tags.start_address.is_some()
+        || tags.padding.is_some();
+    if has_block_meta && target.kind != TargetKind::Typedef {
+        return Err(schema(
+            parsed,
+            tags.span,
+            "block metadata may appear only on the root record",
+        ));
+    }
+    if tags.fingerprint.is_some() && target.kind != TargetKind::Field {
+        return Err(schema(
+            parsed,
+            tags.span,
+            "@mint fingerprint is only valid on a root member",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TargetKind {
-    Decl,
+    Typedef,
+    Declaration,
     Field,
 }
 
@@ -187,11 +219,18 @@ struct Target {
 
 fn collect_targets(node: Node<'_>, targets: &mut Vec<Target>) {
     match node.kind() {
-        "type_definition" | "declaration" => {
+        "type_definition" => {
             targets.push(Target {
                 span: ParsedFile::span(node),
                 semicolon: node.end_byte().saturating_sub(1),
-                kind: TargetKind::Decl,
+                kind: TargetKind::Typedef,
+            });
+        }
+        "declaration" => {
+            targets.push(Target {
+                span: ParsedFile::span(node),
+                semicolon: node.end_byte().saturating_sub(1),
+                kind: TargetKind::Declaration,
             });
         }
         "field_declaration" => {
@@ -257,11 +296,10 @@ fn find_root<'tree>(
     attachments: &HashMap<usize, MintTags>,
 ) -> Result<RootDecl<'tree>, Error> {
     let mut found = None;
-    let mut cursor = parsed.root().walk();
-    for child in parsed.root().named_children(&mut cursor) {
-        if child.kind() != "type_definition" {
-            continue;
-        }
+    let mut typedefs = Vec::new();
+    collect_nodes(parsed.root(), "type_definition", &mut typedefs);
+    typedefs.sort_by_key(Node::start_byte);
+    for child in typedefs {
         let Some(tags) = attachments.get(&child.start_byte()) else {
             continue;
         };
@@ -315,31 +353,42 @@ struct Resolver<'a> {
     abi: Abi,
     types: Vec<TypeKind>,
     memo: HashMap<usize, TypeId>,
-    typedefs: HashMap<String, Node<'a>>,
+    typedefs: HashMap<String, TypedefDef<'a>>,
     struct_defs: HashMap<String, Node<'a>>,
     visiting: HashMap<usize, Span>,
+    typedef_depth: usize,
+}
+
+#[derive(Clone, Copy)]
+struct TypedefDef<'a> {
+    node: Node<'a>,
+    declarator: Node<'a>,
 }
 
 impl<'a> Resolver<'a> {
     fn index_file_scope(&mut self) -> Result<(), Error> {
-        let mut cursor = self.parsed.root().walk();
-        for child in self.parsed.root().named_children(&mut cursor) {
-            match child.kind() {
-                "type_definition" => self.index_typedef(child)?,
-                "declaration" | "struct_specifier" => self.index_struct_spec(child)?,
-                _ => {}
-            }
+        self.walk_index(self.parsed.root())
+    }
+
+    fn walk_index(&mut self, node: Node<'a>) -> Result<(), Error> {
+        match node.kind() {
+            "type_definition" => self.index_typedef(node)?,
+            "struct_specifier" => self.register_struct_tag(node)?,
+            _ => {}
+        }
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            self.walk_index(child)?;
         }
         Ok(())
     }
 
     fn index_typedef(&mut self, node: Node<'a>) -> Result<(), Error> {
-        if let Some(spec) = node.child_by_field_name("type") {
-            self.index_struct_spec(spec)?;
-        }
         for declarator in field_nodes(node, "declarator") {
             if let Ok(name) = declarator_name(self.parsed, declarator)
-                && let Some(prev) = self.typedefs.insert(name.clone(), node)
+                && let Some(prev) = self
+                    .typedefs
+                    .insert(name.clone(), TypedefDef { node, declarator })
             {
                 return Err(Error::one(
                     schema_diag(
@@ -349,7 +398,7 @@ impl<'a> Resolver<'a> {
                     )
                     .related(
                         &self.parsed.source.name,
-                        ParsedFile::span(prev),
+                        ParsedFile::span(prev.node),
                         "previous definition",
                     ),
                 ));
@@ -358,36 +407,27 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn index_struct_spec(&mut self, node: Node<'a>) -> Result<(), Error> {
-        let spec = if node.kind() == "struct_specifier" {
-            node
-        } else if let Some(spec) = node.child_by_field_name("type") {
-            spec
-        } else {
+    fn register_struct_tag(&mut self, spec: Node<'a>) -> Result<(), Error> {
+        if spec.kind() != "struct_specifier" || spec.child_by_field_name("body").is_none() {
+            return Ok(());
+        }
+        let Some(name) = spec.child_by_field_name("name") else {
             return Ok(());
         };
-        if spec.kind() != "struct_specifier" {
-            return Ok(());
-        }
-        if spec.child_by_field_name("body").is_none() {
-            return Ok(());
-        }
-        if let Some(name) = spec.child_by_field_name("name") {
-            let tag = self.parsed.text(name).to_owned();
-            if let Some(prev) = self.struct_defs.insert(tag.clone(), spec) {
-                return Err(Error::one(
-                    schema_diag(
-                        self.parsed,
-                        ParsedFile::span(spec),
-                        format!("duplicate struct tag '{tag}'"),
-                    )
-                    .related(
-                        &self.parsed.source.name,
-                        ParsedFile::span(prev),
-                        "previous definition",
-                    ),
-                ));
-            }
+        let tag = self.parsed.text(name).to_owned();
+        if let Some(prev) = self.struct_defs.insert(tag.clone(), spec) {
+            return Err(Error::one(
+                schema_diag(
+                    self.parsed,
+                    ParsedFile::span(spec),
+                    format!("duplicate struct tag '{tag}'"),
+                )
+                .related(
+                    &self.parsed.source.name,
+                    ParsedFile::span(prev),
+                    "previous definition",
+                ),
+            ));
         }
         Ok(())
     }
@@ -444,7 +484,7 @@ impl<'a> Resolver<'a> {
                     }));
                 }
                 if let Some(typedef) = self.typedefs.get(name).copied() {
-                    return self.resolve_typedef_node(typedef, depth);
+                    return self.resolve_typedef_def(typedef, depth);
                 }
                 if let Some(record) = self.struct_defs.get(name).copied() {
                     return self.resolve_struct(record, depth);
@@ -475,37 +515,40 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_typedef_node(&mut self, node: Node<'a>, depth: usize) -> Result<TypeId, Error> {
-        if let Some(id) = self.memo.get(&node.start_byte()).copied() {
+    fn resolve_typedef_def(&mut self, def: TypedefDef<'a>, depth: usize) -> Result<TypeId, Error> {
+        let key = def.declarator.start_byte();
+        if let Some(id) = self.memo.get(&key).copied() {
             return Ok(id);
+        }
+        if self.typedef_depth >= MAX_TYPEDEF_DEPTH {
+            return Err(schema(
+                self.parsed,
+                ParsedFile::span(def.node),
+                format!("typedef alias chain exceeds {MAX_TYPEDEF_DEPTH} levels"),
+            ));
         }
         if self
             .visiting
-            .insert(node.start_byte(), ParsedFile::span(node))
+            .insert(key, ParsedFile::span(def.node))
             .is_some()
         {
             return self.cycle_error();
         }
-        let spec = node.child_by_field_name("type").ok_or_else(|| {
+        let spec = def.node.child_by_field_name("type").ok_or_else(|| {
             schema(
                 self.parsed,
-                ParsedFile::span(node),
+                ParsedFile::span(def.node),
                 "typedef is missing a type",
             )
         })?;
-        let declarators = field_nodes(node, "declarator");
-        if declarators.len() != 1 {
-            self.visiting.remove(&node.start_byte());
-            return Err(schema(
-                self.parsed,
-                ParsedFile::span(node),
-                "reachable typedefs must introduce exactly one name",
-            ));
-        }
-        let type_id = self.resolve_spec(spec, depth)?;
-        let type_id = self.apply_declarator(type_id, declarators[0], depth)?;
-        self.visiting.remove(&node.start_byte());
-        self.memo.insert(node.start_byte(), type_id);
+        self.typedef_depth += 1;
+        let resolved = self
+            .resolve_spec(spec, depth)
+            .and_then(|type_id| self.apply_declarator(type_id, def.declarator, depth));
+        self.typedef_depth -= 1;
+        self.visiting.remove(&key);
+        let type_id = resolved?;
+        self.memo.insert(key, type_id);
         Ok(type_id)
     }
 
@@ -899,6 +942,16 @@ fn array_suffix(parsed: &ParsedFile<'_>, mut node: Node<'_>) -> Option<String> {
     } else {
         dims.reverse();
         Some(dims.join(""))
+    }
+}
+
+fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, out: &mut Vec<Node<'tree>>) {
+    if node.kind() == kind {
+        out.push(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_nodes(child, kind, out);
     }
 }
 
