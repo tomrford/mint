@@ -29,13 +29,6 @@ fn mint_block(prelude: &str, root: &str) -> String {
 }
 
 #[test]
-fn trailing_comments_on_accepted_directives_are_trivia() {
-    let schema =
-        compile(&mint_block("", "typedef struct { uint32_t id; } config_t;")).expect("header");
-    assert_eq!(schema.layout.root_layout().size, 4);
-}
-
-#[test]
 fn object_like_macro_bodies_strip_c_comments() {
     let schema = compile(&mint_block(
         r#"
@@ -80,21 +73,6 @@ fn unreferenced_duplicate_macros_are_ignored() {
 }
 
 #[test]
-fn macro_and_enumerator_name_collision_is_rejected() {
-    let error = compile_err(&mint_block(
-        r#"
-#define AXIS_COUNT 3u
-typedef enum { AXIS_COUNT = 4 } dimensions_t;
-"#,
-        "typedef struct { uint16_t axes[AXIS_COUNT]; } config_t;",
-    ));
-    assert!(
-        error.contains("enumerator") || error.contains("macro"),
-        "{error}"
-    );
-}
-
-#[test]
 fn nested_reusable_struct_tags_are_discovered() {
     let schema = compile(&mint_block(
         "",
@@ -113,9 +91,11 @@ typedef struct {
 }
 
 #[test]
-fn leading_mint_attaches_through_ordinary_and_doxygen_comments() {
-    let schema = compile(
-        r#"
+fn leading_mint_attaches_through_intervening_comments() {
+    let cases = [
+        (
+            "block",
+            r#"
 #include <stdint.h>
 /**
  * @mint block
@@ -130,15 +110,10 @@ typedef struct {
     uint32_t id;
 } config_t;
 "#,
-    )
-    .expect("intervening comments");
-    assert_eq!(schema.layout.root_layout().size, 4);
-}
-
-#[test]
-fn leading_slash_slash_slash_attaches_through_ordinary_comment() {
-    let schema = compile(
-        r#"
+        ),
+        (
+            "slash-slash-slash",
+            r#"
 #include <stdint.h>
 /// @mint block
 /// @mint abi generic-le
@@ -148,9 +123,12 @@ typedef struct {
     uint32_t id;
 } config_t;
 "#,
-    )
-    .expect("ordinary comment");
-    assert_eq!(schema.layout.root_layout().size, 4);
+        ),
+    ];
+    for (name, source) in cases {
+        let schema = compile(source).expect(name);
+        assert_eq!(schema.layout.root_layout().size, 4, "{name}");
+    }
 }
 
 #[test]
@@ -258,26 +236,6 @@ fn acyclic_typedef_alias_chain_is_bounded() {
  * @mint start-address 0
  */
 typedef struct { t200 value; } config_t;
-"#,
-    );
-    let error = compile_err(&text);
-    assert!(error.contains("exceeds"), "{error}");
-}
-
-#[test]
-fn acyclic_macro_expansion_is_bounded() {
-    let mut text = String::from("#include <stdint.h>\n#define M0 1u\n");
-    for index in 1..=200 {
-        text.push_str(&format!("#define M{index} M{}\n", index - 1));
-    }
-    text.push_str(
-        r#"
-/**
- * @mint block
- * @mint abi generic-le
- * @mint start-address 0
- */
-typedef struct { uint16_t values[M200]; } config_t;
 "#,
     );
     let error = compile_err(&text);

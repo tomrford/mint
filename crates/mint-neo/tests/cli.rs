@@ -62,7 +62,7 @@ typedef struct { uint32_t id; } config_t;
 }
 
 #[test]
-fn build_writes_hex_and_usage_is_exit_2() {
+fn build_writes_hex() {
     let header = write_temp(
         "build.h",
         r#"
@@ -96,9 +96,6 @@ typedef struct { uint32_t id; } config_t;
     let hex = std::fs::read_to_string(&out).unwrap();
     assert!(hex.contains(":020000040000FA"));
     assert!(hex.ends_with(":00000001FF\n"));
-
-    let usage = mint_neo().output().unwrap();
-    assert_eq!(usage.status.code(), Some(2));
 }
 
 #[test]

@@ -4,24 +4,10 @@ use mint_core::layout;
 use mint_neo::{Source, compile_header, encode_json};
 use std::path::PathBuf;
 
-#[test]
-fn flat_scalars_match_mint_v2_bytes() {
-    let toml = r#"
-[mint]
-abi = "generic-le"
-
-[config.header]
-start_address = 0x8000
-length = 8
-
-[config.data]
-id = { name = "id", type = "u32" }
-flags = { name = "flags", type = "u16" }
-reserved = { name = "reserved", type = "u16" }
-"#;
+fn v2_range(toml: &str, json_body: &str) -> Vec<u8> {
     let config = layout::parse_toml_layout(toml).expect("toml");
     let data = JsonDataSource::from_str(
-        r#"{"Default":{"id":1,"flags":2,"reserved":3}}"#,
+        &format!(r#"{{"Default":{json_body}}}"#),
         &["Default".to_owned()],
     )
     .expect("json");
@@ -36,6 +22,27 @@ reserved = { name = "reserved", type = "u16" }
         capture_values: false,
     })
     .expect("v2 build");
+    artifact.ranges[0].bytestream.clone()
+}
+
+#[test]
+fn flat_scalars_match_mint_v2_bytes() {
+    let expected = v2_range(
+        r#"
+[mint]
+abi = "generic-le"
+
+[config.header]
+start_address = 0x8000
+length = 8
+
+[config.data]
+id = { name = "id", type = "u32" }
+flags = { name = "flags", type = "u16" }
+reserved = { name = "reserved", type = "u16" }
+"#,
+        r#"{"id":1,"flags":2,"reserved":3}"#,
+    );
 
     let neo = compile_header(Source::new(
         "config.h",
@@ -59,12 +66,13 @@ typedef struct {
         &Source::new("config.json", r#"{"id":1,"flags":2,"reserved":3}"#),
     )
     .expect("neo json");
-    assert_eq!(bytes, artifact.ranges[0].bytestream);
+    assert_eq!(bytes, expected);
 }
 
 #[test]
 fn tricore_u64_alignment_matches_mint_v2() {
-    let toml = r#"
+    let expected = v2_range(
+        r#"
 [mint]
 abi = "tricore-eabi-le"
 
@@ -75,24 +83,9 @@ length = 12
 [config.data]
 small = { name = "small", type = "u8" }
 wide = { name = "wide", type = "u64" }
-"#;
-    let config = layout::parse_toml_layout(toml).expect("toml");
-    let data = JsonDataSource::from_str(
-        r#"{"Default":{"small":1,"wide":2}}"#,
-        &["Default".to_owned()],
-    )
-    .expect("json");
-    let artifact = mint_core::build::build_from_layouts(BuildFromLayoutsRequest {
-        layouts: vec![NamedLayout {
-            name: PathBuf::from("v2"),
-            config,
-        }],
-        blocks: vec![BlockSelector::named("v2", "config")],
-        data_source: Some(&data),
-        strict: true,
-        capture_values: false,
-    })
-    .expect("v2 build");
+"#,
+        r#"{"small":1,"wide":2}"#,
+    );
 
     let neo = compile_header(Source::new(
         "config.h",
@@ -112,9 +105,6 @@ typedef struct {
     .expect("neo header");
     let bytes = encode_json(&neo, &Source::new("config.json", r#"{"small":1,"wide":2}"#))
         .expect("neo json");
-    assert_eq!(
-        neo.layout.root_layout().size,
-        artifact.ranges[0].bytestream.len()
-    );
-    assert_eq!(bytes, artifact.ranges[0].bytestream);
+    assert_eq!(neo.layout.root_layout().size, expected.len());
+    assert_eq!(bytes, expected);
 }

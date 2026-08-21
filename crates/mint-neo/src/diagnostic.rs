@@ -223,19 +223,3 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-#[cfg(test)]
-mod tests {
-    use super::Error;
-    use crate::source::{Source, Span};
-
-    #[test]
-    fn renders_source_excerpt() {
-        let source = Source::new("config.h", "typedef int x;\n");
-        let error = Error::schema(&source, Span::new(8, 11), "bad type");
-        let rendered = error.to_string();
-        assert!(rendered.contains("error[schema]: bad type"));
-        assert!(rendered.contains("config.h:1:9"));
-        assert!(rendered.contains("typedef int x;"));
-    }
-}

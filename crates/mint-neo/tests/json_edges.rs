@@ -62,32 +62,22 @@ fn exact_u64_above_f64_mantissa_is_preserved() {
 
 #[test]
 fn ordinary_exact_integers_including_u64_boundaries() {
-    let one = encode_wide("1.0").expect("1.0");
-    assert_eq!(&one[..8], &[1, 0, 0, 0, 0, 0, 0, 0]);
-    assert_eq!(
-        &encode_wide("2e0").expect("2e0")[..8],
-        &[2, 0, 0, 0, 0, 0, 0, 0]
-    );
-    assert_eq!(
-        &encode_wide("10e-1").expect("10e-1")[..8],
-        &[1, 0, 0, 0, 0, 0, 0, 0]
-    );
-    assert_eq!(
-        &encode_wide("1.230e2").expect("123")[..8],
-        &[123, 0, 0, 0, 0, 0, 0, 0]
-    );
-    assert_eq!(
-        &encode_wide("0e1000000").expect("zero times huge exp")[..8],
-        &[0; 8]
-    );
-    assert_eq!(
-        &encode_wide("18446744073709551615").expect("u64::MAX")[..8],
-        &[0xff; 8]
-    );
-    assert_eq!(
-        &encode_wide("10000000000000000000").expect("1e19")[..8],
-        &10_000_000_000_000_000_000u64.to_le_bytes()
-    );
+    let cases: &[(&str, [u8; 8])] = &[
+        ("1.0", [1, 0, 0, 0, 0, 0, 0, 0]),
+        ("2e0", [2, 0, 0, 0, 0, 0, 0, 0]),
+        ("10e-1", [1, 0, 0, 0, 0, 0, 0, 0]),
+        ("1.230e2", [123, 0, 0, 0, 0, 0, 0, 0]),
+        ("0e1000000", [0; 8]),
+        ("18446744073709551615", [0xff; 8]),
+        (
+            "10000000000000000000",
+            10_000_000_000_000_000_000u64.to_le_bytes(),
+        ),
+    ];
+    for (token, expected) in cases {
+        let bytes = encode_wide(token).expect(token);
+        assert_eq!(&bytes[..8], expected, "{token}");
+    }
 
     let min = encode_json(
         &schema(),
