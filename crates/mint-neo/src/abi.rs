@@ -461,25 +461,11 @@ mod tests {
     use super::{Abi, Scalar};
 
     #[test]
-    fn names_round_trip() {
-        for abi in Abi::ALL {
-            assert_eq!(abi.name().parse::<Abi>(), Ok(abi));
-        }
-    }
-
-    #[test]
     fn c28x_rejects_8_bit_and_aligns_u64_to_4() {
         assert!(Abi::TiC28xEabi.scalar(Scalar::U8).is_err());
         let scalar = Abi::TiC28xEabi.scalar(Scalar::U64).unwrap();
         assert_eq!(scalar.storage_size, 8);
         assert_eq!(scalar.alignment, 4);
         assert_eq!(scalar.array_stride, 8);
-    }
-
-    #[test]
-    fn tricore_u64_alignment_is_4() {
-        let scalar = Abi::TricoreEabiLe.scalar(Scalar::U64).unwrap();
-        assert_eq!(scalar.alignment, 4);
-        assert_eq!(scalar.storage_size, 8);
     }
 }

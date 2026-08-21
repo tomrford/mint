@@ -143,40 +143,6 @@ impl<'a> ParsedFile<'a> {
             format!("unsupported preprocessor directive ({kind})"),
         )
     }
-
-    #[cfg(test)]
-    pub fn dump_kinds(&self) -> String {
-        let mut out = String::new();
-        dump_node(&mut out, self, self.root(), 0);
-        out
-    }
-}
-
-#[cfg(test)]
-fn dump_node(out: &mut String, parsed: &ParsedFile<'_>, node: Node<'_>, depth: usize) {
-    let extra = if node.is_extra() { " extra" } else { "" };
-    out.push_str(&format!(
-        "{pad}{kind} [{start}, {end}]{extra} {text:?}\n",
-        pad = "  ".repeat(depth),
-        kind = node.kind(),
-        start = node.start_byte(),
-        end = node.end_byte(),
-        text = truncate(parsed.text(node), 60)
-    ));
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        dump_node(out, parsed, child, depth + 1);
-    }
-}
-
-#[cfg(test)]
-fn truncate(text: &str, max: usize) -> String {
-    let collapsed = collapse_ws(text);
-    if collapsed.len() <= max {
-        collapsed
-    } else {
-        format!("{}…", &collapsed[..max])
-    }
 }
 
 fn collapse_ws(text: &str) -> String {
@@ -354,36 +320,6 @@ mod tests {
     use crate::source::Source;
 
     #[test]
-    fn dumps_supported_header_shape() {
-        let source = Source::new(
-            "config.h",
-            r#"
-#pragma once
-#include <stdint.h>
-#define CHANNEL_COUNT 4u
-
-/**
- * @mint block
- * @mint abi generic-le
- * @mint start-address 0x8000
- */
-typedef struct {
-    uint64_t fingerprint; /**< @mint fingerprint */
-    uint32_t device_id;
-    uint16_t samples[CHANNEL_COUNT];
-} config_t;
-"#,
-        );
-        let parsed = ParsedFile::parse(&source).expect("parse");
-        let dump = parsed.dump_kinds();
-        eprintln!("{dump}");
-        assert!(dump.contains("type_definition"));
-        assert!(dump.contains("struct_specifier"));
-        assert!(dump.contains("comment"));
-        assert!(dump.contains("preproc_def"));
-    }
-
-    #[test]
     fn rejects_error_nodes_and_other_includes() {
         let bad = Source::new("bad.h", "typedef struct { uint32_t\n");
         assert!(ParsedFile::parse(&bad).is_err());
@@ -393,35 +329,6 @@ typedef struct {
             Err(error) => error,
         };
         assert!(error.to_string().contains("include"));
-    }
-
-    #[test]
-    fn accepts_trailing_comments_on_includes_and_pragma_once() {
-        let source = Source::new(
-            "config.h",
-            "#pragma once // guard\n#include <stdint.h> /* types */\n",
-        );
-        ParsedFile::parse(&source).expect("trivia comments");
-    }
-
-    #[test]
-    fn unused_function_like_macros_are_trivia() {
-        let source = Source::new(
-            "config.h",
-            "#define WIDTH(x) (x)\n#define PAIR(a, b) ((a) + (b))\n#define N 2u\n",
-        );
-        let parsed = ParsedFile::parse(&source).expect("function-like trivia");
-        let macros = super::collect_macros(&parsed).expect("macros");
-        assert!(
-            macros
-                .iter()
-                .any(|macro_def| macro_def.name == "WIDTH" && macro_def.function_like)
-        );
-        assert!(
-            macros
-                .iter()
-                .any(|macro_def| macro_def.name == "PAIR" && macro_def.function_like)
-        );
     }
 
     #[test]

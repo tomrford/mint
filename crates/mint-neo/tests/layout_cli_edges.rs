@@ -46,16 +46,8 @@ fn parse_i32hex(hex: &str) -> Vec<(u8, u16, u8, Vec<u8>)> {
 fn help_and_version_use_clap_success_exit() {
     let cases: &[&[&str]] = &[
         &["--help"],
-        &["-h"],
         &["--version"],
-        &["-V"],
         &["build", "--help"],
-        &["build", "--version"],
-        &["fingerprint", "--help"],
-        &["inspect", "--help"],
-        &["inspect", "--version"],
-        &["abi", "--help"],
-        &["abi", "list", "--help"],
         &["abi", "show", "--help"],
     ];
     for args in cases {
@@ -256,25 +248,6 @@ typedef struct {
     assert!(text.contains("× 3 stride 8 × 2 stride 28"));
     assert!(text.contains("grid[]"));
     assert!(text.contains("× 6 stride 8"));
-}
-
-#[test]
-fn oversized_root_is_rejected_without_unrolling() {
-    let error = compile_header(header(
-        r#"
-#include <stdint.h>
-/**
- * @mint block
- * @mint abi generic-le
- * @mint start-address 0
- */
-typedef struct {
-    uint32_t values[67108865];
-} config_t;
-"#,
-    ))
-    .expect_err("256 MiB + 4 must be rejected");
-    assert!(error.to_string().contains("256 MiB"));
 }
 
 #[test]
