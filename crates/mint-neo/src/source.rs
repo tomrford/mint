@@ -48,10 +48,9 @@ impl Source {
         }
     }
 
-    pub fn from_path(path: impl AsRef<std::path::Path>) -> Result<Self, String> {
+    pub fn from_path(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
         let path = path.as_ref();
-        let text = std::fs::read_to_string(path)
-            .map_err(|_| format!("failed to read file: {}", path.display()))?;
+        let text = std::fs::read_to_string(path)?;
         Ok(Self::new(path.display().to_string(), text))
     }
 

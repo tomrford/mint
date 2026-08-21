@@ -1,6 +1,6 @@
 use tree_sitter::{Node, Parser, Tree};
 
-use crate::diagnostic::{Category, Diagnostic, Error};
+use crate::diagnostic::{Category, Error};
 use crate::source::{Source, Span};
 
 pub struct ParsedFile<'a> {
@@ -14,18 +14,20 @@ impl<'a> ParsedFile<'a> {
         parser
             .set_language(&tree_sitter_c::LANGUAGE.into())
             .map_err(|error| {
-                Error::one(Diagnostic::new(
+                Error::named(
                     Category::Schema,
                     &source.name,
                     format!("failed to load C grammar: {error}"),
-                ))
+                )
+                .with_source(source.clone())
             })?;
         let tree = parser.parse(&source.text, None).ok_or_else(|| {
-            Error::one(Diagnostic::new(
+            Error::named(
                 Category::Schema,
                 &source.name,
                 "C parser produced no syntax tree",
-            ))
+            )
+            .with_source(source.clone())
         })?;
         let parsed = Self { source, tree };
         parsed.reject_tree()?;
@@ -51,19 +53,17 @@ impl<'a> ParsedFile<'a> {
                 if self.error_is_macro_comment_residue(node) {
                     continue;
                 }
-                return Err(Error::one(
-                    Diagnostic::new(Category::Schema, &self.source.name, "invalid C syntax")
-                        .at(Self::span(node)),
+                return Err(Error::schema(
+                    self.source,
+                    Self::span(node),
+                    "invalid C syntax",
                 ));
             }
             if node.is_missing() {
-                return Err(Error::one(
-                    Diagnostic::new(
-                        Category::Schema,
-                        &self.source.name,
-                        format!("missing '{}'", node.kind()),
-                    )
-                    .at(Self::span(node)),
+                return Err(Error::schema(
+                    self.source,
+                    Self::span(node),
+                    format!("missing '{}'", node.kind()),
                 ));
             }
             if !in_macro {
@@ -137,13 +137,10 @@ impl<'a> ParsedFile<'a> {
     }
 
     fn directive_error(&self, node: Node<'_>, kind: &str) -> Error {
-        Error::one(
-            Diagnostic::new(
-                Category::Schema,
-                &self.source.name,
-                format!("unsupported preprocessor directive ({kind})"),
-            )
-            .at(Self::span(node)),
+        Error::schema(
+            self.source,
+            Self::span(node),
+            format!("unsupported preprocessor directive ({kind})"),
         )
     }
 
@@ -316,13 +313,10 @@ fn collect_macro(parsed: &ParsedFile<'_>, node: Node<'_>) -> Result<MacroDef, Er
         } else {
             "object-like macro"
         };
-        Error::one(
-            Diagnostic::new(
-                Category::Schema,
-                &parsed.source.name,
-                format!("{kind} is missing a name"),
-            )
-            .at(ParsedFile::span(node)),
+        Error::schema(
+            parsed.source,
+            ParsedFile::span(node),
+            format!("{kind} is missing a name"),
         )
     })?;
     let body = if function_like {

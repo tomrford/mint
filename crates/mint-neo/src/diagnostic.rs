@@ -66,30 +66,6 @@ impl Diagnostic {
         }
     }
 
-    pub fn at(mut self, span: Span) -> Self {
-        self.span = Some(span);
-        self
-    }
-
-    pub fn related(
-        mut self,
-        source: impl Into<String>,
-        span: Span,
-        message: impl Into<String>,
-    ) -> Self {
-        self.related.push(Related {
-            source: source.into(),
-            span,
-            message: message.into(),
-        });
-        self
-    }
-
-    pub fn pointer(mut self, pointer: impl Into<String>) -> Self {
-        self.json_pointer = Some(pointer.into());
-        self
-    }
-
     pub fn render(&self, files: &[&Source]) -> String {
         let mut out = format!("error[{}]: {}", self.category, self.message);
         if let Some(pointer) = &self.json_pointer {
@@ -141,18 +117,77 @@ fn render_span(out: &mut String, files: &[&Source], name: &str, span: Span, note
     }
 }
 
+/// One located failure. Header and JSON buffers live on `sources` so excerpts
+/// render without a second lookup table. `diagnostic` is boxed so `Result<T, Error>`
+/// stays small.
 #[derive(Clone, Debug)]
 pub struct Error {
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostic: Box<Diagnostic>,
     pub sources: Vec<Source>,
 }
 
 impl Error {
-    pub fn one(diagnostic: Diagnostic) -> Self {
+    pub fn named(
+        category: Category,
+        source: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
-            diagnostics: vec![diagnostic],
+            diagnostic: Box::new(Diagnostic::new(category, source, message)),
             sources: Vec::new(),
         }
+    }
+
+    /// Located error with a source name only. Attach the buffer with
+    /// [`Self::with_source`] at a pipeline boundary when the text is owned later.
+    pub fn located(
+        category: Category,
+        source: impl Into<String>,
+        span: Span,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::named(category, source, message).span(span)
+    }
+
+    pub fn at(category: Category, source: &Source, span: Span, message: impl Into<String>) -> Self {
+        Self::located(category, &source.name, span, message).with_source(source.clone())
+    }
+
+    pub fn schema(source: &Source, span: Span, message: impl Into<String>) -> Self {
+        Self::at(Category::Schema, source, span, message)
+    }
+
+    pub fn data(source: &Source, span: Span, pointer: &str, message: impl Into<String>) -> Self {
+        let error = Self::at(Category::Data, source, span, message);
+        if pointer.is_empty() {
+            error
+        } else {
+            error.pointer(pointer)
+        }
+    }
+
+    pub fn span(mut self, span: Span) -> Self {
+        self.diagnostic.span = Some(span);
+        self
+    }
+
+    pub fn related(
+        mut self,
+        source: impl Into<String>,
+        span: Span,
+        message: impl Into<String>,
+    ) -> Self {
+        self.diagnostic.related.push(Related {
+            source: source.into(),
+            span,
+            message: message.into(),
+        });
+        self
+    }
+
+    pub fn pointer(mut self, pointer: impl Into<String>) -> Self {
+        self.diagnostic.json_pointer = Some(pointer.into());
+        self
     }
 
     pub fn with_source(mut self, source: Source) -> Self {
@@ -167,13 +202,7 @@ impl Error {
     }
 
     pub fn exit_code(&self) -> ExitCode {
-        let code = self
-            .diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.category.exit_code())
-            .max()
-            .unwrap_or(1);
-        ExitCode::from(code)
+        ExitCode::from(self.diagnostic.category.exit_code())
     }
 
     pub fn render(&self, files: &[&Source]) -> String {
@@ -183,46 +212,28 @@ impl Error {
         } else {
             files
         };
-        self.diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.render(files))
-            .collect::<Vec<_>>()
-            .join("")
+        self.diagnostic.render(files)
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for diagnostic in &self.diagnostics {
-            writeln!(
-                formatter,
-                "error[{}]: {}",
-                diagnostic.category, diagnostic.message
-            )?;
-        }
-        Ok(())
+        formatter.write_str(&self.render(&[]))
     }
 }
 
 impl std::error::Error for Error {}
 
-impl From<Diagnostic> for Error {
-    fn from(diagnostic: Diagnostic) -> Self {
-        Self::one(diagnostic)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Category, Diagnostic};
+    use super::Error;
     use crate::source::{Source, Span};
 
     #[test]
     fn renders_source_excerpt() {
         let source = Source::new("config.h", "typedef int x;\n");
-        let diagnostic =
-            Diagnostic::new(Category::Schema, "config.h", "bad type").at(Span::new(8, 11));
-        let rendered = diagnostic.render(&[&source]);
+        let error = Error::schema(&source, Span::new(8, 11), "bad type");
+        let rendered = error.to_string();
         assert!(rendered.contains("error[schema]: bad type"));
         assert!(rendered.contains("config.h:1:9"));
         assert!(rendered.contains("typedef int x;"));

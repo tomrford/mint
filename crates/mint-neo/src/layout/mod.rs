@@ -1,5 +1,5 @@
 use crate::abi::{Abi, Scalar, ScalarAbi};
-use crate::diagnostic::{Category, Diagnostic, Error};
+use crate::diagnostic::{Category, Error};
 use crate::source::Span;
 use crate::types::{MAX_RESOLVED_SIZE, SchemaTypes, TypeId, TypeKind};
 
@@ -96,8 +96,8 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
     collect_padding(&schema, &layouts, schema.root, 0, "", &mut padding_ranges);
     let root_layout = &layouts[schema.root.0];
     if root_layout.size > MAX_RESOLVED_SIZE {
-        return Err(layout_error(
-            schema.source_name.as_str(),
+        return Err(fail(
+            &schema,
             Category::Schema,
             schema.root_span,
             format!(
@@ -113,8 +113,8 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
         schema.start_address_span,
     )?;
     if root_layout.alignment == 0 || !octet_start.is_multiple_of(root_layout.alignment as u64) {
-        return Err(layout_error(
-            schema.source_name.as_str(),
+        return Err(fail(
+            &schema,
             Category::Schema,
             schema.start_address_span,
             format!(
@@ -126,16 +126,16 @@ pub fn resolve(schema: SchemaTypes) -> Result<ResolvedLayout, Error> {
     let output_end = octet_start
         .checked_add(root_layout.size as u64)
         .ok_or_else(|| {
-            layout_error(
-                schema.source_name.as_str(),
+            fail(
+                &schema,
                 Category::Encoding,
                 schema.start_address_span,
                 "output range overflows the 32-bit address space",
             )
         })?;
     if output_end > u64::from(u32::MAX) + 1 {
-        return Err(layout_error(
-            schema.source_name.as_str(),
+        return Err(fail(
+            &schema,
             Category::Encoding,
             schema.start_address_span,
             format!(
@@ -170,9 +170,9 @@ pub fn octet_start_address(
         .checked_mul(abi.address_unit_octets() as u64)
         .and_then(|value| u32::try_from(value).ok().map(u64::from))
         .ok_or_else(|| {
-            layout_error(
-                source,
+            Error::located(
                 Category::Encoding,
+                source,
                 span,
                 "start-address cannot be represented as a 32-bit octet address",
             )
@@ -185,14 +185,10 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
     }
     match &schema.types[id.0] {
         TypeKind::Scalar { scalar, .. } => {
-            let scalar_abi = schema.abi.scalar(*scalar).map_err(|message| {
-                layout_error(
-                    schema.source_name.as_str(),
-                    Category::Schema,
-                    schema.root_span,
-                    message,
-                )
-            })?;
+            let scalar_abi = schema
+                .abi
+                .scalar(*scalar)
+                .map_err(|message| fail(schema, Category::Schema, schema.root_span, message))?;
             layouts[id.0] = TypeLayout {
                 size: scalar_abi.storage_size,
                 alignment: scalar_abi.alignment,
@@ -202,8 +198,8 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
             };
         }
         TypeKind::Enum => {
-            return Err(layout_error(
-                schema.source_name.as_str(),
+            return Err(fail(
+                schema,
                 Category::Schema,
                 schema.root_span,
                 "enum-typed members are not supported",
@@ -219,16 +215,32 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
             let elem = layouts[element.0].clone();
             let mut count = 1usize;
             for dim in &dimensions {
-                let dim = usize::try_from(*dim)
-                    .map_err(|_| size_error(schema, "array extent exceeds usize"))?;
-                count = count
-                    .checked_mul(dim)
-                    .ok_or_else(|| size_error(schema, "array element count overflow"))?;
+                let dim = usize::try_from(*dim).map_err(|_| {
+                    fail(
+                        schema,
+                        Category::Schema,
+                        schema.root_span,
+                        "array extent exceeds usize",
+                    )
+                })?;
+                count = count.checked_mul(dim).ok_or_else(|| {
+                    fail(
+                        schema,
+                        Category::Schema,
+                        schema.root_span,
+                        "array element count overflow",
+                    )
+                })?;
             }
             let stride = elem.size;
-            let size = count
-                .checked_mul(stride)
-                .ok_or_else(|| size_error(schema, "array byte count overflow"))?;
+            let size = count.checked_mul(stride).ok_or_else(|| {
+                fail(
+                    schema,
+                    Category::Schema,
+                    schema.root_span,
+                    "array byte count overflow",
+                )
+            })?;
             layouts[id.0] = TypeLayout {
                 size,
                 alignment: elem.alignment,
@@ -249,11 +261,12 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
             for field in &fields {
                 layout_type(schema, field.type_id, layouts)?;
                 let child = layouts[field.type_id.0].clone();
-                let aligned = aligned_offset(cursor, child.alignment)
-                    .map_err(|_| size_error_at(schema, field.span, "alignment overflow"))?;
-                cursor = aligned
-                    .checked_add(child.size)
-                    .ok_or_else(|| size_error_at(schema, field.span, "record size overflow"))?;
+                let aligned = aligned_offset(cursor, child.alignment).map_err(|_| {
+                    fail(schema, Category::Schema, field.span, "alignment overflow")
+                })?;
+                cursor = aligned.checked_add(child.size).ok_or_else(|| {
+                    fail(schema, Category::Schema, field.span, "record size overflow")
+                })?;
                 alignment = alignment.max(child.alignment);
                 field_layouts.push(FieldLayout {
                     name: field.name.clone(),
@@ -271,9 +284,15 @@ fn layout_type(schema: &SchemaTypes, id: TypeId, layouts: &mut [TypeLayout]) -> 
             }
             let size = match field_layouts.last() {
                 Some(last) => aligned_offset(cursor, alignment)
-                    .map_err(|_| size_error_at(schema, last.span, "alignment overflow"))?,
-                None => aligned_offset(cursor, alignment)
-                    .map_err(|_| size_error(schema, "alignment overflow"))?,
+                    .map_err(|_| fail(schema, Category::Schema, last.span, "alignment overflow"))?,
+                None => aligned_offset(cursor, alignment).map_err(|_| {
+                    fail(
+                        schema,
+                        Category::Schema,
+                        schema.root_span,
+                        "alignment overflow",
+                    )
+                })?,
             };
             layouts[id.0] = TypeLayout {
                 size,
@@ -402,21 +421,8 @@ fn aligned_offset(offset: usize, alignment: usize) -> Result<usize, ()> {
     offset.checked_add(alignment - remainder).ok_or(())
 }
 
-fn layout_error(source: &str, category: Category, span: Span, message: impl Into<String>) -> Error {
-    Error::one(Diagnostic::new(category, source, message).at(span))
-}
-
-fn size_error(schema: &SchemaTypes, message: &str) -> Error {
-    layout_error(
-        schema.source_name.as_str(),
-        Category::Schema,
-        schema.root_span,
-        message,
-    )
-}
-
-fn size_error_at(schema: &SchemaTypes, span: Span, message: &str) -> Error {
-    layout_error(schema.source_name.as_str(), Category::Schema, span, message)
+fn fail(schema: &SchemaTypes, category: Category, span: Span, message: impl Into<String>) -> Error {
+    Error::located(category, &schema.source_name, span, message)
 }
 
 impl ResolvedLayout {
@@ -432,9 +438,9 @@ impl ResolvedLayout {
             self.start_address_span,
         )?;
         u32::try_from(start).map_err(|_| {
-            layout_error(
-                self.source_name.as_str(),
+            Error::located(
                 Category::Encoding,
+                &self.source_name,
                 self.start_address_span,
                 "start-address does not fit a 32-bit octet address",
             )

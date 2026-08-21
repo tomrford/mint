@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use crate::abi::{write_scalar_bytes, Endianness, Scalar, ScalarValue};
-use crate::diagnostic::{Category, Diagnostic, Error};
+use crate::abi::{Endianness, Scalar, ScalarValue, write_scalar_bytes};
+use crate::diagnostic::{Category, Error};
 use crate::layout::{ArrayLayout, ResolvedLayout};
 use crate::schema::CompiledSchema;
 use crate::source::{Source, Span};
@@ -45,10 +45,7 @@ impl Json {
 }
 
 pub fn encode(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> {
-    let value = match parse_json(json) {
-        Ok(value) => value,
-        Err(error) => return Err(error.with_source(json.clone())),
-    };
+    let value = parse_json(json)?;
     let mut bytes = vec![schema.layout.padding; schema.layout.root_layout().size];
     bind(
         &schema.layout,
@@ -58,8 +55,7 @@ pub fn encode(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> 
         json,
         "",
         &mut bytes,
-    )
-    .map_err(|error| error.with_source(json.clone()))?;
+    )?;
     if let Some(name) = &schema.layout.fingerprint_field {
         let field = schema
             .layout
@@ -68,11 +64,12 @@ pub fn encode(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> 
             .iter()
             .find(|field| field.name == *name)
             .ok_or_else(|| {
-                Error::one(Diagnostic::new(
+                Error::named(
                     Category::Schema,
                     &schema.source.name,
                     "fingerprint field disappeared after resolution",
-                ))
+                )
+                .with_source(schema.source.clone())
             })?;
         write_at(
             &mut bytes,
@@ -105,7 +102,7 @@ fn bind(
         }
         TypeKind::Record { .. } => {
             let Json::Object { entries, span } = value else {
-                return Err(data(
+                return Err(Error::data(
                     source,
                     value.span(),
                     pointer,
@@ -116,7 +113,7 @@ fn bind(
             let mut seen = HashSet::new();
             for entry in entries {
                 let Some(field) = fields.iter().find(|field| field.name == entry.key) else {
-                    return Err(data(
+                    return Err(Error::data(
                         source,
                         entry.key_span,
                         &join_pointer(pointer, &entry.key),
@@ -124,7 +121,7 @@ fn bind(
                     ));
                 };
                 if field.fingerprint {
-                    return Err(data(
+                    return Err(Error::data(
                         source,
                         entry.key_span,
                         &join_pointer(pointer, &entry.key),
@@ -146,7 +143,7 @@ fn bind(
                 if field.fingerprint || seen.contains(&field.name) {
                     continue;
                 }
-                return Err(data(
+                return Err(Error::data(
                     source,
                     *span,
                     &join_pointer(pointer, &field.name),
@@ -158,7 +155,7 @@ fn bind(
         TypeKind::Array { .. } => {
             bind_array(layout, type_id, offset, value, source, pointer, bytes, 0)
         }
-        TypeKind::Enum => Err(data(
+        TypeKind::Enum => Err(Error::data(
             source,
             value.span(),
             pointer,
@@ -174,7 +171,7 @@ fn scalar_mismatch(value: &Json, source: &Source, pointer: &str) -> Error {
         Json::String { .. } => "JSON strings are invalid for every field",
         _ => "expected a JSON number",
     };
-    data(source, value.span(), pointer, message)
+    Error::data(source, value.span(), pointer, message)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -189,7 +186,7 @@ fn bind_array(
     dim: usize,
 ) -> Result<(), Error> {
     let array = layout.layouts[type_id.0].array.as_ref().ok_or_else(|| {
-        data(
+        Error::data(
             source,
             value.span(),
             pointer,
@@ -197,11 +194,16 @@ fn bind_array(
         )
     })?;
     let Json::Array { items, span } = value else {
-        return Err(data(source, value.span(), pointer, "expected a JSON array"));
+        return Err(Error::data(
+            source,
+            value.span(),
+            pointer,
+            "expected a JSON array",
+        ));
     };
     let expected = usize::try_from(array.dimensions[dim]).unwrap_or(0);
     if items.len() != expected {
-        return Err(data(
+        return Err(Error::data(
             source,
             *span,
             pointer,
@@ -249,9 +251,9 @@ fn convert_number(
         return convert_float(scalar, raw, source, span, pointer);
     };
     let integer =
-        parse_exact_integer(raw).map_err(|message| data(source, span, pointer, message))?;
+        parse_exact_integer(raw).map_err(|message| Error::data(source, span, pointer, message))?;
     if integer < min || integer > max {
-        return Err(data(
+        return Err(Error::data(
             source,
             span,
             pointer,
@@ -273,7 +275,7 @@ fn convert_float(
     pointer: &str,
 ) -> Result<ScalarValue, Error> {
     let invalid = || {
-        data(
+        Error::data(
             source,
             span,
             pointer,
@@ -288,7 +290,7 @@ fn convert_float(
     if value.is_finite() {
         Ok(ScalarValue::F(value))
     } else {
-        Err(data(
+        Err(Error::data(
             source,
             span,
             pointer,
@@ -419,21 +421,12 @@ fn join_pointer(pointer: &str, key: &str) -> String {
     format!("{pointer}/{escaped}")
 }
 
-fn data(source: &Source, span: Span, pointer: &str, message: impl Into<String>) -> Error {
-    let diagnostic = Diagnostic::new(Category::Data, &source.name, message).at(span);
-    Error::one(if pointer.is_empty() {
-        diagnostic
-    } else {
-        diagnostic.pointer(pointer)
-    })
-}
-
 fn parse_json(source: &Source) -> Result<Json, Error> {
     let mut parser = JsonParser { source, index: 0 };
     let value = parser.value()?;
     parser.skip_ws();
     if parser.index != source.len() {
-        return Err(data(
+        return Err(Error::data(
             source,
             Span::point(parser.index),
             "",
@@ -480,7 +473,7 @@ impl JsonParser<'_> {
                     unreachable!()
                 };
                 if !keys.insert(key.clone()) {
-                    return Err(data(
+                    return Err(Error::data(
                         self.source,
                         key_span,
                         "",
@@ -666,7 +659,7 @@ impl JsonParser<'_> {
     }
 
     fn error_at(&self, message: impl Into<String>) -> Error {
-        data(self.source, Span::point(self.index), "", message)
+        Error::data(self.source, Span::point(self.index), "", message)
     }
 
     fn skip_ws(&mut self) {

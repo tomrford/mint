@@ -48,7 +48,7 @@ fn first_line(error: &mint_neo::Error) -> String {
 }
 
 fn pointer_of(error: &mint_neo::Error) -> Option<&str> {
-    error.diagnostics[0].json_pointer.as_deref()
+    error.diagnostic.json_pointer.as_deref()
 }
 
 #[test]
