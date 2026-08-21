@@ -34,7 +34,7 @@ pub fn compile_header(source: Source) -> Result<CompiledSchema, Error> {
 }
 
 pub fn schema_fingerprint_hex(schema: &CompiledSchema) -> String {
-    schema::fingerprint_hex(schema)
+    fingerprint::hex(schema.fingerprint)
 }
 
 pub fn encode_json(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> {

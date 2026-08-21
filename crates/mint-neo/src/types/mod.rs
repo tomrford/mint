@@ -23,17 +23,14 @@ pub struct TypeId(pub usize);
 pub enum TypeKind {
     Scalar {
         scalar: Scalar,
-        spelling: String,
     },
     Record {
-        name: Option<String>,
         fields: Vec<Field>,
     },
     Array {
         element: TypeId,
         dimensions: Vec<u64>,
     },
-    Enum,
 }
 
 #[derive(Clone, Debug)]
@@ -52,11 +49,9 @@ pub struct SchemaTypes {
     pub start_address_span: Span,
     pub padding: u8,
     pub source_name: String,
-    pub root_name: String,
     pub root_span: Span,
     pub root: TypeId,
     pub types: Vec<TypeKind>,
-    pub fingerprint_field: Option<String>,
 }
 
 pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
@@ -112,7 +107,7 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
     };
     resolver.walk_index(parsed.root())?;
     let root_id = resolver.resolve_root(root.node)?;
-    let fingerprint_field = fingerprint_member(&resolver, root_id)?;
+    ensure_single_fingerprint(&resolver, root_id)?;
 
     Ok(SchemaTypes {
         abi,
@@ -120,17 +115,14 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
         start_address_span,
         padding,
         source_name: parsed.source.name.clone(),
-        root_name: root.name,
         root_span: root.span,
         root: root_id,
         types: resolver.types,
-        fingerprint_field,
     })
 }
 
 struct RootDecl<'tree> {
     node: Node<'tree>,
-    name: String,
     span: Span,
     tags: MintTags,
 }
@@ -275,10 +267,9 @@ fn find_root<'tree>(
                 "an annotated typedef must introduce exactly one name",
             ));
         }
-        let name = declarator_name(parsed, declarators[0])?;
+        declarator_name(parsed, declarators[0])?;
         found = Some(RootDecl {
             node: child,
-            name,
             span: ParsedFile::span(child),
             tags: tags.clone(),
         });
@@ -384,7 +375,7 @@ impl<'a> Resolver<'a> {
         let type_id = self.resolve_spec(spec, 0)?;
         let type_id = self.apply_declarator(type_id, declarators[0])?;
         match &self.types[type_id.0] {
-            TypeKind::Record { fields, .. } if !fields.is_empty() => {}
+            TypeKind::Record { fields } if !fields.is_empty() => {}
             TypeKind::Record { .. } => {
                 return Err(schema(
                     self.parsed,
@@ -417,10 +408,7 @@ impl<'a> Resolver<'a> {
                     self.abi
                         .scalar(scalar)
                         .map_err(|message| schema(self.parsed, ParsedFile::span(spec), message))?;
-                    return Ok(self.push(TypeKind::Scalar {
-                        scalar,
-                        spelling: name.to_owned(),
-                    }));
+                    return Ok(self.push(TypeKind::Scalar { scalar }));
                 }
                 if let Some(typedef) = self.typedefs.get(name).copied() {
                     return self.resolve_typedef_def(typedef, depth);
@@ -435,7 +423,11 @@ impl<'a> Resolver<'a> {
                 ))
             }
             "struct_specifier" => self.resolve_struct(spec, depth),
-            "enum_specifier" => Ok(self.push(TypeKind::Enum)),
+            "enum_specifier" => Err(schema(
+                self.parsed,
+                ParsedFile::span(spec),
+                "enum-typed members are not supported",
+            )),
             "union_specifier" => Err(schema(
                 self.parsed,
                 ParsedFile::span(spec),
@@ -528,9 +520,6 @@ impl<'a> Resolver<'a> {
         {
             return self.cycle_error();
         }
-        let name = spec
-            .child_by_field_name("name")
-            .map(|node| self.parsed.text(node).to_owned());
         let mut fields = Vec::new();
         let mut cursor = body.walk();
         for child in body.named_children(&mut cursor) {
@@ -547,7 +536,7 @@ impl<'a> Resolver<'a> {
                 "every reachable record must have at least one named member",
             ));
         }
-        let id = self.push(TypeKind::Record { name, fields });
+        let id = self.push(TypeKind::Record { fields });
         self.visiting.remove(&spec.start_byte());
         self.memo.insert(spec.start_byte(), id);
         Ok(id)
@@ -586,13 +575,6 @@ impl<'a> Resolver<'a> {
         }
         let tags = self.attachments.get(&node.start_byte()).cloned();
         let type_id = self.resolve_spec(spec, depth)?;
-        if matches!(self.types[type_id.0], TypeKind::Enum) {
-            return Err(schema(
-                self.parsed,
-                ParsedFile::span(node),
-                "enum-typed members are not supported",
-            ));
-        }
         let type_id = self.apply_declarator(type_id, declarators[0])?;
         let name = declarator_name(self.parsed, declarators[0])?;
         let fingerprint = tags.as_ref().and_then(|tags| tags.fingerprint).is_some();
@@ -619,7 +601,6 @@ impl<'a> Resolver<'a> {
         match &self.types[type_id.0] {
             TypeKind::Scalar {
                 scalar: Scalar::U64,
-                ..
             } => Ok(()),
             TypeKind::Array { .. } => Err(schema(
                 self.parsed,
@@ -812,19 +793,22 @@ impl<'a> Resolver<'a> {
     }
 }
 
-fn fingerprint_member(resolver: &Resolver<'_>, root: TypeId) -> Result<Option<String>, Error> {
-    let TypeKind::Record { fields, .. } = &resolver.types[root.0] else {
-        return Ok(None);
+fn ensure_single_fingerprint(resolver: &Resolver<'_>, root: TypeId) -> Result<(), Error> {
+    let TypeKind::Record { fields } = &resolver.types[root.0] else {
+        return Ok(());
     };
-    let marked: Vec<&Field> = fields.iter().filter(|field| field.fingerprint).collect();
-    if marked.len() > 1 {
+    let mut marked = fields.iter().filter(|field| field.fingerprint);
+    let Some(_) = marked.next() else {
+        return Ok(());
+    };
+    if let Some(extra) = marked.next() {
         return Err(schema(
             resolver.parsed,
-            marked[1].span,
+            extra.span,
             "at most one @mint fingerprint field is allowed",
         ));
     }
-    Ok(marked.first().map(|field| field.name.clone()))
+    Ok(())
 }
 
 fn array_suffix(parsed: &ParsedFile<'_>, mut node: Node<'_>) -> Option<String> {

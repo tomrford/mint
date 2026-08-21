@@ -21,7 +21,7 @@ pub fn calculate(layout: &ResolvedLayout) -> u64 {
 fn hash_type(layout: &ResolvedLayout, id: TypeId, hasher: &mut blake3::Hasher) {
     let resolved = &layout.layouts[id.0];
     match &layout.types[id.0] {
-        TypeKind::Scalar { scalar, .. } => {
+        TypeKind::Scalar { scalar } => {
             hasher.update(&[0]);
             hasher.update(&[scalar.hash_tag()]);
             hash_u64(resolved.size as u64, hasher);
@@ -56,9 +56,6 @@ fn hash_type(layout: &ResolvedLayout, id: TypeId, hasher: &mut blake3::Hasher) {
                 hash_u64(array.stride as u64, hasher);
                 hash_type(layout, array.element, hasher);
             }
-        }
-        TypeKind::Enum => {
-            hasher.update(&[3]);
         }
     }
 }
