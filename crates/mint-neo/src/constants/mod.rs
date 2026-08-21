@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::diagnostic::{Category, Diagnostic, Error};
 use crate::integers::parse_c_unsigned;
 use crate::source::{Source, Span};
+use crate::syntax::strip_c_comments;
 
 pub const MAX_MACRO_DEPTH: usize = 128;
 
@@ -113,7 +114,7 @@ struct Parser<'a> {
     source: &'a Source,
     span: Span,
     at: usize,
-    tokens: Vec<(Token, Span)>,
+    tokens: Vec<Token>,
     index: usize,
     env: &'a ShapeEnv,
     visiting: &'a mut HashSet<String>,
@@ -128,12 +129,16 @@ impl Parser<'_> {
                 Some(Token::Plus) => {
                     self.bump();
                     let rhs = self.term()?;
-                    value = self.add(value, rhs)?;
+                    value = value
+                        .checked_add(rhs)
+                        .ok_or_else(|| self.error("shape-expression addition overflowed"))?;
                 }
                 Some(Token::Minus) => {
                     self.bump();
                     let rhs = self.term()?;
-                    value = self.sub(value, rhs)?;
+                    value = value.checked_sub(rhs).ok_or_else(|| {
+                        self.error("shape-expression subtraction produced a negative value")
+                    })?;
                 }
                 _ => break,
             }
@@ -148,7 +153,9 @@ impl Parser<'_> {
                 Some(Token::Star) => {
                     self.bump();
                     let rhs = self.factor()?;
-                    value = self.mul(value, rhs)?;
+                    value = value
+                        .checked_mul(rhs)
+                        .ok_or_else(|| self.error("shape-expression multiplication overflowed"))?;
                 }
                 Some(Token::Slash) => {
                     self.bump();
@@ -188,10 +195,12 @@ impl Parser<'_> {
     fn primary(&mut self) -> Result<u128, Error> {
         match self.peek() {
             Some(Token::Number(text)) => {
+                let text = text.clone();
                 self.bump();
                 parse_c_unsigned(&text).map_err(|message| self.error(message))
             }
             Some(Token::Ident(name)) => {
+                let name = name.clone();
                 self.bump();
                 self.lookup(&name)
             }
@@ -345,23 +354,8 @@ impl Parser<'_> {
         Error::one(diagnostic)
     }
 
-    fn add(&self, left: u128, right: u128) -> Result<u128, Error> {
-        left.checked_add(right)
-            .ok_or_else(|| self.error("shape-expression addition overflowed"))
-    }
-
-    fn sub(&self, left: u128, right: u128) -> Result<u128, Error> {
-        left.checked_sub(right)
-            .ok_or_else(|| self.error("shape-expression subtraction produced a negative value"))
-    }
-
-    fn mul(&self, left: u128, right: u128) -> Result<u128, Error> {
-        left.checked_mul(right)
-            .ok_or_else(|| self.error("shape-expression multiplication overflowed"))
-    }
-
-    fn peek(&self) -> Option<Token> {
-        self.tokens.get(self.index).map(|(token, _)| token.clone())
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.index)
     }
 
     fn bump(&mut self) {
@@ -394,96 +388,75 @@ enum Token {
     RParen,
 }
 
-fn lex(source: &Source, span: Span, text: &str) -> Result<Vec<(Token, Span)>, Error> {
+fn lex(source: &Source, span: Span, text: &str) -> Result<Vec<Token>, Error> {
+    let stripped = strip_c_comments(text);
+    let bytes = stripped.as_bytes();
     let mut tokens = Vec::new();
-    let bytes = text.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
-        match bytes[index] {
-            b' ' | b'\t' | b'\n' | b'\r' => index += 1,
-            b'+' => {
-                tokens.push((Token::Plus, span));
+        let simple = match bytes[index] {
+            b' ' | b'\t' | b'\n' | b'\r' => {
                 index += 1;
+                continue;
             }
-            b'-' => {
-                tokens.push((Token::Minus, span));
-                index += 1;
-            }
-            b'*' => {
-                tokens.push((Token::Star, span));
-                index += 1;
-            }
-            b'/' => {
-                if bytes.get(index + 1) == Some(&b'/') {
-                    index += 2;
-                    while index < bytes.len() && bytes[index] != b'\n' {
-                        index += 1;
-                    }
-                } else if bytes.get(index + 1) == Some(&b'*') {
-                    index += 2;
-                    while index + 1 < bytes.len()
-                        && !(bytes[index] == b'*' && bytes[index + 1] == b'/')
-                    {
-                        index += 1;
-                    }
-                    index = index.saturating_add(2).min(bytes.len());
-                } else {
-                    tokens.push((Token::Slash, span));
-                    index += 1;
-                }
-            }
-            b'%' => {
-                tokens.push((Token::Percent, span));
-                index += 1;
-            }
-            b'(' => {
-                tokens.push((Token::LParen, span));
-                index += 1;
-            }
-            b')' => {
-                tokens.push((Token::RParen, span));
-                index += 1;
-            }
-            b'0'..=b'9' => {
-                let start = index;
-                if bytes.get(index + 1) == Some(&b'x') || bytes.get(index + 1) == Some(&b'X') {
-                    index += 2;
-                    while index < bytes.len() && bytes[index].is_ascii_hexdigit() {
-                        index += 1;
-                    }
-                } else {
-                    while index < bytes.len() && bytes[index].is_ascii_digit() {
-                        index += 1;
-                    }
-                }
-                while index < bytes.len() && matches!(bytes[index], b'u' | b'U' | b'l' | b'L') {
-                    index += 1;
-                }
-                tokens.push((Token::Number(text[start..index].to_owned()), span));
-            }
-            b'A'..=b'Z' | b'a'..=b'z' | b'_' => {
-                let start = index;
-                index += 1;
-                while index < bytes.len()
-                    && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
-                {
-                    index += 1;
-                }
-                tokens.push((Token::Ident(text[start..index].to_owned()), span));
-            }
-            _ => {
-                return Err(Error::one(
-                    Diagnostic::new(
-                        Category::Schema,
-                        &source.name,
-                        format!("invalid character in shape expression '{text}'"),
-                    )
-                    .at(span),
-                ));
-            }
+            b'+' => Some(Token::Plus),
+            b'-' => Some(Token::Minus),
+            b'*' => Some(Token::Star),
+            b'/' => Some(Token::Slash),
+            b'%' => Some(Token::Percent),
+            b'(' => Some(Token::LParen),
+            b')' => Some(Token::RParen),
+            _ => None,
+        };
+        if let Some(token) = simple {
+            tokens.push(token);
+            index += 1;
+            continue;
         }
+        if bytes[index].is_ascii_digit() {
+            let start = index;
+            index = scan_number(bytes, index);
+            tokens.push(Token::Number(stripped[start..index].to_owned()));
+            continue;
+        }
+        if bytes[index].is_ascii_alphabetic() || bytes[index] == b'_' {
+            let start = index;
+            index += 1;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+            {
+                index += 1;
+            }
+            tokens.push(Token::Ident(stripped[start..index].to_owned()));
+            continue;
+        }
+        return Err(Error::one(
+            Diagnostic::new(
+                Category::Schema,
+                &source.name,
+                format!("invalid character in shape expression '{text}'"),
+            )
+            .at(span),
+        ));
     }
     Ok(tokens)
+}
+
+fn scan_number(bytes: &[u8], mut index: usize) -> usize {
+    if matches!(bytes.get(index + 1), Some(b'x' | b'X')) {
+        index += 2;
+        while index < bytes.len() && bytes[index].is_ascii_hexdigit() {
+            index += 1;
+        }
+    } else {
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+    }
+    while index < bytes.len() && matches!(bytes[index], b'u' | b'U' | b'l' | b'L') {
+        index += 1;
+    }
+    index
 }
 
 #[cfg(test)]
