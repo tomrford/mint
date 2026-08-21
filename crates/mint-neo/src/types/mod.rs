@@ -7,7 +7,7 @@ use crate::annotation::{
     CommentKind, MintTags, attach_leading, attach_trailing, group_comments, parse_comment,
 };
 use crate::constants::{ShapeEnv, evaluate, evaluate_any};
-use crate::diagnostic::{Category, Diagnostic, Error};
+use crate::diagnostic::{Category, Error};
 use crate::source::Span;
 use crate::syntax::{Comment, ParsedFile, collect_comments_and_macros, descendants};
 
@@ -81,7 +81,7 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
             "@mint abi is required on the root record",
         )
     })?;
-    let abi = crate::abi::parse_abi(&abi_text.0, &parsed.source.name, abi_text.1)?;
+    let abi = crate::abi::parse_abi(&abi_text.0, parsed.source, abi_text.1)?;
     let (start_address, start_address_span) = root.tags.start_address.ok_or_else(|| {
         schema(
             parsed,
@@ -333,17 +333,15 @@ impl<'a> Resolver<'a> {
                     .typedefs
                     .insert(name.clone(), TypedefDef { node, declarator })
             {
-                return Err(Error::one(
-                    schema_diag(
-                        self.parsed,
-                        ParsedFile::span(node),
-                        format!("duplicate typedef '{name}'"),
-                    )
-                    .related(
-                        &self.parsed.source.name,
-                        ParsedFile::span(prev.node),
-                        "previous definition",
-                    ),
+                return Err(schema(
+                    self.parsed,
+                    ParsedFile::span(node),
+                    format!("duplicate typedef '{name}'"),
+                )
+                .related(
+                    &self.parsed.source.name,
+                    ParsedFile::span(prev.node),
+                    "previous definition",
                 ));
             }
         }
@@ -359,17 +357,15 @@ impl<'a> Resolver<'a> {
         };
         let tag = self.parsed.text(name).to_owned();
         if let Some(prev) = self.struct_defs.insert(tag.clone(), spec) {
-            return Err(Error::one(
-                schema_diag(
-                    self.parsed,
-                    ParsedFile::span(spec),
-                    format!("duplicate struct tag '{tag}'"),
-                )
-                .related(
-                    &self.parsed.source.name,
-                    ParsedFile::span(prev),
-                    "previous definition",
-                ),
+            return Err(schema(
+                self.parsed,
+                ParsedFile::span(spec),
+                format!("duplicate struct tag '{tag}'"),
+            )
+            .related(
+                &self.parsed.source.name,
+                ParsedFile::span(prev),
+                "previous definition",
             ));
         }
         Ok(())
@@ -800,19 +796,19 @@ impl<'a> Resolver<'a> {
     }
 
     fn cycle_error(&self) -> Result<TypeId, Error> {
-        let mut diagnostic = Diagnostic::new(
+        let mut error = Error::named(
             Category::Schema,
             &self.parsed.source.name,
             "cyclic by-value record dependency",
-        );
+        )
+        .with_source(self.parsed.source.clone());
         for span in self.visiting.values() {
-            diagnostic =
-                diagnostic.related(&self.parsed.source.name, *span, "participates in the cycle");
-            if diagnostic.span.is_none() {
-                diagnostic.span = Some(*span);
+            error = error.related(&self.parsed.source.name, *span, "participates in the cycle");
+            if error.diagnostic.span.is_none() {
+                error = error.span(*span);
             }
         }
-        Err(Error::one(diagnostic))
+        Err(error)
     }
 }
 
@@ -1007,9 +1003,5 @@ fn collect_enum_constants(parsed: &ParsedFile<'_>, env: &mut ShapeEnv) -> Result
 }
 
 fn schema(parsed: &ParsedFile<'_>, span: Span, message: impl Into<String>) -> Error {
-    Error::one(schema_diag(parsed, span, message))
-}
-
-fn schema_diag(parsed: &ParsedFile<'_>, span: Span, message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new(Category::Schema, &parsed.source.name, message).at(span)
+    Error::schema(parsed.source, span, message)
 }

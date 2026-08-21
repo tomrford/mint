@@ -13,10 +13,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use mint_neo::{
-    Category, CompiledSchema, Diagnostic, Error, InspectFormat, Source, abi_list, abi_show,
-    compile_header, encode_json, inspect, render_hex,
+    Category, CompiledSchema, Error, InspectFormat, Source, abi_list, abi_show, compile_header,
+    encode_json, inspect, render_hex, validate_abi,
 };
 
 #[derive(Parser, Debug)]
@@ -46,8 +46,8 @@ enum Command {
     },
     Inspect {
         header: PathBuf,
-        #[arg(long, value_enum, default_value = "text")]
-        format: CliInspectFormat,
+        #[arg(long, value_parser = parse_inspect_format, default_value = "text")]
+        format: InspectFormat,
     },
     Abi {
         #[command(subcommand)]
@@ -58,22 +58,23 @@ enum Command {
 #[derive(Subcommand, Debug)]
 enum AbiCommand {
     List,
-    Show { abi: String },
+    Show {
+        #[arg(value_parser = parse_abi_arg)]
+        abi: String,
+    },
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum CliInspectFormat {
-    Text,
-    Json,
-}
-
-impl From<CliInspectFormat> for InspectFormat {
-    fn from(value: CliInspectFormat) -> Self {
-        match value {
-            CliInspectFormat::Text => Self::Text,
-            CliInspectFormat::Json => Self::Json,
-        }
+fn parse_inspect_format(value: &str) -> Result<InspectFormat, String> {
+    match value {
+        "text" => Ok(InspectFormat::Text),
+        "json" => Ok(InspectFormat::Json),
+        other => Err(format!("invalid value '{other}' for '--format'")),
     }
+}
+
+fn parse_abi_arg(name: &str) -> Result<String, String> {
+    validate_abi(name)?;
+    Ok(name.to_owned())
 }
 
 fn main() -> ExitCode {
@@ -87,7 +88,7 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprint!("{}", error.render(&[]));
+            eprint!("{error}");
             error.exit_code()
         }
     }
@@ -110,7 +111,7 @@ fn run(cli: Cli) -> Result<(), Error> {
         }
         Command::Inspect { header, format } => {
             let schema = load_header(&header)?;
-            print!("{}", inspect(&schema, format.into())?);
+            print!("{}", inspect(&schema, format)?);
             Ok(())
         }
         Command::Abi {
@@ -134,43 +135,40 @@ fn build(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
     let bytes = encode_json(&schema, &json_source)?;
     let hex = render_hex(&schema, &bytes)?;
     std::fs::write(out, hex).map_err(|error| {
-        Error::one(Diagnostic::new(
+        Error::named(
             Category::Encoding,
             out.display().to_string(),
-            format!("failed to write output: {error}"),
-        ))
+            format!("failed to write {}: {error}", out.display()),
+        )
     })?;
     Ok(())
 }
 
 fn load_header(path: &Path) -> Result<CompiledSchema, Error> {
-    let source = Source::from_path(path).map_err(|message| {
-        Error::one(Diagnostic::new(
-            Category::Schema,
-            path.display().to_string(),
-            message,
-        ))
-    })?;
-    compile_header(source)
+    compile_header(read_source(path, Category::Schema)?)
 }
 
 fn load_json(path: &Path) -> Result<Source, Error> {
     if path == Path::new("-") {
         let mut text = String::new();
         io::stdin().read_to_string(&mut text).map_err(|error| {
-            Error::one(Diagnostic::new(
+            Error::named(
                 Category::Data,
                 "<stdin>",
                 format!("failed to read stdin: {error}"),
-            ))
+            )
         })?;
         return Ok(Source::new("<stdin>", text));
     }
-    Source::from_path(path).map_err(|message| {
-        Error::one(Diagnostic::new(
-            Category::Data,
+    read_source(path, Category::Data)
+}
+
+fn read_source(path: &Path, category: Category) -> Result<Source, Error> {
+    Source::from_path(path).map_err(|error| {
+        Error::named(
+            category,
             path.display().to_string(),
-            message,
-        ))
+            format!("failed to read {}: {error}", path.display()),
+        )
     })
 }

@@ -1,4 +1,4 @@
-use crate::diagnostic::{Category, Diagnostic, Error};
+use crate::diagnostic::{Category, Error};
 use crate::schema::CompiledSchema;
 
 const RECORD_WIDTH: usize = 32;
@@ -7,12 +7,15 @@ pub fn render_i32hex(schema: &CompiledSchema, bytes: &[u8]) -> Result<String, Er
     let start = u64::from(schema.layout.octet_start()?);
     let end = start
         .checked_add(bytes.len() as u64)
-        .ok_or_else(|| encode("output range overflow"))?;
+        .ok_or_else(|| encode(schema, "output range overflow"))?;
     if end > u64::from(u32::MAX) + 1 {
-        return Err(encode(format!(
-            "octet-addressed output range 0x{start:08X}-0x{:08X} exceeds the 32-bit address space",
-            end.saturating_sub(1)
-        )));
+        return Err(encode(
+            schema,
+            format!(
+                "octet-addressed output range 0x{start:08X}-0x{:08X} exceeds the 32-bit address space",
+                end.saturating_sub(1)
+            ),
+        ));
     }
 
     let mut lines = Vec::new();
@@ -63,6 +66,11 @@ fn hex_record(address: u16, record_type: u8, data: &[u8]) -> String {
     line
 }
 
-fn encode(message: impl Into<String>) -> Error {
-    Error::one(Diagnostic::new(Category::Encoding, "hex", message))
+fn encode(schema: &CompiledSchema, message: impl Into<String>) -> Error {
+    Error::at(
+        Category::Encoding,
+        &schema.source,
+        schema.layout.start_address_span,
+        message,
+    )
 }

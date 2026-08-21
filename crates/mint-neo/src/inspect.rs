@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::diagnostic::Error;
+use crate::diagnostic::{Category, Error};
 use crate::fingerprint;
 use crate::layout::PaddingRange;
 use crate::schema::CompiledSchema;
@@ -63,11 +63,11 @@ pub fn render(schema: &CompiledSchema, format: InspectFormat) -> Result<String, 
     let report = report(schema)?;
     match format {
         InspectFormat::Json => serde_json::to_string_pretty(&report).map_err(|error| {
-            crate::diagnostic::Error::one(crate::diagnostic::Diagnostic::new(
-                crate::diagnostic::Category::Encoding,
-                "inspect",
+            Error::named(
+                Category::Encoding,
+                &schema.source.name,
                 format!("failed to render inspect JSON: {error}"),
-            ))
+            )
         }),
         InspectFormat::Text => Ok(render_text(&report)),
     }

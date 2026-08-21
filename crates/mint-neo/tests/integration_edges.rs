@@ -17,7 +17,7 @@ fn render(error: &mint_neo::Error) -> String {
 }
 
 fn spanned_text<'a>(error: &mint_neo::Error, text: &'a str) -> &'a str {
-    let span = error.diagnostics[0].span.expect("diagnostic span");
+    let span = error.diagnostic.span.expect("diagnostic span");
     &text[span.start..span.end]
 }
 
@@ -81,8 +81,8 @@ typedef struct {
 } config_t;
 "#;
     let error = compile_err("root-size.h", text);
-    assert_eq!(error.diagnostics[0].category, Category::Schema);
-    assert_eq!(error.diagnostics[0].source, "root-size.h");
+    assert_eq!(error.diagnostic.category, Category::Schema);
+    assert_eq!(error.diagnostic.source, "root-size.h");
     assert!(
         spanned_text(&error, text).contains("typedef struct"),
         "root span must cover the root typedef"
@@ -119,8 +119,8 @@ typedef struct {
 } config_t;
 "#;
     let error = compile_err("c28x-align.h", text);
-    assert_eq!(error.diagnostics[0].category, Category::Schema);
-    assert_eq!(error.diagnostics[0].source, "c28x-align.h");
+    assert_eq!(error.diagnostic.category, Category::Schema);
+    assert_eq!(error.diagnostic.source, "c28x-align.h");
     assert!(
         spanned_text(&error, text).contains("@mint start-address 0x1"),
         "start-address span must cover the annotation"
@@ -158,8 +158,8 @@ typedef struct {
 } config_t;
 "#;
     let error = compile_err("octet-overflow.h", text);
-    assert_eq!(error.diagnostics[0].category, Category::Encoding);
-    assert_eq!(error.diagnostics[0].source, "octet-overflow.h");
+    assert_eq!(error.diagnostic.category, Category::Encoding);
+    assert_eq!(error.diagnostic.source, "octet-overflow.h");
     assert!(
         spanned_text(&error, text).contains("@mint start-address 0x80000000"),
         "octet-address overflow span must cover the annotation"
@@ -193,8 +193,8 @@ typedef struct {
 } config_t;
 "#;
     let error = compile_err("range-overflow.h", text);
-    assert_eq!(error.diagnostics[0].category, Category::Encoding);
-    assert_eq!(error.diagnostics[0].source, "range-overflow.h");
+    assert_eq!(error.diagnostic.category, Category::Encoding);
+    assert_eq!(error.diagnostic.source, "range-overflow.h");
     assert!(
         spanned_text(&error, text).contains("@mint start-address 0xFFFFFFF0"),
         "range overflow span must cover the annotation"

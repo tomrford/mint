@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::diagnostic::{Category, Diagnostic, Error};
+use crate::diagnostic::Error;
 use crate::integers::parse_c_unsigned;
 use crate::source::{Source, Span};
 use crate::syntax::strip_c_comments;
@@ -54,25 +54,13 @@ impl ShapeEnv {
 pub fn evaluate(source: &Source, span: Span, text: &str, env: &ShapeEnv) -> Result<u64, Error> {
     let value = evaluate_any(source, span, text, env)?;
     if value == 0 {
-        return Err(Error::one(
-            Diagnostic::new(
-                Category::Schema,
-                &source.name,
-                "array extent must be a positive integer",
-            )
-            .at(span),
+        return Err(Error::schema(
+            source,
+            span,
+            "array extent must be a positive integer",
         ));
     }
-    u64::try_from(value).map_err(|_| {
-        Error::one(
-            Diagnostic::new(
-                Category::Schema,
-                &source.name,
-                "array extent does not fit u64",
-            )
-            .at(span),
-        )
-    })
+    u64::try_from(value).map_err(|_| Error::schema(source, span, "array extent does not fit u64"))
 }
 
 pub fn evaluate_any(
@@ -252,15 +240,12 @@ impl Parser<'_> {
 
     fn expand_macro(&mut self, name: &str, value: &ShapeValue) -> Result<u128, Error> {
         if value.function_like {
-            return Err(Error::one(
-                Diagnostic::new(
-                    Category::Schema,
-                    &self.source.name,
-                    format!("function-like macro '{name}' cannot be used as an array extent"),
-                )
-                .at(self.span)
-                .related(&self.source.name, value.span, "macro defined here"),
-            ));
+            return Err(Error::schema(
+                self.source,
+                self.span,
+                format!("function-like macro '{name}' cannot be used as an array extent"),
+            )
+            .related(&self.source.name, value.span, "macro defined here"));
         }
         let Some(body) = &value.body else {
             return Ok(u128::from(value.value));
@@ -285,20 +270,19 @@ impl Parser<'_> {
     }
 
     fn duplicate_macros(&self, name: &str, defs: &[ShapeValue]) -> Error {
-        let mut diagnostic = Diagnostic::new(
-            Category::Schema,
-            &self.source.name,
+        let mut error = Error::schema(
+            self.source,
+            self.span,
             format!("duplicate referenced macro '{name}'"),
-        )
-        .at(self.span);
+        );
         for value in defs {
-            diagnostic = diagnostic.related(
+            error = error.related(
                 &self.source.name,
                 value.span,
                 format!("'{name}' defined here"),
             );
         }
-        Error::one(diagnostic)
+        error
     }
 
     fn macro_enum_collision(
@@ -307,30 +291,26 @@ impl Parser<'_> {
         macro_def: &ShapeValue,
         enumerator: &ShapeValue,
     ) -> Error {
-        Error::one(
-            Diagnostic::new(
-                Category::Schema,
-                &self.source.name,
-                format!("shape constant '{name}' is defined as both a macro and an enumerator"),
-            )
-            .at(self.span)
-            .related(&self.source.name, macro_def.span, "macro defined here")
-            .related(
-                &self.source.name,
-                enumerator.span,
-                "enumerator defined here",
-            ),
+        Error::schema(
+            self.source,
+            self.span,
+            format!("shape constant '{name}' is defined as both a macro and an enumerator"),
+        )
+        .related(&self.source.name, macro_def.span, "macro defined here")
+        .related(
+            &self.source.name,
+            enumerator.span,
+            "enumerator defined here",
         )
     }
 
     fn cycle(&self, name: &str, value: &ShapeValue) -> Error {
-        let mut diagnostic = Diagnostic::new(
-            Category::Schema,
-            &self.source.name,
+        let mut error = Error::schema(
+            self.source,
+            self.span,
             format!("cyclic shape-constant dependency involving '{name}'"),
         )
-        .at(self.span);
-        diagnostic = diagnostic.related(
+        .related(
             &self.source.name,
             value.span,
             format!("'{name}' participates in the cycle"),
@@ -344,14 +324,14 @@ impl Parser<'_> {
                 .map(|value| value.span)
                 .or_else(|| self.env.constants.get(participant).map(|value| value.span));
             if let Some(span) = span {
-                diagnostic = diagnostic.related(
+                error = error.related(
                     &self.source.name,
                     span,
                     format!("'{participant}' participates in the cycle"),
                 );
             }
         }
-        Error::one(diagnostic)
+        error
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -371,7 +351,7 @@ impl Parser<'_> {
     }
 
     fn error(&self, message: impl Into<String>) -> Error {
-        Error::one(Diagnostic::new(Category::Schema, &self.source.name, message).at(self.span))
+        Error::schema(self.source, self.span, message)
     }
 }
 
@@ -430,13 +410,10 @@ fn lex(source: &Source, span: Span, text: &str) -> Result<Vec<Token>, Error> {
             tokens.push(Token::Ident(stripped[start..index].to_owned()));
             continue;
         }
-        return Err(Error::one(
-            Diagnostic::new(
-                Category::Schema,
-                &source.name,
-                format!("invalid character in shape expression '{text}'"),
-            )
-            .at(span),
+        return Err(Error::schema(
+            source,
+            span,
+            format!("invalid character in shape expression '{text}'"),
         ));
     }
     Ok(tokens)

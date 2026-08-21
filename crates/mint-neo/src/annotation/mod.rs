@@ -1,4 +1,4 @@
-use crate::diagnostic::{Category, Diagnostic, Error};
+use crate::diagnostic::Error;
 use crate::integers::parse_c_unsigned;
 use crate::source::{Source, Span};
 
@@ -133,13 +133,10 @@ pub fn parse_comment(source: &Source, comment: &RawComment) -> Result<Option<Min
     let contains_mint = comment.text.contains("@mint");
     let Some(kind) = comment.kind else {
         if contains_mint {
-            return Err(Error::one(
-                Diagnostic::new(
-                    Category::Schema,
-                    &source.name,
-                    "@mint tags are only accepted in Doxygen comments",
-                )
-                .at(comment.span),
+            return Err(Error::schema(
+                source,
+                comment.span,
+                "@mint tags are only accepted in Doxygen comments",
             ));
         }
         return Ok(None);
@@ -159,13 +156,10 @@ pub fn parse_comment(source: &Source, comment: &RawComment) -> Result<Option<Min
     }
     if tags.is_empty() {
         if contains_mint {
-            return Err(Error::one(
-                Diagnostic::new(
-                    Category::Schema,
-                    &source.name,
-                    "Doxygen comment contains @mint but no recognised tag",
-                )
-                .at(comment.span),
+            return Err(Error::schema(
+                source,
+                comment.span,
+                "Doxygen comment contains @mint but no recognised tag",
             ));
         }
         return Ok(None);
@@ -184,12 +178,9 @@ fn parse_tag_line(
         .map(str::trim_start)
         .unwrap_or(line);
     let mut parts = rest.split_whitespace();
-    let tag = parts.next().ok_or_else(|| {
-        Error::one(
-            Diagnostic::new(Category::Schema, &source.name, "expected an @mint tag name")
-                .at(comment.span),
-        )
-    })?;
+    let tag = parts
+        .next()
+        .ok_or_else(|| Error::schema(source, comment.span, "expected an @mint tag name"))?;
     let value = parts.next();
     let extra = parts.next();
     let mut parsed = MintTags {
@@ -242,13 +233,10 @@ fn parse_tag_line(
             ));
         }
         other => {
-            return Err(Error::one(
-                Diagnostic::new(
-                    Category::Schema,
-                    &source.name,
-                    format!("unknown @mint tag '{other}'"),
-                )
-                .at(comment.span),
+            return Err(Error::schema(
+                source,
+                comment.span,
+                format!("unknown @mint tag '{other}'"),
             ));
         }
     }
@@ -277,13 +265,9 @@ fn tag_int<T: TryFrom<u128>>(
     extra: Option<&str>,
     overflow: &str,
 ) -> Result<T, Error> {
-    let parsed =
-        parse_c_unsigned(tag_value(source, comment, tag, value, extra)?).map_err(|message| {
-            Error::one(Diagnostic::new(Category::Schema, &source.name, message).at(comment.span))
-        })?;
-    T::try_from(parsed).map_err(|_| {
-        Error::one(Diagnostic::new(Category::Schema, &source.name, overflow).at(comment.span))
-    })
+    let parsed = parse_c_unsigned(tag_value(source, comment, tag, value, extra)?)
+        .map_err(|message| Error::schema(source, comment.span, message))?;
+    T::try_from(parsed).map_err(|_| Error::schema(source, comment.span, overflow))
 }
 
 fn strip_doxygen(text: &str) -> String {
@@ -320,36 +304,23 @@ fn strip_doxygen(text: &str) -> String {
 }
 
 fn missing_value(source: &Source, comment: &RawComment, tag: &str) -> Error {
-    Error::one(
-        Diagnostic::new(
-            Category::Schema,
-            &source.name,
-            format!("@mint {tag} is missing a value"),
-        )
-        .at(comment.span),
+    Error::schema(
+        source,
+        comment.span,
+        format!("@mint {tag} is missing a value"),
     )
 }
 
 fn tag_extra(source: &Source, comment: &RawComment, tag: &str) -> Error {
-    Error::one(
-        Diagnostic::new(
-            Category::Schema,
-            &source.name,
-            format!("unexpected text after @mint {tag}"),
-        )
-        .at(comment.span),
+    Error::schema(
+        source,
+        comment.span,
+        format!("unexpected text after @mint {tag}"),
     )
 }
 
 fn duplicate(source: &Source, comment: &RawComment, tag: &str) -> Error {
-    Error::one(
-        Diagnostic::new(
-            Category::Schema,
-            &source.name,
-            format!("duplicate @mint {tag} tag"),
-        )
-        .at(comment.span),
-    )
+    Error::schema(source, comment.span, format!("duplicate @mint {tag} tag"))
 }
 
 pub fn attach_leading(source: &Source, comment_end: usize, decl_start: usize) -> bool {

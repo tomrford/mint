@@ -1,8 +1,8 @@
 use std::fmt;
 use std::str::FromStr;
 
-use crate::diagnostic::{Category, Diagnostic, Error};
-use crate::source::Span;
+use crate::diagnostic::{Category, Error};
+use crate::source::{Source, Span};
 
 /// Named ABI profile selected by `@mint abi`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -334,9 +334,9 @@ impl FromStr for Abi {
     }
 }
 
-pub fn parse_abi(name: &str, source: &str, span: Span) -> Result<Abi, Error> {
+pub fn parse_abi(name: &str, source: &Source, span: Span) -> Result<Abi, Error> {
     name.parse::<Abi>()
-        .map_err(|message| Error::one(Diagnostic::new(Category::Schema, source, message).at(span)))
+        .map_err(|message| Error::schema(source, span, message))
 }
 
 pub fn list_text() -> String {
@@ -350,7 +350,7 @@ pub fn list_text() -> String {
 pub fn show_text(name: &str) -> Result<String, Error> {
     let abi = name
         .parse::<Abi>()
-        .map_err(|message| Error::one(Diagnostic::new(Category::Usage, "cli", message)))?;
+        .map_err(|message| Error::named(Category::Usage, name, message))?;
     let mut out = String::new();
     out.push_str(&format!("name: {}\n", abi.name()));
     out.push_str(&format!("family: {}\n", abi.family().name()));

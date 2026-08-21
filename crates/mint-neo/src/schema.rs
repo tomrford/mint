@@ -13,24 +13,21 @@ pub struct CompiledSchema {
 }
 
 pub fn compile(source: Source) -> Result<CompiledSchema, Error> {
-    let parsed = match ParsedFile::parse(&source) {
-        Ok(parsed) => parsed,
-        Err(error) => return Err(error.with_source(source)),
-    };
-    let types = match types::compile_types(&parsed) {
-        Ok(types) => types,
-        Err(error) => return Err(error.with_source(source)),
-    };
-    let layout = match layout::resolve(types) {
-        Ok(layout) => layout,
-        Err(error) => return Err(error.with_source(source)),
-    };
-    let fingerprint = fingerprint::calculate(&layout);
-    Ok(CompiledSchema {
-        source,
-        layout,
-        fingerprint,
-    })
+    let result: Result<(ResolvedLayout, u64), Error> = (|| {
+        let parsed = ParsedFile::parse(&source)?;
+        let types = types::compile_types(&parsed)?;
+        let layout = layout::resolve(types)?;
+        let fingerprint = fingerprint::calculate(&layout);
+        Ok((layout, fingerprint))
+    })();
+    match result {
+        Ok((layout, fingerprint)) => Ok(CompiledSchema {
+            source,
+            layout,
+            fingerprint,
+        }),
+        Err(error) => Err(error.with_source(source)),
+    }
 }
 
 pub fn fingerprint_hex(schema: &CompiledSchema) -> String {
