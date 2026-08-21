@@ -979,7 +979,20 @@ fn collect_enum_constants(parsed: &ParsedFile<'_>, env: &mut ShapeEnv) -> Result
                     "enumerator value does not fit u64",
                 )
             })?;
-            env.insert_constant(parsed.text(name).to_owned(), stored, ParsedFile::span(name));
+            let name_text = parsed.text(name);
+            let span = ParsedFile::span(name);
+            if let Some(previous) = env.insert_constant(name_text.to_owned(), stored, span) {
+                return Err(schema(
+                    parsed,
+                    span,
+                    format!("duplicate enumerator '{name_text}'"),
+                )
+                .related(
+                    parsed.source.name.clone(),
+                    previous,
+                    "previous enumerator is here",
+                ));
+            }
             next = value.saturating_add(1);
         }
     }

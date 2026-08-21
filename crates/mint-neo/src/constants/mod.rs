@@ -29,16 +29,18 @@ impl ShapeEnv {
         }
     }
 
-    pub fn insert_constant(&mut self, name: String, value: u64, span: Span) {
-        self.constants.insert(
-            name,
-            ShapeValue {
-                value,
-                span,
-                function_like: false,
-                body: None,
-            },
-        );
+    pub fn insert_constant(&mut self, name: String, value: u64, span: Span) -> Option<Span> {
+        self.constants
+            .insert(
+                name,
+                ShapeValue {
+                    value,
+                    span,
+                    function_like: false,
+                    body: None,
+                },
+            )
+            .map(|previous| previous.span)
     }
 
     pub fn insert_macro(&mut self, name: String, span: Span, body: String, function_like: bool) {
@@ -479,7 +481,7 @@ mod tests {
         );
         let mut env = ShapeEnv::new();
         env.insert_macro("AXIS".into(), Span::new(0, 1), "3u".into(), false);
-        env.insert_constant("AXIS".into(), 4, Span::new(2, 3));
+        let _ = env.insert_constant("AXIS".into(), 4, Span::new(2, 3));
         assert!(
             evaluate(&source, Span::new(10, 14), "AXIS", &env)
                 .unwrap_err()
