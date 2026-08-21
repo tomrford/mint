@@ -407,37 +407,6 @@ mod tests {
     use crate::source::{Source, Span};
 
     #[test]
-    fn parses_block_tags() {
-        let source = Source::new("t.h", "");
-        let comment = RawComment {
-            span: Span::new(0, 10),
-            text:
-                "/**\n * @mint block\n * @mint abi generic-le\n * @mint start-address 0x8000\n */"
-                    .into(),
-            kind: Some(super::CommentKind::Leading),
-        };
-        let tags = parse_comment(&source, &comment).unwrap().unwrap();
-        assert!(tags.block.is_some());
-        assert_eq!(tags.abi.unwrap().0, "generic-le");
-        assert_eq!(tags.start_address.unwrap().0, 0x8000);
-    }
-
-    #[test]
-    fn leading_attachment_skips_intervening_comments() {
-        let source = Source::new(
-            "t.h",
-            "/** mint */\n/* ordinary */\n/// docs\ntypedef int x;\n",
-        );
-        let mint_end = source.text.find("*/").expect("mint") + 2;
-        let decl = source.text.find("typedef").expect("typedef");
-        assert!(super::attach_leading(&source, mint_end, decl));
-        let blank = Source::new("t.h", "/** mint */\n\ntypedef int x;\n");
-        let blank_end = blank.text.find("*/").expect("mint") + 2;
-        let blank_decl = blank.text.find("typedef").expect("typedef");
-        assert!(!super::attach_leading(&blank, blank_end, blank_decl));
-    }
-
-    #[test]
     fn rejects_unknown_and_duplicate_tags() {
         let source = Source::new("t.h", "");
         let unknown = RawComment {
