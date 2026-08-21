@@ -29,7 +29,3 @@ pub fn compile(source: Source) -> Result<CompiledSchema, Error> {
         Err(error) => Err(error.with_source(source)),
     }
 }
-
-pub fn fingerprint_hex(schema: &CompiledSchema) -> String {
-    fingerprint::hex(schema.fingerprint)
-}
