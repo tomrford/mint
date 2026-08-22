@@ -130,6 +130,7 @@ fn run(cli: Cli) -> Result<(), Error> {
 }
 
 fn build(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
+    reject_output_collision(header, json, out)?;
     let schema = load_header(header)?;
     let json_source = load_json(json)?;
     let bytes = encode_json(&schema, &json_source)?;
@@ -142,6 +143,48 @@ fn build(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
         )
     })?;
     Ok(())
+}
+
+fn reject_output_collision(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
+    let collision = if same_destination(header, out)? {
+        Some("header")
+    } else if json != Path::new("-") && same_destination(json, out)? {
+        Some("JSON input")
+    } else {
+        None
+    };
+    let Some(input) = collision else {
+        return Ok(());
+    };
+    Err(Error::named(
+        Category::Encoding,
+        out.display().to_string(),
+        format!("--out resolves to the {input} path"),
+    ))
+}
+
+fn same_destination(left: &Path, right: &Path) -> Result<bool, Error> {
+    Ok(destination_identity(left)? == destination_identity(right)?)
+}
+
+fn destination_identity(path: &Path) -> Result<PathBuf, Error> {
+    let absolute = std::path::absolute(path).map_err(|error| {
+        Error::named(
+            Category::Encoding,
+            path.display().to_string(),
+            format!("failed to resolve path {}: {error}", path.display()),
+        )
+    })?;
+    if let Ok(canonical) = absolute.canonicalize() {
+        return Ok(canonical);
+    }
+    let Some(parent) = absolute.parent() else {
+        return Ok(absolute);
+    };
+    match (parent.canonicalize(), absolute.file_name()) {
+        (Ok(parent), Some(name)) => Ok(parent.join(name)),
+        _ => Ok(absolute),
+    }
 }
 
 fn load_header(path: &Path) -> Result<CompiledSchema, Error> {

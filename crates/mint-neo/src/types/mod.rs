@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tree_sitter::Node;
 
@@ -101,6 +101,7 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
     };
     resolver.walk_index(parsed.root())?;
     let root_id = resolver.resolve_root(root.node)?;
+    ensure_fingerprint_annotations(&resolver, root_id)?;
     ensure_single_fingerprint(&resolver, root_id)?;
 
     Ok(SchemaTypes {
@@ -357,7 +358,7 @@ impl<'a> Resolver<'a> {
             )
         })?;
         let declarators = field_nodes(node, "declarator");
-        let type_id = self.resolve_spec(spec, 0)?;
+        let type_id = self.resolve_spec(spec, 0, spec.start_byte())?;
         let type_id = self.apply_declarator(type_id, declarators[0])?;
         match &self.types[type_id.0] {
             TypeKind::Record { fields } if !fields.is_empty() => {}
@@ -379,7 +380,12 @@ impl<'a> Resolver<'a> {
         Ok(type_id)
     }
 
-    fn resolve_spec(&mut self, spec: Node<'a>, depth: usize) -> Result<TypeId, Error> {
+    fn resolve_spec(
+        &mut self,
+        spec: Node<'a>,
+        depth: usize,
+        complete_at: usize,
+    ) -> Result<TypeId, Error> {
         self.reject_unsupported_on(spec)?;
         if let Some(id) = self.memo.get(&spec.start_byte()).copied() {
             return Ok(id);
@@ -396,10 +402,15 @@ impl<'a> Resolver<'a> {
                     return Ok(self.push(TypeKind::Scalar { scalar }));
                 }
                 if let Some(typedef) = self.typedefs.get(name).copied() {
-                    return self.resolve_typedef_def(typedef, depth);
-                }
-                if let Some(record) = self.struct_defs.get(name).copied() {
-                    return self.resolve_struct(record, depth);
+                    if typedef.node.end_byte() > spec.start_byte() {
+                        return Err(schema(
+                            self.parsed,
+                            ParsedFile::span(spec),
+                            format!("type '{name}' is not declared before this use"),
+                        )
+                        .related(ParsedFile::span(typedef.node), "declaration appears later"));
+                    }
+                    return self.resolve_typedef_def(typedef, depth, complete_at);
                 }
                 Err(schema(
                     self.parsed,
@@ -407,7 +418,7 @@ impl<'a> Resolver<'a> {
                     format!("unknown type '{name}'"),
                 ))
             }
-            "struct_specifier" => self.resolve_struct(spec, depth),
+            "struct_specifier" => self.resolve_struct(spec, depth, complete_at),
             "enum_specifier" => Err(schema(
                 self.parsed,
                 ParsedFile::span(spec),
@@ -431,7 +442,12 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_typedef_def(&mut self, def: TypedefDef<'a>, depth: usize) -> Result<TypeId, Error> {
+    fn resolve_typedef_def(
+        &mut self,
+        def: TypedefDef<'a>,
+        depth: usize,
+        complete_at: usize,
+    ) -> Result<TypeId, Error> {
         let key = def.declarator.start_byte();
         if let Some(id) = self.memo.get(&key).copied() {
             return Ok(id);
@@ -460,7 +476,7 @@ impl<'a> Resolver<'a> {
         })?;
         self.typedef_depth += 1;
         let resolved = self
-            .resolve_spec(spec, depth)
+            .resolve_spec(spec, depth, complete_at)
             .and_then(|type_id| self.apply_declarator(type_id, def.declarator));
         self.typedef_depth -= 1;
         self.visiting.remove(&key);
@@ -469,7 +485,12 @@ impl<'a> Resolver<'a> {
         Ok(type_id)
     }
 
-    fn resolve_struct(&mut self, spec: Node<'a>, depth: usize) -> Result<TypeId, Error> {
+    fn resolve_struct(
+        &mut self,
+        spec: Node<'a>,
+        depth: usize,
+        complete_at: usize,
+    ) -> Result<TypeId, Error> {
         if depth > MAX_RECORD_DEPTH {
             return Err(schema(
                 self.parsed,
@@ -492,7 +513,15 @@ impl<'a> Resolver<'a> {
                     format!("incomplete struct '{tag}'"),
                 )
             })?;
-            return self.resolve_struct(def, depth);
+            if def.end_byte() > complete_at {
+                return Err(schema(
+                    self.parsed,
+                    ParsedFile::span(spec),
+                    format!("struct '{tag}' is incomplete at this use"),
+                )
+                .related(ParsedFile::span(def), "complete definition appears later"));
+            }
+            return self.resolve_struct(def, depth, complete_at);
         } else {
             return Err(schema(
                 self.parsed,
@@ -571,7 +600,7 @@ impl<'a> Resolver<'a> {
             ));
         }
         let tags = self.attachments.get(&node.start_byte()).cloned();
-        let type_id = self.resolve_spec(spec, depth)?;
+        let type_id = self.resolve_spec(spec, depth, spec.start_byte())?;
         let type_id = self.apply_declarator(type_id, declarators[0])?;
         let name = declarator_name(self.parsed, declarators[0])?;
         let fingerprint = tags.as_ref().and_then(|tags| tags.fingerprint).is_some();
@@ -794,6 +823,26 @@ impl<'a> Resolver<'a> {
         }
         Err(error)
     }
+}
+
+fn ensure_fingerprint_annotations(resolver: &Resolver<'_>, root: TypeId) -> Result<(), Error> {
+    let TypeKind::Record { fields } = &resolver.types[root.0] else {
+        return Ok(());
+    };
+    let root_fields: HashSet<usize> = fields.iter().map(|field| field.span.start).collect();
+    for (target, tags) in &resolver.attachments {
+        let Some(span) = tags.fingerprint else {
+            continue;
+        };
+        if !root_fields.contains(target) {
+            return Err(schema(
+                resolver.parsed,
+                span,
+                "@mint fingerprint may appear only on a direct member of the root record",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn ensure_single_fingerprint(resolver: &Resolver<'_>, root: TypeId) -> Result<(), Error> {
