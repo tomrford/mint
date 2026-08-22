@@ -99,6 +99,45 @@ typedef struct { uint32_t id; } config_t;
 }
 
 #[test]
+fn build_rejects_output_paths_that_resolve_to_an_input() {
+    let header_text = r#"
+#include <stdint.h>
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0
+ */
+typedef struct { uint32_t id; } config_t;
+"#;
+    let header = write_temp("collision.h", header_text);
+    let json = write_temp("collision.json", r#"{"id": 1}"#);
+
+    for (out, input_name, expected) in [
+        (&header, "header", header_text),
+        (&json, "JSON input", r#"{"id": 1}"#),
+    ] {
+        let output = mint_neo()
+            .args(["build"])
+            .arg(&header)
+            .arg("--json")
+            .arg(&json)
+            .arg("--out")
+            .arg(out)
+            .output()
+            .expect("build collision check");
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains(&format!("--out resolves to the {input_name} path"))
+        );
+        assert_eq!(
+            std::fs::read_to_string(out).expect("input remains readable"),
+            expected
+        );
+    }
+}
+
+#[test]
 fn schema_failure_is_exit_1() {
     let header = write_temp("bad.h", "#include <stdio.h>\n");
     let output = mint_neo()

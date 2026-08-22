@@ -184,6 +184,25 @@ typedef struct {
         block_on_field.contains("block metadata") || block_on_field.contains("root"),
         "{block_on_field}"
     );
+
+    let fingerprint_on_unreachable_field = compile_err(
+        r#"
+#include <stdint.h>
+typedef struct {
+    uint64_t ignored; /**< @mint fingerprint */
+} helper_t;
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0
+ */
+typedef struct { uint32_t id; } config_t;
+"#,
+    );
+    assert!(
+        fingerprint_on_unreachable_field.contains("direct member of the root"),
+        "{fingerprint_on_unreachable_field}"
+    );
 }
 
 #[test]
@@ -204,6 +223,62 @@ typedef struct {
     ))
     .expect("multi-declarator aliases");
     assert_eq!(schema.layout.root_layout().size, 20);
+}
+
+#[test]
+fn reachable_types_follow_c_declaration_order_and_namespaces() {
+    let later_typedef = compile_err(
+        r#"
+#include <stdint.h>
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0
+ */
+typedef struct { later_t value; } config_t;
+typedef uint32_t later_t;
+"#,
+    );
+    assert!(
+        later_typedef.contains("not declared before this use"),
+        "{later_typedef}"
+    );
+
+    let later_struct_definition = compile_err(
+        r#"
+#include <stdint.h>
+struct item;
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0
+ */
+typedef struct { struct item value; } config_t;
+struct item { uint32_t id; };
+"#,
+    );
+    assert!(
+        later_struct_definition.contains("incomplete at this use"),
+        "{later_struct_definition}"
+    );
+
+    let bare_struct_tag = compile_err(&mint_block(
+        "struct item { uint32_t id; };\n",
+        "typedef struct { item value; } config_t;",
+    ));
+    assert!(
+        bare_struct_tag.contains("unknown type 'item'"),
+        "{bare_struct_tag}"
+    );
+
+    compile(&mint_block(
+        r#"
+typedef struct item item_t;
+struct item { uint32_t id; };
+"#,
+        "typedef struct { item_t value; } config_t;",
+    ))
+    .expect("a forward-declared tag completed before use is valid C");
 }
 
 #[test]
