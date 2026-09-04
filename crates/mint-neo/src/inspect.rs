@@ -1,9 +1,10 @@
+use crate::layout::LayoutKind;
 use serde::Serialize;
 
 use crate::CompiledSchema;
 use crate::diagnostic::{Category, Error};
 use crate::layout::{self, PaddingRange};
-use crate::types::{TypeId, TypeKind};
+use crate::types::TypeId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InspectFormat {
@@ -95,9 +96,9 @@ fn collect(
     fields: &mut Vec<InspectField>,
     arrays: &mut Vec<InspectArray>,
 ) {
-    match &layout.types[type_id.0] {
-        TypeKind::Record { .. } => {
-            for field in &layout.layouts[type_id.0].fields {
+    match &layout.layouts[type_id.0].kind {
+        LayoutKind::Record(members) => {
+            for field in members {
                 let child_path = layout::child_path(path, &field.name);
                 fields.push(InspectField {
                     path: child_path.clone(),
@@ -116,18 +117,16 @@ fn collect(
                 );
             }
         }
-        TypeKind::Array { .. } => {
-            if let Some(array) = &layout.layouts[type_id.0].array {
-                arrays.push(InspectArray {
-                    path: path.to_owned(),
-                    dimensions: array.dimensions.clone(),
-                    stride: array.stride,
-                });
-                let child_path = layout::array_path(path);
-                collect(layout, array.element, base, &child_path, fields, arrays);
-            }
+        LayoutKind::Array(array) => {
+            arrays.push(InspectArray {
+                path: path.to_owned(),
+                dimensions: array.dimensions.clone(),
+                stride: array.stride,
+            });
+            let child_path = layout::array_path(path);
+            collect(layout, array.element, base, &child_path, fields, arrays);
         }
-        TypeKind::Scalar { .. } => {}
+        LayoutKind::Scalar(_) => {}
     }
 }
 

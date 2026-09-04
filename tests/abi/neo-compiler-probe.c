@@ -14,6 +14,11 @@
 #define SIZE_BITS(type) (sizeof(type) * CHAR_BIT)
 #define ALIGN_BITS(type) (_Alignof(type) * CHAR_BIT)
 
+_Static_assert(SIZE_BITS(int) == NEO_INT_BITS && SIZE_BITS(long) == 32 && SIZE_BITS(long long) == 64, "C integer model");
+_Static_assert(sizeof(((neo_config_t *)0)->signed_mid) * CHAR_BIT == NEO_SIGNED_MID_SIZE_BITS, "signed_mid arithmetic");
+_Static_assert(sizeof(((neo_config_t *)0)->unsigned_wrap) * CHAR_BIT == NEO_UNSIGNED_WRAP_SIZE_BITS, "unsigned_wrap arithmetic");
+_Static_assert(sizeof(((neo_config_t *)0)->widened) * CHAR_BIT == NEO_WIDENED_SIZE_BITS, "widened arithmetic");
+_Static_assert(sizeof(((neo_config_t *)0)->abi_hex) * CHAR_BIT == NEO_ABI_HEX_SIZE_BITS, "abi_hex arithmetic");
 _Static_assert(SIZE_BITS(neo_config_t) == NEO_ROOT_SIZE_BITS, "root size");
 _Static_assert(ALIGN_BITS(neo_config_t) == NEO_ROOT_ALIGNMENT_BITS, "root alignment");
 _Static_assert(OFFSET_BITS(neo_config_t, version) == NEO_VERSION_OFFSET_BITS,

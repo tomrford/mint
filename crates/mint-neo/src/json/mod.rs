@@ -6,60 +6,29 @@ use serde_json::value::RawValue;
 use crate::CompiledSchema;
 use crate::abi::{Endianness, Scalar, ScalarValue, write_scalar_bytes};
 use crate::diagnostic::Error;
-use crate::layout::{ArrayLayout, ResolvedLayout};
+use crate::layout::{ArrayLayout, LayoutKind, ResolvedLayout};
 use crate::source::{Source, Span};
-use crate::types::{TypeId, TypeKind};
-
-#[derive(Clone, Debug)]
-enum Json {
-    Null(Span),
-    Bool(Span),
-    Number(Span),
-    String(Span),
-    Array {
-        items: Vec<Json>,
-        span: Span,
-    },
-    Object {
-        entries: Vec<ObjectEntry>,
-        span: Span,
-    },
-}
-
-#[derive(Clone, Debug)]
-struct ObjectEntry {
-    key: String,
-    key_span: Span,
-    value: Json,
-}
-
-impl Json {
-    fn span(&self) -> Span {
-        match *self {
-            Self::Null(span) | Self::Bool(span) | Self::Number(span) | Self::String(span) => span,
-            Self::Array { span, .. } | Self::Object { span, .. } => span,
-        }
-    }
-}
+use crate::types::TypeId;
 
 pub fn encode(schema: &CompiledSchema, json: &Source) -> Result<Vec<u8>, Error> {
-    let value = parse_json(json)?;
+    // Serde validates the document and lends source slices directly to the
+    // schema binder. No independent JSON tree or floating-point number model.
+    let value: &RawValue = read_json(json, &json.text)?;
     let mut bytes = vec![schema.layout.padding; schema.layout.root_layout().size];
     bind(
         &schema.layout,
         schema.layout.root,
         0,
-        &value,
+        value,
         json,
         "",
         &mut bytes,
     )?;
-    if let Some(field) = schema
+    for field in schema
         .layout
-        .root_layout()
-        .fields
+        .root_fields()
         .iter()
-        .find(|field| field.fingerprint)
+        .filter(|field| field.fingerprint)
     {
         write_at(
             &mut bytes,
@@ -76,133 +45,130 @@ fn bind(
     layout: &ResolvedLayout,
     type_id: TypeId,
     offset: usize,
-    value: &Json,
+    value: &RawValue,
     source: &Source,
     pointer: &str,
     bytes: &mut [u8],
 ) -> Result<(), Error> {
-    match &layout.types[type_id.0] {
-        TypeKind::Scalar { scalar } => {
-            let Json::Number(span) = *value else {
-                return Err(scalar_mismatch(value, source, pointer));
+    let span = borrowed_span(source, value.get());
+    if pointer.bytes().filter(|&b| b == b'/').count() > 256 {
+        return Err(Error::data(
+            source,
+            span,
+            pointer,
+            "JSON nesting exceeds 256 levels",
+        ));
+    }
+    match &layout.layouts[type_id.0].kind {
+        LayoutKind::Scalar(scalar) => {
+            let message = match value.get().as_bytes()[0] {
+                b'n' => Some("null is invalid for every field"),
+                b't' | b'f' => Some("JSON booleans are invalid for every field"),
+                b'"' => Some("JSON strings are invalid for every field"),
+                b'{' | b'[' => Some("expected a JSON number"),
+                _ => None,
             };
+            if let Some(message) = message {
+                return Err(Error::data(source, span, pointer, message));
+            }
             let encoded = convert_number(*scalar, source, span, pointer)?;
             write_at(bytes, offset, *scalar, layout.abi.endianness(), encoded);
-            Ok(())
         }
-        TypeKind::Record { .. } => {
-            let Json::Object { entries, span } = value else {
-                return Err(Error::data(
-                    source,
-                    value.span(),
-                    pointer,
-                    "expected a JSON object",
-                ));
-            };
-            let fields = &layout.layouts[type_id.0].fields;
+        LayoutKind::Record(fields) => {
+            if !value.get().starts_with('{') {
+                return Err(Error::data(source, span, pointer, "expected a JSON object"));
+            }
+            let RawObject(entries) = read_json(source, value.get())?;
             let mut seen = HashSet::new();
-            for entry in entries {
-                let Some(field) = fields.iter().find(|field| field.name == entry.key) else {
+            for (key, value) in entries {
+                let key_span = borrowed_span(source, key.get());
+                let key: String = read_json(source, key.get())?;
+                let child = join_pointer(pointer, &key);
+                if !seen.insert(key.clone()) {
                     return Err(Error::data(
                         source,
-                        entry.key_span,
-                        &join_pointer(pointer, &entry.key),
-                        format!("unexpected property '{}'", entry.key),
+                        key_span,
+                        &child,
+                        format!("duplicate object property '{key}'"),
+                    ));
+                }
+                let Some(field) = fields.iter().find(|field| field.name == key) else {
+                    return Err(Error::data(
+                        source,
+                        key_span,
+                        &child,
+                        format!("unexpected property '{key}'"),
                     ));
                 };
                 if field.fingerprint {
                     return Err(Error::data(
                         source,
-                        entry.key_span,
-                        &join_pointer(pointer, &entry.key),
+                        key_span,
+                        &child,
                         "fingerprint fields must be absent from JSON",
                     ));
                 }
-                seen.insert(entry.key.clone());
                 bind(
                     layout,
                     field.type_id,
                     offset + field.offset,
-                    &entry.value,
+                    value,
                     source,
-                    &join_pointer(pointer, &entry.key),
+                    &child,
                     bytes,
                 )?;
             }
             for field in fields {
-                if field.fingerprint || seen.contains(&field.name) {
-                    continue;
+                if !field.fingerprint && !seen.contains(&field.name) {
+                    return Err(Error::data(
+                        source,
+                        span,
+                        &join_pointer(pointer, &field.name),
+                        format!("missing required field '{}'", field.name),
+                    ));
                 }
-                return Err(Error::data(
-                    source,
-                    *span,
-                    &join_pointer(pointer, &field.name),
-                    format!("missing required field '{}'", field.name),
-                ));
             }
-            Ok(())
         }
-        TypeKind::Array { .. } => {
-            bind_array(layout, type_id, offset, value, source, pointer, bytes, 0)
+        LayoutKind::Array(array) => {
+            bind_array(layout, array, offset, value, source, pointer, bytes, 0)?
         }
     }
-}
-
-fn scalar_mismatch(value: &Json, source: &Source, pointer: &str) -> Error {
-    let message = match value {
-        Json::Null(_) => "null is invalid for every field",
-        Json::Bool(_) => "JSON booleans are invalid for every field",
-        Json::String(_) => "JSON strings are invalid for every field",
-        _ => "expected a JSON number",
-    };
-    Error::data(source, value.span(), pointer, message)
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
 fn bind_array(
     layout: &ResolvedLayout,
-    type_id: TypeId,
+    array: &ArrayLayout,
     offset: usize,
-    value: &Json,
+    value: &RawValue,
     source: &Source,
     pointer: &str,
     bytes: &mut [u8],
     dim: usize,
 ) -> Result<(), Error> {
-    let array = layout.layouts[type_id.0].array.as_ref().ok_or_else(|| {
-        Error::data(
-            source,
-            value.span(),
-            pointer,
-            "internal: missing array layout",
-        )
-    })?;
-    let Json::Array { items, span } = value else {
-        return Err(Error::data(
-            source,
-            value.span(),
-            pointer,
-            "expected a JSON array",
-        ));
-    };
-    let expected = usize::try_from(array.dimensions[dim]).unwrap_or(0);
+    let span = borrowed_span(source, value.get());
+    if !value.get().starts_with('[') {
+        return Err(Error::data(source, span, pointer, "expected a JSON array"));
+    }
+    let items: Vec<&RawValue> = read_json(source, value.get())?;
+    let expected = array.dimensions[dim] as usize;
     if items.len() != expected {
         return Err(Error::data(
             source,
-            *span,
+            span,
             pointer,
             format!("expected array length {expected}, found {}", items.len()),
         ));
     }
     let stride = dim_stride(array, dim);
-    let last = dim + 1 == array.dimensions.len();
-    for (index, item) in items.iter().enumerate() {
+    for (index, item) in items.into_iter().enumerate() {
         let child = format!("{pointer}/{index}");
         let at = offset + index * stride;
-        if last {
+        if dim + 1 == array.dimensions.len() {
             bind(layout, array.element, at, item, source, &child, bytes)?;
         } else {
-            bind_array(layout, type_id, at, item, source, &child, bytes, dim + 1)?;
+            bind_array(layout, array, at, item, source, &child, bytes, dim + 1)?;
         }
     }
     Ok(())
@@ -403,82 +369,6 @@ fn parse_exponent(text: &str, body: &str) -> Result<i128, String> {
 fn join_pointer(pointer: &str, key: &str) -> String {
     let escaped = key.replace('~', "~0").replace('/', "~1");
     format!("{pointer}/{escaped}")
-}
-
-// RawValue keeps the original numeric token and borrows exact source spans.
-// Serde owns JSON syntax, escapes and Unicode; this adapter only preserves
-// duplicate keys and limits the tree used by structural binding.
-const MAX_JSON_DEPTH: usize = 256;
-
-fn parse_json(source: &Source) -> Result<Json, Error> {
-    let raw: &RawValue = read_json(source, &source.text)?;
-    parse_value(source, raw, "", 0)
-}
-
-fn parse_value(
-    source: &Source,
-    raw: &RawValue,
-    pointer: &str,
-    depth: usize,
-) -> Result<Json, Error> {
-    let span = borrowed_span(source, raw.get());
-    if depth > MAX_JSON_DEPTH {
-        return Err(Error::data(
-            source,
-            span,
-            pointer,
-            "JSON nesting exceeds 256 levels",
-        ));
-    }
-    Ok(match raw.get().as_bytes()[0] {
-        b'{' => {
-            let RawObject(pairs) = read_json(source, raw.get())?;
-            let mut keys = HashSet::new();
-            let mut entries = Vec::with_capacity(pairs.len());
-            for (key, value) in pairs {
-                let key_span = borrowed_span(source, key.get());
-                let key: String = read_json(source, key.get())?;
-                let child = join_pointer(pointer, &key);
-                if !keys.insert(key.clone()) {
-                    return Err(Error::data(
-                        source,
-                        key_span,
-                        &child,
-                        format!("duplicate object property '{key}'"),
-                    ));
-                }
-                entries.push(ObjectEntry {
-                    key,
-                    key_span,
-                    value: parse_value(source, value, &child, depth + 1)?,
-                });
-            }
-            Json::Object { entries, span }
-        }
-        b'[' => {
-            let values: Vec<&RawValue> = read_json(source, raw.get())?;
-            let items = values
-                .into_iter()
-                .enumerate()
-                .map(|(index, value)| {
-                    parse_value(
-                        source,
-                        value,
-                        &join_pointer(pointer, &index.to_string()),
-                        depth + 1,
-                    )
-                })
-                .collect::<Result<_, _>>()?;
-            Json::Array { items, span }
-        }
-        b'n' => Json::Null(span),
-        b't' | b'f' => Json::Bool(span),
-        b'"' => {
-            let _: String = read_json(source, raw.get())?;
-            Json::String(span)
-        }
-        _ => Json::Number(span),
-    })
 }
 
 fn borrowed_span(source: &Source, text: &str) -> Span {

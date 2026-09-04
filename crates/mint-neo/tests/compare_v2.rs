@@ -142,7 +142,7 @@ fn every_neo_scalar_layout_matches_mint_profiles() {
                 continue;
             };
             let schema = schema.unwrap();
-            let field = &schema.layout.root_layout().fields[1];
+            let field = &schema.layout.root_fields()[1];
             assert_eq!(
                 field.size,
                 2 * expected.storage_size,
@@ -156,11 +156,10 @@ fn every_neo_scalar_layout_matches_mint_profiles() {
                 abi.name()
             );
             assert_eq!(
-                schema.layout.layouts[field.type_id.0]
-                    .array
-                    .as_ref()
-                    .unwrap()
-                    .stride,
+                match &schema.layout.layouts[field.type_id.0].kind {
+                    mint_neo::LayoutKind::Array(array) => array.stride,
+                    _ => panic!("array expected"),
+                },
                 expected.array_stride,
                 "{} {c_name}",
                 abi.name()

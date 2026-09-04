@@ -31,6 +31,10 @@ typedef struct {
     neo_cell_t cells[NEO_ROW_COUNT][NEO_COLUMN_COUNT];
     uint32_t matrix[2][2];
     uint16_t counts[NEO_COUNT * 2];
+    uint16_t signed_mid[1 - 2 + 3];
+    uint16_t unsigned_wrap[0u - 1u + 2u];
+    uint16_t widened[((0xffffffffUL + 2LL) % 5) + 1];
+    uint16_t abi_hex[((0x8000 * 2) % 5) + 1];
     float gain;
     double threshold;
 } neo_config_t;

@@ -319,24 +319,12 @@ pub(crate) fn file_scope_nodes(root: Node<'_>) -> Vec<Node<'_>> {
     nodes
 }
 
-pub(crate) fn collect_comments_and_macros<'a>(
-    parsed: &'a ParsedFile<'a>,
-) -> Result<(Vec<Comment<'a>>, Vec<MacroDef>), Error> {
-    let mut comments = Vec::new();
-    let mut macros = Vec::new();
-    for node in descendants(parsed.root(), false) {
-        match node.kind() {
-            "comment" => comments.push(Comment {
-                span: ParsedFile::span(node),
-                text: parsed.text(node),
-            }),
-            "preproc_def" | "preproc_function_def" => macros.push(collect_macro(parsed, node)?),
-            _ => {}
-        }
-    }
-    comments.sort_by_key(|comment| comment.span.start);
-    macros.sort_by_key(|macro_def| macro_def.span.start);
-    Ok((comments, macros))
+pub(crate) fn collect_macros(parsed: &ParsedFile<'_>) -> Result<Vec<MacroDef>, Error> {
+    descendants(parsed.root(), false)
+        .into_iter()
+        .filter(|node| matches!(node.kind(), "preproc_def" | "preproc_function_def"))
+        .map(|node| collect_macro(parsed, node))
+        .collect()
 }
 
 fn collect_macro(parsed: &ParsedFile<'_>, node: Node<'_>) -> Result<MacroDef, Error> {
@@ -366,12 +354,6 @@ fn collect_macro(parsed: &ParsedFile<'_>, node: Node<'_>) -> Result<MacroDef, Er
         body,
         function_like,
     })
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Comment<'a> {
-    pub span: Span,
-    pub text: &'a str,
 }
 
 #[derive(Clone, Debug)]

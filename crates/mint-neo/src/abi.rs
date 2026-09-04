@@ -144,6 +144,14 @@ impl fmt::Display for Scalar {
 }
 
 impl Abi {
+    /// C11 expression model: ILP32, except for C28x's 16-bit int.
+    pub const fn int_bits(self) -> u32 {
+        match self {
+            Self::TiC28xEabi => 16,
+            _ => 32,
+        }
+    }
+
     pub const ALL: [Self; 6] = [
         Self::GenericLe,
         Self::GenericBe,
@@ -334,6 +342,10 @@ pub fn show_text(name: &str) -> Result<String, Error> {
     out.push_str(&format!(
         "target addressable unit: {} bits\n",
         abi.address_unit_bits()
+    ));
+    out.push_str(&format!(
+        "C integer widths: int {}, long 32, long long 64 bits\n",
+        abi.int_bits()
     ));
     out.push_str(&format!("output addresses: {}\n", abi.output_addressing()));
     out.push_str(&format!(

@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
+use crate::abi::Abi;
 use crate::diagnostic::Error;
-use crate::integers::parse_c_unsigned;
+mod integer;
 use crate::source::{Source, Span};
 use crate::syntax::{MacroDef, strip_c_comments};
+use integer::Integer;
 
 pub const MAX_MACRO_DEPTH: usize = 128;
 const MAX_EXPANSION_TOKENS: usize = 16_384;
@@ -69,38 +71,48 @@ impl ShapeEnv {
     }
 }
 
-pub fn evaluate(source: &Source, span: Span, text: &str, env: &ShapeEnv) -> Result<u64, Error> {
+pub fn evaluate(
+    source: &Source,
+    span: Span,
+    text: &str,
+    env: &ShapeEnv,
+    abi: Abi,
+) -> Result<u64, Error> {
     let mut evaluation = Evaluation {
         source,
         env,
+        abi,
         visiting: Vec::new(),
         remaining: MAX_EXPANSION_TOKENS,
         enum_values: HashMap::new(),
     };
     let value = evaluation.expression(span, text, span.start)?;
-    if value == 0 {
+    if value.value() <= 0 {
         return Err(Error::schema(
             source,
             span,
             "array extent must be a positive integer",
         ));
     }
-    u64::try_from(value).map_err(|_| Error::schema(source, span, "array extent does not fit u64"))
+    u64::try_from(value.value())
+        .map_err(|_| Error::schema(source, span, "array extent does not fit u64"))
 }
 
 struct Evaluation<'a> {
+    abi: Abi,
     source: &'a Source,
     env: &'a ShapeEnv,
     visiting: Vec<(String, Span)>,
     remaining: usize,
-    enum_values: HashMap<String, u128>,
+    enum_values: HashMap<String, Integer>,
 }
 
 impl Evaluation<'_> {
-    fn expression(&mut self, span: Span, text: &str, at: usize) -> Result<u128, Error> {
+    fn expression(&mut self, span: Span, text: &str, at: usize) -> Result<Integer, Error> {
         let mut tokens = Vec::new();
         self.expand(span, text, at, &mut tokens)?;
         let mut parser = Parser {
+            abi: self.abi,
             source: self.source,
             span,
             tokens,
@@ -177,12 +189,12 @@ impl Evaluation<'_> {
                 }
             }
             let value = self.enumerator(&name, span, at)?;
-            out.push(Token::Number(value.to_string()));
+            out.push(Token::Value(value));
         }
         Ok(())
     }
 
-    fn enumerator(&mut self, name: &str, span: Span, at: usize) -> Result<u128, Error> {
+    fn enumerator(&mut self, name: &str, span: Span, at: usize) -> Result<Integer, Error> {
         let Some(defs) = self.env.constants.get(name) else {
             let reason = if self.env.macros.contains_key(name) {
                 "is not available here"
@@ -213,11 +225,14 @@ impl Evaluation<'_> {
         self.enter(name, def.span)?;
         let value = match &def.value {
             EnumValue::Expression(text) => self.expression(def.span, text, def.span.start)?,
-            EnumValue::Successor(previous) => self
-                .enumerator(previous, def.span, def.span.start)?
-                .checked_add(1)
-                .ok_or_else(|| Error::schema(self.source, def.span, "enumerator overflow"))?,
+            EnumValue::Successor(previous) => Integer::enumerator(
+                self.enumerator(previous, def.span, def.span.start)?.value() + 1,
+                self.abi,
+            )
+            .map_err(|message| Error::schema(self.source, def.span, message))?,
         };
+        let value = Integer::enumerator(value.value(), self.abi)
+            .map_err(|message| Error::schema(self.source, def.span, message))?;
         self.visiting.pop();
         self.enum_values.insert(name.to_owned(), value);
         Ok(value)
@@ -262,6 +277,7 @@ impl Evaluation<'_> {
 }
 
 struct Parser<'a> {
+    abi: Abi,
     source: &'a Source,
     span: Span,
     tokens: Vec<Token>,
@@ -270,81 +286,66 @@ struct Parser<'a> {
 }
 
 impl Parser<'_> {
-    fn expr(&mut self) -> Result<u128, Error> {
+    fn expr(&mut self) -> Result<Integer, Error> {
         let mut value = self.term()?;
-        loop {
-            match self.peek() {
-                Some(Token::Plus) => {
-                    self.bump();
-                    let rhs = self.term()?;
-                    value = value
-                        .checked_add(rhs)
-                        .ok_or_else(|| self.error("shape-expression addition overflowed"))?;
-                }
-                Some(Token::Minus) => {
-                    self.bump();
-                    let rhs = self.term()?;
-                    value = value.checked_sub(rhs).ok_or_else(|| {
-                        self.error("shape-expression subtraction produced a negative value")
-                    })?;
-                }
-                _ => break,
-            }
+        while let Some(op) = match self.peek() {
+            Some(Token::Plus) => Some('+'),
+            Some(Token::Minus) => Some('-'),
+            _ => None,
+        } {
+            self.bump();
+            let rhs = self.term()?;
+            value = value
+                .binary(rhs, op, self.abi)
+                .map_err(|message| self.error(message))?;
         }
         Ok(value)
     }
 
-    fn term(&mut self) -> Result<u128, Error> {
+    fn term(&mut self) -> Result<Integer, Error> {
         let mut value = self.factor()?;
-        loop {
-            match self.peek() {
-                Some(Token::Star) => {
-                    self.bump();
-                    let rhs = self.factor()?;
-                    value = value
-                        .checked_mul(rhs)
-                        .ok_or_else(|| self.error("shape-expression multiplication overflowed"))?;
-                }
-                Some(Token::Slash) => {
-                    self.bump();
-                    let rhs = self.factor()?;
-                    if rhs == 0 {
-                        return Err(self.error("division by zero"));
-                    }
-                    value /= rhs;
-                }
-                Some(Token::Percent) => {
-                    self.bump();
-                    let rhs = self.factor()?;
-                    if rhs == 0 {
-                        return Err(self.error("modulo by zero"));
-                    }
-                    value %= rhs;
-                }
-                _ => break,
-            }
+        while let Some(op) = match self.peek() {
+            Some(Token::Star) => Some('*'),
+            Some(Token::Slash) => Some('/'),
+            Some(Token::Percent) => Some('%'),
+            _ => None,
+        } {
+            self.bump();
+            let rhs = self.factor()?;
+            value = value
+                .binary(rhs, op, self.abi)
+                .map_err(|message| self.error(message))?;
         }
         Ok(value)
     }
 
-    fn factor(&mut self) -> Result<u128, Error> {
-        while matches!(self.peek(), Some(Token::Plus)) {
+    fn factor(&mut self) -> Result<Integer, Error> {
+        let mut negatives = 0;
+        while matches!(self.peek(), Some(Token::Plus | Token::Minus)) {
+            negatives += usize::from(matches!(self.peek(), Some(Token::Minus)));
             self.bump();
         }
-        match self.peek() {
-            Some(Token::Minus) => {
-                Err(self.error("unary minus is not allowed in shape expressions"))
-            }
-            _ => self.primary(),
+        let mut value = self.primary()?;
+        // Apply each minus, so a double negation cannot hide signed overflow.
+        for _ in 0..negatives {
+            value = value
+                .negate(self.abi)
+                .map_err(|message| self.error(message))?;
         }
+        Ok(value)
     }
 
-    fn primary(&mut self) -> Result<u128, Error> {
+    fn primary(&mut self) -> Result<Integer, Error> {
         match self.peek() {
             Some(Token::Number(text)) => {
                 let text = text.clone();
                 self.bump();
-                parse_c_unsigned(&text).map_err(|message| self.error(message))
+                Integer::literal(&text, self.abi).map_err(|message| self.error(message))
+            }
+            Some(Token::Value(value)) => {
+                let value = *value;
+                self.bump();
+                Ok(value)
             }
             Some(Token::LParen) => {
                 self.bump();
@@ -387,6 +388,7 @@ impl Parser<'_> {
 
 #[derive(Clone, Debug)]
 enum Token {
+    Value(Integer),
     Number(String),
     Ident(String),
     Plus,
@@ -476,6 +478,7 @@ fn scan_number(bytes: &[u8], mut index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{ShapeEnv, evaluate};
+    use crate::abi::Abi;
     use crate::source::{Source, Span};
     use crate::syntax::MacroDef;
 
@@ -498,15 +501,32 @@ mod tests {
             Span::new(1, 2),
             "(CHANNEL_COUNT * 8u)",
         ));
-        assert_eq!(evaluate(&source, Span::new(10, 12), "4u", &env).unwrap(), 4);
         assert_eq!(
-            evaluate(&source, Span::new(10, 22), "SAMPLE_COUNT", &env).unwrap(),
+            evaluate(&source, Span::new(10, 12), "4u", &env, Abi::GenericLe).unwrap(),
+            4
+        );
+        assert_eq!(
+            evaluate(
+                &source,
+                Span::new(10, 22),
+                "SAMPLE_COUNT",
+                &env,
+                Abi::GenericLe
+            )
+            .unwrap(),
             32
         );
-        assert!(evaluate(&source, Span::new(10, 15), "4 - 5", &env).is_err());
-        assert!(evaluate(&source, Span::new(10, 15), "1 / 0", &env).is_err());
+        assert!(evaluate(&source, Span::new(10, 15), "4 - 5", &env, Abi::GenericLe).is_err());
+        assert!(evaluate(&source, Span::new(10, 15), "1 / 0", &env, Abi::GenericLe).is_err());
         assert_eq!(
-            evaluate(&source, Span::new(10, 20), "4u /* n */", &env).unwrap(),
+            evaluate(
+                &source,
+                Span::new(10, 20),
+                "4u /* n */",
+                &env,
+                Abi::GenericLe
+            )
+            .unwrap(),
             4
         );
     }
@@ -518,7 +538,7 @@ mod tests {
         env.insert_macro(object_macro("N", Span::new(0, 1), "1u"));
         env.insert_macro(object_macro("N", Span::new(2, 3), "2u"));
         assert!(
-            evaluate(&source, Span::new(10, 12), "N", &env)
+            evaluate(&source, Span::new(10, 12), "N", &env, Abi::GenericLe)
                 .unwrap_err()
                 .to_string()
                 .contains("duplicate")
@@ -527,7 +547,7 @@ mod tests {
         env.insert_macro(object_macro("AXIS", Span::new(0, 1), "3u"));
         env.insert_constant("AXIS".into(), 4, Span::new(2, 3));
         assert!(
-            evaluate(&source, Span::new(10, 14), "AXIS", &env)
+            evaluate(&source, Span::new(10, 14), "AXIS", &env, Abi::GenericLe)
                 .unwrap_err()
                 .to_string()
                 .contains("enumerator")
@@ -551,7 +571,8 @@ mod tests {
                 &source,
                 Span::new(1000, 1002),
                 &format!("M{}", super::MAX_MACRO_DEPTH),
-                &env
+                &env,
+                Abi::GenericLe
             )
             .unwrap_err()
             .to_string()

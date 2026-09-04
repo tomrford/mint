@@ -91,7 +91,7 @@ typedef struct {
 }
 
 #[test]
-fn leading_mint_attaches_through_intervening_comments() {
+fn comments_must_be_one_adjacent_leading_block() {
     let cases = [
         (
             "block",
@@ -126,8 +126,7 @@ typedef struct {
         ),
     ];
     for (name, source) in cases {
-        let schema = compile(source).expect(name);
-        assert_eq!(schema.layout.root_layout().size, 4, "{name}");
+        assert!(compile(source).is_err(), "{name}");
     }
 }
 
@@ -156,7 +155,7 @@ fn mint_tags_in_invalid_locations_are_rejected() {
     let fingerprint_on_typedef = compile_err(
         r#"
 #include <stdint.h>
-/// @mint fingerprint
+/** @mint fingerprint */
 typedef uint64_t id_t;
 /**
  * @mint block
@@ -175,7 +174,7 @@ typedef struct { id_t id; } config_t;
         "",
         r#"
 typedef struct {
-    /// @mint abi generic-le
+    /** @mint abi generic-le */
     uint32_t id;
 } config_t;
 "#,
@@ -189,7 +188,8 @@ typedef struct {
         r#"
 #include <stdint.h>
 typedef struct {
-    uint64_t ignored; /**< @mint fingerprint */
+    /** @mint fingerprint */
+    uint64_t ignored;
 } helper_t;
 /**
  * @mint block
@@ -399,7 +399,7 @@ fn macros_preserve_c_precedence_and_enum_declaration_context() {
         "typedef struct { uint16_t values[N * 2]; uint16_t other[NEXT]; uint16_t last[LAST]; } config_t;",
     );
     let schema = compile_header(Source::new("config.h", text)).unwrap();
-    let fields = &schema.layout.root_layout().fields;
+    let fields = &schema.layout.root_fields();
     assert_eq!(
         fields.iter().map(|f| f.size).collect::<Vec<_>>(),
         [10, 12, 16]
@@ -509,4 +509,66 @@ fn expansion_work_and_expression_nesting_are_bounded() {
         ))
         .contains("increment")
     );
+}
+
+#[test]
+fn shape_arithmetic_uses_c11_types_for_the_selected_abi() {
+    for (abi, hex_count) in [("generic-le", 2), ("ti-c28x-eabi", 1)] {
+        for (expression, expected) in [
+            ("(0xffffffffu + 1u) / 4294967296ull + 1", 1),
+            ("1 - 2 + 3", 2),
+            ("0u - 1u + 2u", 1),
+            ("((0xffffffffUL + 2LL) % 5) + 1", 3),
+            ("((0x8000 * 2) % 5) + 1", hex_count),
+            ("-5 / 2 + 3", 1),
+            ("-5 % 2 + 3", 2),
+            ("0xffffffffffffffffULL * 0xffffffffffffffffULL", 1),
+            ("(-1 + 0u) % 5 + 1", 1),
+            ("(0x80000000L + -1LL) % 5 + 1", 3),
+        ] {
+            let source = mint_block(
+                "",
+                &format!("typedef struct {{ uint16_t x[{expression}]; }} config_t;"),
+            )
+            .replace("generic-le", abi);
+            let schema =
+                compile(&source).unwrap_or_else(|error| panic!("{abi}: {expression}: {error}"));
+            assert_eq!(
+                schema.layout.root_fields()[0].size,
+                expected * 2,
+                "{abi}: {expression}"
+            );
+        }
+        for expression in [
+            "2147483647L + 1L",
+            "(-9223372036854775807LL - 1LL) / -1",
+            "(-9223372036854775807LL - 1LL) % -1",
+            "1 / 0u",
+            "1 % 0",
+            "18446744073709551615",
+            "18446744073709551616ULL",
+            "1lL",
+            "1Ll",
+            "- -(-9223372036854775807LL - 1LL)",
+        ] {
+            let source = mint_block(
+                "",
+                &format!("typedef struct {{ uint16_t x[{expression}]; }} config_t;"),
+            )
+            .replace("generic-le", abi);
+            assert!(compile(&source).is_err(), "{abi}: {expression}");
+        }
+        let source = mint_block(
+            "enum { NEG = -2, NEXT, COUNT = NEXT + 4 };",
+            "typedef struct { uint16_t x[COUNT]; } config_t;",
+        )
+        .replace("generic-le", abi);
+        assert_eq!(compile(&source).unwrap().layout.root_fields()[0].size, 6);
+        let source = mint_block(
+            "enum { COUNT = 32768 };",
+            "typedef struct { uint16_t x[COUNT % 3 + 1]; } config_t;",
+        )
+        .replace("generic-le", abi);
+        assert_eq!(compile(&source).is_ok(), abi == "generic-le");
+    }
 }

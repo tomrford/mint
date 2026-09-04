@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::abi::{Abi, Scalar, ScalarAbi};
+use crate::abi::{Abi, Scalar};
 use crate::diagnostic::{Category, Error};
 use crate::source::{Source, Span};
 use crate::types::{MAX_RESOLVED_SIZE, SchemaTypes, TypeId, TypeKind};
@@ -12,7 +12,6 @@ pub struct ResolvedLayout {
     pub start_address_span: Span,
     pub padding: u8,
     pub root: TypeId,
-    pub types: Vec<TypeKind>,
     pub layouts: Vec<TypeLayout>,
     pub octet_start: u32,
     pub padding_ranges: Vec<PaddingRange>,
@@ -22,9 +21,14 @@ pub struct ResolvedLayout {
 pub struct TypeLayout {
     pub size: usize,
     pub alignment: usize,
-    pub fields: Vec<FieldLayout>,
-    pub array: Option<ArrayLayout>,
-    pub scalar: Option<(Scalar, ScalarAbi)>,
+    pub kind: LayoutKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum LayoutKind {
+    Scalar(Scalar),
+    Record(Vec<FieldLayout>),
+    Array(ArrayLayout),
 }
 
 #[derive(Clone, Debug)]
@@ -83,19 +87,11 @@ impl PaddingRange {
 }
 
 pub fn resolve(schema: SchemaTypes, source: &Source) -> Result<ResolvedLayout, Error> {
-    let mut layouts = vec![
-        TypeLayout {
-            size: 0,
-            alignment: 1,
-            fields: Vec::new(),
-            array: None,
-            scalar: None,
-        };
-        schema.types.len()
-    ];
-    layout_type(&schema, source, schema.root, &mut layouts)?;
-    let mut padding_ranges = Vec::new();
-    collect_padding(&schema, &layouts, schema.root, 0, "", &mut padding_ranges);
+    // Type resolution inserts children before parents. Each node is laid out once.
+    let mut layouts = Vec::with_capacity(schema.types.len());
+    for kind in &schema.types {
+        layouts.push(layout_type(&schema, source, kind, &layouts)?);
+    }
     let root_layout = &layouts[schema.root.0];
     if root_layout.size > MAX_RESOLVED_SIZE {
         return Err(fail(
@@ -148,6 +144,8 @@ pub fn resolve(schema: SchemaTypes, source: &Source) -> Result<ResolvedLayout, E
             ),
         ));
     }
+    let mut padding_ranges = Vec::new();
+    collect_padding(&layouts, schema.root, 0, "", &mut padding_ranges);
     padding_ranges.sort_by_key(|range| range.offset);
     Ok(ResolvedLayout {
         abi: schema.abi,
@@ -155,7 +153,6 @@ pub fn resolve(schema: SchemaTypes, source: &Source) -> Result<ResolvedLayout, E
         start_address_span: schema.start_address_span,
         padding: schema.padding,
         root: schema.root,
-        types: schema.types,
         layouts,
         octet_start,
         padding_ranges,
@@ -184,26 +181,21 @@ fn octet_start_address(
 fn layout_type(
     schema: &SchemaTypes,
     source: &Source,
-    id: TypeId,
-    layouts: &mut [TypeLayout],
-) -> Result<(), Error> {
-    if layouts[id.0].size != 0 || layouts[id.0].scalar.is_some() {
-        return Ok(());
-    }
-    match &schema.types[id.0] {
+    kind: &TypeKind,
+    layouts: &[TypeLayout],
+) -> Result<TypeLayout, Error> {
+    Ok(match kind {
         TypeKind::Scalar { scalar } => {
             let scalar = *scalar;
             let scalar_abi = schema
                 .abi
                 .scalar(scalar)
                 .map_err(|message| fail(source, Category::Schema, schema.root_span, message))?;
-            layouts[id.0] = TypeLayout {
+            TypeLayout {
                 size: scalar_abi.storage_size,
                 alignment: scalar_abi.alignment,
-                fields: Vec::new(),
-                array: None,
-                scalar: Some((scalar, scalar_abi)),
-            };
+                kind: LayoutKind::Scalar(scalar),
+            }
         }
         TypeKind::Array {
             element,
@@ -211,7 +203,6 @@ fn layout_type(
         } => {
             let element = *element;
             let dimensions = dimensions.clone();
-            layout_type(schema, source, element, layouts)?;
             let stride = layouts[element.0].size;
             let alignment = layouts[element.0].alignment;
             let mut count = 1u64;
@@ -236,24 +227,18 @@ fn layout_type(
                         "array byte count overflow",
                     )
                 })?;
-            layouts[id.0] = TypeLayout {
+            TypeLayout {
                 size,
                 alignment,
-                fields: Vec::new(),
-                array: Some(ArrayLayout {
+                kind: LayoutKind::Array(ArrayLayout {
                     element,
                     dimensions,
                     count,
                     stride,
                 }),
-                scalar: None,
-            };
+            }
         }
         TypeKind::Record { fields } => {
-            let child_ids: Vec<TypeId> = fields.iter().map(|field| field.type_id).collect();
-            for child_id in child_ids {
-                layout_type(schema, source, child_id, layouts)?;
-            }
             let mut field_layouts = Vec::new();
             let mut cursor = 0usize;
             let mut alignment = 1usize;
@@ -292,31 +277,27 @@ fn layout_type(
                     )
                 })?,
             };
-            layouts[id.0] = TypeLayout {
+            TypeLayout {
                 size,
                 alignment,
-                fields: field_layouts,
-                array: None,
-                scalar: None,
-            };
+                kind: LayoutKind::Record(field_layouts),
+            }
         }
-    }
-    Ok(())
+    })
 }
 
 fn collect_padding(
-    schema: &SchemaTypes,
     layouts: &[TypeLayout],
     id: TypeId,
     base: usize,
     path: &str,
     padding: &mut Vec<PaddingRange>,
 ) {
-    match &schema.types[id.0] {
-        TypeKind::Record { .. } => {
+    match &layouts[id.0].kind {
+        LayoutKind::Record(fields) => {
             let layout = &layouts[id.0];
             let mut cursor = 0usize;
-            for field in &layout.fields {
+            for field in fields {
                 if field.offset > cursor {
                     padding.push(PaddingRange {
                         offset: base + cursor,
@@ -326,7 +307,6 @@ fn collect_padding(
                     });
                 }
                 collect_padding(
-                    schema,
                     layouts,
                     field.type_id,
                     base + field.offset,
@@ -344,22 +324,11 @@ fn collect_padding(
                 });
             }
         }
-        TypeKind::Array { .. } => {
-            let layout = &layouts[id.0];
-            let Some(array) = &layout.array else {
-                return;
-            };
+        LayoutKind::Array(array) => {
             let count = array.count;
             // One element prototype plus a compact repeat; never walk each index.
             let mut proto = Vec::new();
-            collect_padding(
-                schema,
-                layouts,
-                array.element,
-                0,
-                &array_path(path),
-                &mut proto,
-            );
+            collect_padding(layouts, array.element, 0, &array_path(path), &mut proto);
             for mut range in proto {
                 range.offset = base.saturating_add(range.offset);
                 if count > 1 {
@@ -371,7 +340,7 @@ fn collect_padding(
                 padding.push(range);
             }
         }
-        TypeKind::Scalar { .. } => {}
+        LayoutKind::Scalar(_) => {}
     }
 }
 
@@ -409,6 +378,13 @@ fn fail(source: &Source, category: Category, span: Span, message: impl Into<Stri
 impl ResolvedLayout {
     pub fn root_layout(&self) -> &TypeLayout {
         &self.layouts[self.root.0]
+    }
+
+    pub fn root_fields(&self) -> &[FieldLayout] {
+        let LayoutKind::Record(fields) = &self.root_layout().kind else {
+            unreachable!("type resolution requires a record root");
+        };
+        fields
     }
 
     pub fn padding_octets(&self) -> usize {

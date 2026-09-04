@@ -25,6 +25,7 @@ mod types;
 
 pub use diagnostic::{Category, Diagnostic, Error};
 pub use inspect::InspectFormat;
+pub use layout::{ArrayLayout, FieldLayout, LayoutKind, ResolvedLayout, TypeLayout};
 pub use source::Source;
 
 #[derive(Clone, Debug)]
