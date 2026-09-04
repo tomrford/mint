@@ -1,6 +1,6 @@
 use crate::abi::Endianness;
-use crate::layout::ResolvedLayout;
-use crate::types::{TypeId, TypeKind};
+use crate::layout::{LayoutKind, ResolvedLayout};
+use crate::types::TypeId;
 
 const HASH_CONTEXT: &str = "mint neo block ABI fingerprint v1";
 
@@ -20,35 +20,33 @@ pub fn calculate(layout: &ResolvedLayout) -> u64 {
 
 fn hash_type(layout: &ResolvedLayout, id: TypeId, hasher: &mut blake3::Hasher) {
     let resolved = &layout.layouts[id.0];
-    match &layout.types[id.0] {
-        TypeKind::Scalar { scalar } => {
+    match &resolved.kind {
+        LayoutKind::Scalar(scalar) => {
             hasher.update(&[0]);
             hasher.update(&[scalar.hash_tag()]);
             hash_u64(resolved.size as u64, hasher);
             hash_u64(resolved.alignment as u64, hasher);
-            if let Some((_, scalar_abi)) = resolved.scalar {
-                hash_u64(scalar_abi.storage_size as u64, hasher);
-                hash_u64(scalar_abi.alignment as u64, hasher);
-                hash_u64(scalar_abi.array_stride as u64, hasher);
-            }
+            hash_u64(resolved.size as u64, hasher);
+            hash_u64(resolved.alignment as u64, hasher);
+            hash_u64(resolved.size as u64, hasher);
         }
-        TypeKind::Record { .. } => {
+        LayoutKind::Record(fields) => {
             hasher.update(&[1]);
             hash_u64(resolved.size as u64, hasher);
             hash_u64(resolved.alignment as u64, hasher);
-            hash_u64(resolved.fields.len() as u64, hasher);
-            for field in &resolved.fields {
+            hash_u64(fields.len() as u64, hasher);
+            for field in fields {
                 hash_u64(field.offset as u64, hasher);
                 hash_u64(field.size as u64, hasher);
                 hash_u64(field.alignment as u64, hasher);
                 hash_type(layout, field.type_id, hasher);
             }
         }
-        TypeKind::Array { .. } => {
+        LayoutKind::Array(array) => {
             hasher.update(&[2]);
             hash_u64(resolved.size as u64, hasher);
             hash_u64(resolved.alignment as u64, hasher);
-            if let Some(array) = &resolved.array {
+            {
                 hash_u64(array.dimensions.len() as u64, hasher);
                 for dim in &array.dimensions {
                     hash_u64(*dim, hasher);

@@ -3,15 +3,11 @@ use std::collections::{HashMap, HashSet};
 use tree_sitter::Node;
 
 use crate::abi::{Abi, Scalar};
-use crate::annotation::{
-    CommentKind, MintTags, attach_leading, attach_trailing, group_comments, parse_comment,
-};
+use crate::annotation::{MintTags, parse_comment};
 use crate::constants::{EnumConstant, EnumValue, ShapeEnv, evaluate};
 use crate::diagnostic::Error;
 use crate::source::Span;
-use crate::syntax::{
-    Comment, ParsedFile, collect_comments_and_macros, descendants, file_scope_nodes,
-};
+use crate::syntax::{ParsedFile, collect_macros, descendants, file_scope_nodes};
 
 pub const MAX_RECORD_DEPTH: usize = 128;
 pub const MAX_TYPEDEF_DEPTH: usize = 128;
@@ -56,8 +52,8 @@ pub struct SchemaTypes {
 }
 
 pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
-    let (comments, macros) = collect_comments_and_macros(parsed)?;
-    let attachments = collect_attachments(parsed, comments)?;
+    let macros = collect_macros(parsed)?;
+    let attachments = collect_attachments(parsed)?;
     let mut env = ShapeEnv::new();
     for macro_def in macros {
         env.insert_macro(macro_def);
@@ -123,105 +119,42 @@ struct RootDecl<'tree> {
     tags: MintTags,
 }
 
-fn collect_attachments(
-    parsed: &ParsedFile<'_>,
-    comments: Vec<Comment<'_>>,
-) -> Result<HashMap<usize, MintTags>, Error> {
-    let raw: Vec<(Span, &str)> = comments
+fn collect_attachments(parsed: &ParsedFile<'_>) -> Result<HashMap<usize, MintTags>, Error> {
+    let mut attachments = HashMap::new();
+    for comment in descendants(parsed.root(), true)
         .into_iter()
-        .map(|Comment { span, text }| (span, text))
-        .collect();
-    let grouped = group_comments(parsed.source, &raw);
-    let mut mint_comments = Vec::new();
-    for comment in &grouped {
-        if let Some(tags) = parse_comment(parsed.source, comment)? {
-            mint_comments.push(tags);
-        }
-    }
-
-    let mut targets = Vec::new();
-    collect_targets(parsed.root(), &mut targets);
-    let mut attachments: HashMap<usize, MintTags> = HashMap::new();
-    for tags in mint_comments {
-        let kind = tags.kind;
-        let attached = match kind {
-            Some(CommentKind::Trailing) => targets.iter().find(|target| {
-                target.kind == TargetKind::Field
-                    && attach_trailing(parsed.source, target.semicolon, tags.span.start)
-            }),
-            Some(CommentKind::Leading) => targets
-                .iter()
-                .filter(|target| target.span.start >= tags.span.end)
-                .min_by_key(|target| target.span.start)
-                .filter(|target| attach_leading(parsed.source, tags.span.end, target.span.start)),
-            None => None,
+        .filter(|node| node.kind() == "comment")
+    {
+        let Some(tags) = parse_comment(
+            parsed.source,
+            ParsedFile::span(comment),
+            parsed.text(comment),
+        )?
+        else {
+            continue;
         };
-        let Some(target) = attached else {
+        let target = comment.next_named_sibling().filter(|node| {
+            matches!(node.kind(), "type_definition" | "declaration" | "field_declaration")
+                && parsed.source.only_whitespace(comment.end_byte(), node.start_byte())
+                && !parsed.source.has_blank_line(comment.end_byte(), node.start_byte())
+        }).ok_or_else(|| schema(parsed, tags.span, "@mint comment does not attach to a declaration; place one /** ... */ comment immediately before it"))?;
+        if tags.has_block_metadata() && target.kind() != "type_definition" {
             return Err(schema(
                 parsed,
                 tags.span,
-                "@mint comment does not attach to a declaration",
+                "block metadata may appear only on the root record",
             ));
-        };
-        reject_invalid_location(parsed, target, &tags)?;
-        let span = tags.span;
-        let entry = attachments.entry(target.span.start).or_default();
-        if let Err(tag) = entry.merge(tags) {
-            return Err(schema(parsed, span, format!("duplicate @mint {tag} tag")));
         }
+        if tags.fingerprint.is_some() && target.kind() != "field_declaration" {
+            return Err(schema(
+                parsed,
+                tags.span,
+                "@mint fingerprint is only valid on a root member",
+            ));
+        }
+        attachments.insert(target.start_byte(), tags);
     }
     Ok(attachments)
-}
-
-fn reject_invalid_location(
-    parsed: &ParsedFile<'_>,
-    target: &Target,
-    tags: &MintTags,
-) -> Result<(), Error> {
-    if tags.has_block_metadata() && target.kind != TargetKind::Typedef {
-        return Err(schema(
-            parsed,
-            tags.span,
-            "block metadata may appear only on the root record",
-        ));
-    }
-    if tags.fingerprint.is_some() && target.kind != TargetKind::Field {
-        return Err(schema(
-            parsed,
-            tags.span,
-            "@mint fingerprint is only valid on a root member",
-        ));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TargetKind {
-    Typedef,
-    Declaration,
-    Field,
-}
-
-struct Target {
-    span: Span,
-    semicolon: usize,
-    kind: TargetKind,
-}
-
-fn collect_targets(root: Node<'_>, targets: &mut Vec<Target>) {
-    for node in descendants(root, true) {
-        let kind = match node.kind() {
-            "type_definition" => TargetKind::Typedef,
-            "declaration" => TargetKind::Declaration,
-            "field_declaration" => TargetKind::Field,
-            _ => continue,
-        };
-        targets.push(Target {
-            span: ParsedFile::span(node),
-            semicolon: node.end_byte().saturating_sub(1),
-            kind,
-        });
-    }
 }
 
 fn find_root<'tree>(
@@ -727,6 +660,7 @@ impl<'a> Resolver<'a> {
                     ParsedFile::span(size),
                     self.parsed.text(size),
                     &self.env,
+                    self.abi,
                 )?);
                 Ok(())
             }

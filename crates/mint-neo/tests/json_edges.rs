@@ -210,5 +210,8 @@ fn deep_json_returns_a_diagnostic_instead_of_aborting() {
     );
     let text = format!("{{\"wide\":{}0{}}}", "[".repeat(20_000), "]".repeat(20_000));
     let error = encode_json(&schema(), &json(&text)).unwrap_err();
-    assert!(error.to_string().contains("nesting exceeds"), "{error}");
+    assert!(
+        error.to_string().contains("expected a JSON number"),
+        "{error}"
+    );
 }

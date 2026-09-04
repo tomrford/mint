@@ -37,7 +37,7 @@ pub fn parse_c_unsigned(text: &str) -> Result<u128, String> {
         .map_err(|_| format!("integer '{text}' is out of range"))
 }
 
-fn split_integer_suffix(text: &str) -> Result<(&str, &str), String> {
+pub(crate) fn split_integer_suffix(text: &str) -> Result<(&str, &str), String> {
     let bytes = text.as_bytes();
     let mut index = bytes.len();
     while index > 0 {
@@ -54,6 +54,9 @@ fn split_integer_suffix(text: &str) -> Result<(&str, &str), String> {
 }
 
 fn valid_integer_suffix(suffix: &str) -> bool {
+    if suffix.contains("lL") || suffix.contains("Ll") {
+        return false;
+    }
     let lower = suffix.to_ascii_lowercase();
     matches!(
         lower.as_str(),

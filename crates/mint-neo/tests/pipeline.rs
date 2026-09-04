@@ -73,7 +73,8 @@ fn rejects_missing_and_extra_json_and_fingerprint_presence() {
  * @mint start-address 0
  */
 typedef struct {
-    uint64_t fingerprint; /**< @mint fingerprint */
+    /** @mint fingerprint */
+    uint64_t fingerprint;
     uint32_t id;
 } config_t;
 "#,
@@ -387,14 +388,16 @@ typedef struct {
 }
 
 #[test]
-fn slash_slash_slash_block_tags_and_shape_enums() {
+fn block_tags_and_shape_enums() {
     let schema = compile_header(header(
         r#"
 #include <stdint.h>
 typedef enum { AXIS_COUNT = 3 } dimensions_t;
-/// @mint block
-/// @mint abi generic-le
-/// @mint start-address 0
+/**
+ * @mint block
+ * @mint abi generic-le
+ * @mint start-address 0
+ */
 typedef struct {
     int16_t axes[AXIS_COUNT];
 } config_t;
