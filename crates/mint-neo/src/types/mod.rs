@@ -6,10 +6,12 @@ use crate::abi::{Abi, Scalar};
 use crate::annotation::{
     CommentKind, MintTags, attach_leading, attach_trailing, group_comments, parse_comment,
 };
-use crate::constants::{ShapeEnv, evaluate, evaluate_any};
+use crate::constants::{EnumConstant, EnumValue, ShapeEnv, evaluate};
 use crate::diagnostic::Error;
 use crate::source::Span;
-use crate::syntax::{Comment, ParsedFile, collect_comments_and_macros, descendants};
+use crate::syntax::{
+    Comment, ParsedFile, collect_comments_and_macros, descendants, file_scope_nodes,
+};
 
 pub const MAX_RECORD_DEPTH: usize = 128;
 pub const MAX_TYPEDEF_DEPTH: usize = 128;
@@ -93,11 +95,11 @@ pub fn compile_types(parsed: &ParsedFile<'_>) -> Result<SchemaTypes, Error> {
         env,
         abi,
         types: Vec::new(),
+        record_heights: Vec::new(),
         memo: HashMap::new(),
         typedefs: HashMap::new(),
         struct_defs: HashMap::new(),
         visiting: HashMap::new(),
-        typedef_depth: 0,
     };
     resolver.walk_index(parsed.root())?;
     let root_id = resolver.resolve_root(root.node)?;
@@ -253,6 +255,16 @@ fn find_root<'tree>(
                 "exactly one @mint block typedef is allowed",
             ));
         }
+        if child
+            .parent()
+            .is_none_or(|parent| parent.kind() != "translation_unit")
+        {
+            return Err(schema(
+                parsed,
+                ParsedFile::span(child),
+                "the root typedef must be at file scope",
+            ));
+        }
         let declarators = field_nodes(child, "declarator");
         if declarators.len() != 1 {
             return Err(schema(
@@ -284,11 +296,11 @@ struct Resolver<'a> {
     env: ShapeEnv,
     abi: Abi,
     types: Vec<TypeKind>,
+    record_heights: Vec<usize>,
     memo: HashMap<usize, TypeId>,
     typedefs: HashMap<String, TypedefDef<'a>>,
     struct_defs: HashMap<String, Node<'a>>,
     visiting: HashMap<usize, Span>,
-    typedef_depth: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -299,14 +311,12 @@ struct TypedefDef<'a> {
 
 impl<'a> Resolver<'a> {
     fn walk_index(&mut self, node: Node<'a>) -> Result<(), Error> {
-        match node.kind() {
-            "type_definition" => self.index_typedef(node)?,
-            "struct_specifier" => self.register_struct_tag(node)?,
-            _ => {}
-        }
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            self.walk_index(child)?;
+        for node in file_scope_nodes(node) {
+            match node.kind() {
+                "type_definition" => self.index_typedef(node)?,
+                "struct_specifier" => self.register_struct_tag(node)?,
+                _ => {}
+            }
         }
         Ok(())
     }
@@ -382,106 +392,100 @@ impl<'a> Resolver<'a> {
 
     fn resolve_spec(
         &mut self,
-        spec: Node<'a>,
+        mut spec: Node<'a>,
         depth: usize,
         complete_at: usize,
     ) -> Result<TypeId, Error> {
-        self.reject_unsupported_on(spec)?;
-        if let Some(id) = self.memo.get(&spec.start_byte()).copied() {
-            return Ok(id);
-        }
-        match spec.kind() {
-            "primitive_type" | "type_identifier" => {
-                let name = self.parsed.text(spec);
-                if let Some(scalar) = resolve_builtin(name, self.abi)
-                    .map_err(|message| schema(self.parsed, ParsedFile::span(spec), message))?
-                {
-                    self.abi
-                        .scalar(scalar)
+        // Follow aliases iteratively. Record recursion does not consume the
+        // alias-chain budget, and cached records retain their structural height.
+        let mut aliases = Vec::new();
+        let mut type_id = loop {
+            self.reject_unsupported_on(spec)?;
+            if let Some(id) = self.memo.get(&spec.start_byte()).copied() {
+                break self.check_record_depth(id, depth, ParsedFile::span(spec))?;
+            }
+            match spec.kind() {
+                "primitive_type" | "type_identifier" => {
+                    let name = self.parsed.text(spec);
+                    let builtin = resolve_builtin(name)
                         .map_err(|message| schema(self.parsed, ParsedFile::span(spec), message))?;
-                    return Ok(self.push(TypeKind::Scalar { scalar }));
-                }
-                if let Some(typedef) = self.typedefs.get(name).copied() {
-                    if typedef.node.end_byte() > spec.start_byte() {
+                    let def = self.typedefs.get(name).copied();
+                    if let Some(scalar) = builtin
+                        && def.is_none_or(|def| def.node.end_byte() > spec.start_byte())
+                    {
+                        self.abi.scalar(scalar).map_err(|message| {
+                            schema(self.parsed, ParsedFile::span(spec), message)
+                        })?;
+                        break self.push(TypeKind::Scalar { scalar });
+                    }
+                    let def = def.ok_or_else(|| {
+                        schema(
+                            self.parsed,
+                            ParsedFile::span(spec),
+                            format!("unknown type '{name}'"),
+                        )
+                    })?;
+                    if def.node.end_byte() > spec.start_byte() {
                         return Err(schema(
                             self.parsed,
                             ParsedFile::span(spec),
                             format!("type '{name}' is not declared before this use"),
                         )
-                        .related(ParsedFile::span(typedef.node), "declaration appears later"));
+                        .related(ParsedFile::span(def.node), "declaration appears later"));
                     }
-                    return self.resolve_typedef_def(typedef, depth, complete_at);
+                    if aliases.len() >= MAX_TYPEDEF_DEPTH {
+                        return Err(schema(
+                            self.parsed,
+                            ParsedFile::span(def.node),
+                            "typedef alias chain exceeds 128 levels",
+                        ));
+                    }
+                    self.reject_unsupported_on(def.node)?;
+                    aliases.push((def, builtin));
+                    spec = def.node.child_by_field_name("type").ok_or_else(|| {
+                        schema(
+                            self.parsed,
+                            ParsedFile::span(def.node),
+                            "typedef is missing a type",
+                        )
+                    })?;
                 }
-                Err(schema(
-                    self.parsed,
-                    ParsedFile::span(spec),
-                    format!("unknown type '{name}'"),
-                ))
+                "struct_specifier" => break self.resolve_struct(spec, depth, complete_at)?,
+                "enum_specifier" => {
+                    return Err(schema(
+                        self.parsed,
+                        ParsedFile::span(spec),
+                        "enum-typed members are not supported",
+                    ));
+                }
+                "union_specifier" => {
+                    return Err(schema(
+                        self.parsed,
+                        ParsedFile::span(spec),
+                        "unions are not supported in reachable types",
+                    ));
+                }
+                _ => {
+                    return Err(schema(
+                        self.parsed,
+                        ParsedFile::span(spec),
+                        format!("unsupported type spelling '{}'", self.parsed.text(spec)),
+                    ));
+                }
             }
-            "struct_specifier" => self.resolve_struct(spec, depth, complete_at),
-            "enum_specifier" => Err(schema(
-                self.parsed,
-                ParsedFile::span(spec),
-                "enum-typed members are not supported",
-            )),
-            "union_specifier" => Err(schema(
-                self.parsed,
-                ParsedFile::span(spec),
-                "unions are not supported in reachable types",
-            )),
-            "sized_type_specifier" | "macro_type_specifier" => Err(schema(
-                self.parsed,
-                ParsedFile::span(spec),
-                format!("unsupported type spelling '{}'", self.parsed.text(spec)),
-            )),
-            other => Err(schema(
-                self.parsed,
-                ParsedFile::span(spec),
-                format!("unsupported type specifier '{other}'"),
-            )),
+        };
+        for (def, builtin) in aliases.into_iter().rev() {
+            type_id = self.apply_declarator(type_id, def.declarator)?;
+            if let Some(expected) = builtin
+                && !matches!(self.types[type_id.0], TypeKind::Scalar { scalar } if scalar == expected)
+            {
+                return Err(schema(
+                    self.parsed,
+                    ParsedFile::span(def.node),
+                    "typedef conflicts with its built-in scalar representation",
+                ));
+            }
         }
-    }
-
-    fn resolve_typedef_def(
-        &mut self,
-        def: TypedefDef<'a>,
-        depth: usize,
-        complete_at: usize,
-    ) -> Result<TypeId, Error> {
-        let key = def.declarator.start_byte();
-        if let Some(id) = self.memo.get(&key).copied() {
-            return Ok(id);
-        }
-        self.reject_unsupported_on(def.node)?;
-        if self.typedef_depth >= MAX_TYPEDEF_DEPTH {
-            return Err(schema(
-                self.parsed,
-                ParsedFile::span(def.node),
-                format!("typedef alias chain exceeds {MAX_TYPEDEF_DEPTH} levels"),
-            ));
-        }
-        if self
-            .visiting
-            .insert(key, ParsedFile::span(def.node))
-            .is_some()
-        {
-            return self.cycle_error();
-        }
-        let spec = def.node.child_by_field_name("type").ok_or_else(|| {
-            schema(
-                self.parsed,
-                ParsedFile::span(def.node),
-                "typedef is missing a type",
-            )
-        })?;
-        self.typedef_depth += 1;
-        let resolved = self
-            .resolve_spec(spec, depth, complete_at)
-            .and_then(|type_id| self.apply_declarator(type_id, def.declarator));
-        self.typedef_depth -= 1;
-        self.visiting.remove(&key);
-        let type_id = resolved?;
-        self.memo.insert(key, type_id);
         Ok(type_id)
     }
 
@@ -491,7 +495,7 @@ impl<'a> Resolver<'a> {
         depth: usize,
         complete_at: usize,
     ) -> Result<TypeId, Error> {
-        if depth > MAX_RECORD_DEPTH {
+        if depth >= MAX_RECORD_DEPTH {
             return Err(schema(
                 self.parsed,
                 ParsedFile::span(spec),
@@ -499,7 +503,7 @@ impl<'a> Resolver<'a> {
             ));
         }
         if let Some(id) = self.memo.get(&spec.start_byte()).copied() {
-            return Ok(id);
+            return self.check_record_depth(id, depth, ParsedFile::span(spec));
         }
         let body = if let Some(body) = spec.child_by_field_name("body") {
             self.reject_unsupported_on(spec)?;
@@ -690,8 +694,11 @@ impl<'a> Resolver<'a> {
     }
 
     fn walk_declarator(&self, node: Node<'a>, dims: &mut Vec<u64>) -> Result<(), Error> {
+        self.env
+            .reject_macro_use(self.parsed.source, ParsedFile::span(node))?;
         match node.kind() {
             "identifier" | "field_identifier" | "type_identifier" => Ok(()),
+            "primitive_type" if self.parsed.text(node).ends_with("_t") => Ok(()),
             "array_declarator" => {
                 let inner = node.child_by_field_name("declarator").ok_or_else(|| {
                     schema(
@@ -752,8 +759,31 @@ impl<'a> Resolver<'a> {
 
     fn push(&mut self, kind: TypeKind) -> TypeId {
         let id = TypeId(self.types.len());
+        let height = match &kind {
+            TypeKind::Scalar { .. } => 0,
+            TypeKind::Array { element, .. } => self.record_heights[element.0],
+            TypeKind::Record { fields } => {
+                1 + fields
+                    .iter()
+                    .map(|field| self.record_heights[field.type_id.0])
+                    .max()
+                    .unwrap_or(0)
+            }
+        };
+        self.record_heights.push(height);
         self.types.push(kind);
         id
+    }
+
+    fn check_record_depth(&self, id: TypeId, depth: usize, span: Span) -> Result<TypeId, Error> {
+        if depth + self.record_heights[id.0] > MAX_RECORD_DEPTH {
+            return Err(schema(
+                self.parsed,
+                span,
+                "record nesting exceeds 128 levels",
+            ));
+        }
+        Ok(id)
     }
 
     fn spelling(&self, spec: Node<'_>, declarator: Node<'_>) -> String {
@@ -765,8 +795,12 @@ impl<'a> Resolver<'a> {
     }
 
     fn reject_unsupported_on(&self, node: Node<'_>) -> Result<(), Error> {
+        self.env
+            .reject_macro_use(self.parsed.source, ParsedFile::span(node))?;
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
+            self.env
+                .reject_macro_use(self.parsed.source, ParsedFile::span(child))?;
             match child.kind() {
                 "attribute_specifier"
                 | "attribute_declaration"
@@ -921,6 +955,9 @@ fn declarator_name(parsed: &ParsedFile<'_>, node: Node<'_>) -> Result<String, Er
             "identifier" | "field_identifier" | "type_identifier" => {
                 return Ok(parsed.text(current).to_owned());
             }
+            "primitive_type" if parsed.text(current).ends_with("_t") => {
+                return Ok(parsed.text(current).to_owned());
+            }
             "array_declarator"
             | "pointer_declarator"
             | "function_declarator"
@@ -953,7 +990,7 @@ fn declarator_name(parsed: &ParsedFile<'_>, node: Node<'_>) -> Result<String, Er
     }
 }
 
-fn resolve_builtin(name: &str, abi: Abi) -> Result<Option<Scalar>, String> {
+fn resolve_builtin(name: &str) -> Result<Option<Scalar>, String> {
     Ok(Some(match name {
         "uint8_t" => Scalar::U8,
         "uint16_t" => Scalar::U16,
@@ -965,24 +1002,8 @@ fn resolve_builtin(name: &str, abi: Abi) -> Result<Option<Scalar>, String> {
         "int64_t" => Scalar::I64,
         "float32_t" => Scalar::F32,
         "float64_t" => Scalar::F64,
-        "float" => {
-            if abi.guarantees_ieee() {
-                Scalar::F32
-            } else {
-                return Err(
-                    "C float is not an IEEE-754 binary32 type on this ABI; use float32_t".into(),
-                );
-            }
-        }
-        "double" => {
-            if abi.guarantees_ieee() {
-                Scalar::F64
-            } else {
-                return Err(
-                    "C double is not an IEEE-754 binary64 type on this ABI; use float64_t".into(),
-                );
-            }
-        }
+        "float" => Scalar::F32,
+        "double" => Scalar::F64,
         "_Bool" | "bool" | "char" | "short" | "int" | "long" | "size_t" => {
             return Err(format!("scalar type '{name}' is not supported"));
         }
@@ -991,22 +1012,19 @@ fn resolve_builtin(name: &str, abi: Abi) -> Result<Option<Scalar>, String> {
 }
 
 fn collect_enum_constants(parsed: &ParsedFile<'_>, env: &mut ShapeEnv) -> Result<(), Error> {
-    let mut enums = Vec::new();
-    for node in descendants(parsed.root(), true) {
-        if node.kind() == "enum_specifier"
-            && let Some(body) = node.child_by_field_name("body")
-        {
-            enums.push(body);
+    for node in file_scope_nodes(parsed.root()) {
+        if node.kind() != "enum_specifier" {
+            continue;
         }
-    }
-    enums.sort_by_key(|node| node.start_byte());
-    for body in enums {
-        let mut next = 0u128;
+        let Some(body) = node.child_by_field_name("body") else {
+            continue;
+        };
+        let mut previous = None;
         let mut cursor = body.walk();
-        for child in body.named_children(&mut cursor) {
-            if child.kind() != "enumerator" {
-                continue;
-            }
+        for child in body
+            .named_children(&mut cursor)
+            .filter(|node| node.kind() == "enumerator")
+        {
             let name = child.child_by_field_name("name").ok_or_else(|| {
                 schema(
                     parsed,
@@ -1014,32 +1032,21 @@ fn collect_enum_constants(parsed: &ParsedFile<'_>, env: &mut ShapeEnv) -> Result
                     "enumerator is missing a name",
                 )
             })?;
-            let value = if let Some(expr) = child.child_by_field_name("value") {
-                evaluate_any(
-                    parsed.source,
-                    ParsedFile::span(expr),
-                    parsed.text(expr),
-                    env,
-                )?
-            } else {
-                next
+            let value = match child.child_by_field_name("value") {
+                Some(expr) => EnumValue::Expression(parsed.text(expr).to_owned()),
+                None => match previous {
+                    Some(name) => EnumValue::Successor(name),
+                    None => EnumValue::Expression("0".to_owned()),
+                },
             };
-            let stored = u64::try_from(value).map_err(|_| {
-                schema(
-                    parsed,
-                    ParsedFile::span(child),
-                    "enumerator value does not fit u64",
-                )
-            })?;
-            let name_text = parsed.text(name);
             let span = ParsedFile::span(name);
-            if let Some(previous) = env.insert_constant(name_text.to_owned(), stored, span) {
-                return Err(
-                    schema(parsed, span, format!("duplicate enumerator '{name_text}'"))
-                        .related(previous, "previous enumerator is here"),
-                );
-            }
-            next = value.saturating_add(1);
+            let name = parsed.text(name).to_owned();
+            env.insert_enum(EnumConstant {
+                name: name.clone(),
+                span,
+                value,
+            });
+            previous = Some(name);
         }
     }
     Ok(())

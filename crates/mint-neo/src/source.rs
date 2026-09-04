@@ -54,18 +54,10 @@ impl Source {
         Ok(Self::new(path.display().to_string(), text))
     }
 
-    pub(crate) fn len(&self) -> usize {
-        self.text.len()
-    }
-
     pub(crate) fn slice(&self, span: Span) -> &str {
         let start = span.start.min(self.text.len());
         let end = span.end.min(self.text.len());
         &self.text[start..end]
-    }
-
-    pub(crate) fn byte(&self, offset: usize) -> Option<u8> {
-        self.text.as_bytes().get(offset).copied()
     }
 
     /// 1-based line and byte column for `offset`.

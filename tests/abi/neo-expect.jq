@@ -15,5 +15,8 @@ def array($path): first(.arrays[] | select(.path == $path));
   "#define NEO_CELL_ALIGNMENT_BITS \((field("cells").alignment) * 8)",
   "#define NEO_CELL_WIDE_OFFSET_BITS \((field("cells[].wide").offset) * 8)",
   "#define NEO_MATRIX_OFFSET_BITS \((field("matrix").offset) * 8)",
-  "#define NEO_MATRIX_ELEMENT_BITS \((array("matrix").stride) * 8)"
+  "#define NEO_MATRIX_ELEMENT_BITS \((array("matrix").stride) * 8)",
+  "#define NEO_COUNTS_SIZE_BITS \((field("counts").size) * 8)",
+  "#define NEO_GAIN_OFFSET_BITS \((field("gain").offset) * 8)",
+  "#define NEO_THRESHOLD_OFFSET_BITS \((field("threshold").offset) * 8)"
 ] | .[]

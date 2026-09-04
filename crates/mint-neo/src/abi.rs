@@ -217,10 +217,6 @@ impl Abi {
         }
     }
 
-    pub fn guarantees_ieee(self) -> bool {
-        !matches!(self, Self::TiC28xEabi)
-    }
-
     pub fn scalar(self, scalar: Scalar) -> Result<ScalarAbi, String> {
         if self == Self::TiC28xEabi && scalar.size_bytes() == 1 {
             return Err(format!(
@@ -361,9 +357,6 @@ pub fn show_text(name: &str) -> Result<String, Error> {
     }
     out.push_str("all sizes, alignments and strides are in octets\n");
     out.push_str("float32_t and float64_t select IEEE-754 binary32 and binary64 on every ABI\n");
-    if !abi.guarantees_ieee() {
-        out.push_str("C float and double are rejected on this ABI; use float32_t or float64_t\n");
-    }
     Ok(out)
 }
 

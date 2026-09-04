@@ -250,6 +250,8 @@ fn preproc_logical_rest(text: &str, start: usize) -> &str {
 /// Replace C comments with whitespace so directive and macro text can be
 /// compared and evaluated without treating comment punctuation as tokens.
 pub fn strip_c_comments(text: &str) -> String {
+    // C removes escaped newlines before it recognises comments or tokens.
+    let text = text.replace("\\\r\n", "").replace("\\\n", "");
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -296,6 +298,25 @@ pub(crate) fn descendants<'tree>(root: Node<'tree>, named: bool) -> Vec<Node<'tr
         }
     }
     out
+}
+
+/// C declarations inside functions and parameter lists have a separate scope.
+pub(crate) fn file_scope_nodes(root: Node<'_>) -> Vec<Node<'_>> {
+    let mut nodes = Vec::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if matches!(
+            node.kind(),
+            "function_definition" | "parameter_list" | "compound_statement"
+        ) {
+            continue;
+        }
+        nodes.push(node);
+        let mut cursor = node.walk();
+        stack.extend(node.named_children(&mut cursor));
+    }
+    nodes.sort_by_key(Node::start_byte);
+    nodes
 }
 
 pub(crate) fn collect_comments_and_macros<'a>(

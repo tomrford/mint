@@ -108,3 +108,101 @@ typedef struct {
     assert_eq!(neo.layout.root_layout().size, expected.len());
     assert_eq!(bytes, expected);
 }
+
+#[test]
+fn every_neo_scalar_layout_matches_mint_profiles() {
+    use mint_core::layout::{abi::Abi, scalar_type::ScalarType};
+    let scalars = [
+        ScalarType::U8,
+        ScalarType::U16,
+        ScalarType::U32,
+        ScalarType::U64,
+        ScalarType::I8,
+        ScalarType::I16,
+        ScalarType::I32,
+        ScalarType::I64,
+        ScalarType::F32,
+        ScalarType::F64,
+    ];
+    let c_names = [
+        "uint8_t", "uint16_t", "uint32_t", "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t",
+        "float", "double",
+    ];
+    for abi in Abi::ALL {
+        for (scalar, c_name) in scalars.into_iter().zip(c_names) {
+            let schema = compile_header(Source::new(
+                "config.h",
+                format!(
+                    "/**\n * @mint block\n * @mint abi {}\n * @mint start-address 0\n */\ntypedef struct {{ uint16_t prefix; {c_name} values[2]; }} config_t;",
+                    abi.name()
+                ),
+            ));
+            let Ok(expected) = abi.scalar(scalar) else {
+                assert!(schema.is_err());
+                continue;
+            };
+            let schema = schema.unwrap();
+            let field = &schema.layout.root_layout().fields[1];
+            assert_eq!(
+                field.size,
+                2 * expected.storage_size,
+                "{} {c_name}",
+                abi.name()
+            );
+            assert_eq!(
+                field.alignment,
+                expected.alignment,
+                "{} {c_name}",
+                abi.name()
+            );
+            assert_eq!(
+                schema.layout.layouts[field.type_id.0]
+                    .array
+                    .as_ref()
+                    .unwrap()
+                    .stride,
+                expected.array_stride,
+                "{} {c_name}",
+                abi.name()
+            );
+        }
+    }
+}
+
+#[test]
+fn floating_point_bytes_and_padding_match_mint_on_every_abi() {
+    use mint_core::layout::abi::{Abi, AbiFamily};
+    for abi in Abi::ALL {
+        let length = match abi.family() {
+            AbiFamily::NaturalAlign4 => 16,
+            AbiFamily::GenericNatural => 24,
+            _ => panic!("add comparison for the new ABI family"),
+        };
+        let data = r#"{"prefix":7,"wide":-1.5,"gain":2.25}"#;
+        let expected = v2_range(
+            &format!(
+                r#"
+[mint]
+abi = "{abi}"
+[config.header]
+start_address = 0
+length = {length}
+[config.data]
+prefix = {{ name = "prefix", type = "u16" }}
+wide = {{ name = "wide", type = "f64" }}
+gain = {{ name = "gain", type = "f32" }}
+"#,
+                abi = abi.name()
+            ),
+            data,
+        );
+        let schema = compile_header(Source::new("config.h", format!(
+            "/**\n * @mint block\n * @mint abi {}\n * @mint start-address 0\n */\ntypedef struct {{ uint16_t prefix; double wide; float gain; }} config_t;", abi.name()))).unwrap();
+        assert_eq!(
+            encode_json(&schema, &Source::new("config.json", data)).unwrap(),
+            expected,
+            "{}",
+            abi.name()
+        );
+    }
+}

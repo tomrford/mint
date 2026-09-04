@@ -2,6 +2,8 @@
 #include <stdint.h>
 
 #define NEO_ROW_COUNT 2u
+#define NEO_COUNT 1 + \
+                  2
 
 typedef enum {
     NEO_COLUMN_COUNT = 3
@@ -28,4 +30,7 @@ typedef struct {
     neo_inner_t inner;
     neo_cell_t cells[NEO_ROW_COUNT][NEO_COLUMN_COUNT];
     uint32_t matrix[2][2];
+    uint16_t counts[NEO_COUNT * 2];
+    float gain;
+    double threshold;
 } neo_config_t;
