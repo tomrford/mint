@@ -1,5 +1,6 @@
 #include <limits.h>
 #include <stddef.h>
+#include <float.h>
 
 #ifndef MINT_NEO_SCHEMA_HEADER
 #define MINT_NEO_SCHEMA_HEADER "mint_neo.h"
@@ -39,6 +40,19 @@ _Static_assert(OFFSET_BITS(neo_config_t, matrix) == NEO_MATRIX_OFFSET_BITS,
 _Static_assert(SIZE_BITS(uint32_t) == NEO_MATRIX_ELEMENT_BITS, "matrix stride");
 _Static_assert(sizeof(((neo_config_t *)0)->matrix) == 4 * sizeof(uint32_t),
                "scalar array dimensions");
+_Static_assert(sizeof(((neo_config_t *)0)->counts) * CHAR_BIT == NEO_COUNTS_SIZE_BITS,
+               "macro replacement precedence");
+_Static_assert(sizeof(((neo_config_t *)0)->counts) == 5 * sizeof(uint16_t),
+               "ungrouped macro extent");
+_Static_assert(OFFSET_BITS(neo_config_t, gain) == NEO_GAIN_OFFSET_BITS, "float offset");
+_Static_assert(OFFSET_BITS(neo_config_t, threshold) == NEO_THRESHOLD_OFFSET_BITS,
+               "double offset");
+_Static_assert(SIZE_BITS(float) == 32 && FLT_RADIX == 2 && FLT_MANT_DIG == 24 &&
+                   FLT_MIN_EXP == -125 && FLT_MAX_EXP == 128,
+               "binary32 representation");
+_Static_assert(SIZE_BITS(double) == 64 && DBL_MANT_DIG == 53 &&
+                   DBL_MIN_EXP == -1021 && DBL_MAX_EXP == 1024,
+               "binary64 representation");
 
 int mint_neo_abi_probe(neo_config_t *config) {
   return (int)(config->version + config->inner.limit + config->cells[1][2].wide +

@@ -179,3 +179,36 @@ fn parse_time_errors_omit_empty_pointer_parentheses() {
         "parse-time error rendered empty pointer parentheses: {line}"
     );
 }
+
+#[test]
+fn serde_preserves_escaped_key_identity_and_source_spans() {
+    let text = " \r\n{\"wide\":0,\"delta\":0,\"origin\":{\"x\":1,\"\\u0078\":2},\"items\":[0,0]} ";
+    let error = encode_json(&schema(), &json(text)).unwrap_err();
+    assert_eq!(pointer_of(&error), Some("/origin/x"));
+    let span = error.diagnostic.span.unwrap();
+    assert_eq!(&text[span.start..span.end], "\"\\u0078\"");
+    assert!(error.to_string().contains("duplicate"));
+
+    let text = r#"{"wide":0,"delta":0,"origin":{"x":0,"y":0,"\uD83D\uDE00":1},"items":[0,0]}"#;
+    let error = encode_json(&schema(), &json(text)).unwrap_err();
+    assert_eq!(pointer_of(&error), Some("/origin/😀"));
+    assert!(error.to_string().contains("unexpected property"));
+
+    for token in ["9007199254740993.0", "90071992547409930e-1"] {
+        let bytes = encode_wide(token).unwrap();
+        assert_eq!(&bytes[..8], &9_007_199_254_740_993u64.to_le_bytes());
+    }
+}
+
+#[test]
+fn deep_json_returns_a_diagnostic_instead_of_aborting() {
+    let within_limit = format!("{{\"wide\":{}0{}}}", "[".repeat(255), "]".repeat(255));
+    let error = encode_json(&schema(), &json(&within_limit)).unwrap_err();
+    assert!(
+        error.to_string().contains("expected a JSON number"),
+        "{error}"
+    );
+    let text = format!("{{\"wide\":{}0{}}}", "[".repeat(20_000), "]".repeat(20_000));
+    let error = encode_json(&schema(), &json(&text)).unwrap_err();
+    assert!(error.to_string().contains("nesting exceeds"), "{error}");
+}

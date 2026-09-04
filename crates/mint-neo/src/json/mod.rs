@@ -1,5 +1,8 @@
 use std::collections::HashSet;
 
+use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
+use serde_json::value::RawValue;
+
 use crate::CompiledSchema;
 use crate::abi::{Endianness, Scalar, ScalarValue, write_scalar_bytes};
 use crate::diagnostic::Error;
@@ -12,10 +15,7 @@ enum Json {
     Null(Span),
     Bool(Span),
     Number(Span),
-    String {
-        value: String,
-        span: Span,
-    },
+    String(Span),
     Array {
         items: Vec<Json>,
         span: Span,
@@ -36,10 +36,8 @@ struct ObjectEntry {
 impl Json {
     fn span(&self) -> Span {
         match *self {
-            Self::Null(span) | Self::Bool(span) | Self::Number(span) => span,
-            Self::String { span, .. } | Self::Array { span, .. } | Self::Object { span, .. } => {
-                span
-            }
+            Self::Null(span) | Self::Bool(span) | Self::Number(span) | Self::String(span) => span,
+            Self::Array { span, .. } | Self::Object { span, .. } => span,
         }
     }
 }
@@ -154,7 +152,7 @@ fn scalar_mismatch(value: &Json, source: &Source, pointer: &str) -> Error {
     let message = match value {
         Json::Null(_) => "null is invalid for every field",
         Json::Bool(_) => "JSON booleans are invalid for every field",
-        Json::String { .. } => "JSON strings are invalid for every field",
+        Json::String(_) => "JSON strings are invalid for every field",
         _ => "expected a JSON number",
     };
     Error::data(source, value.span(), pointer, message)
@@ -407,258 +405,120 @@ fn join_pointer(pointer: &str, key: &str) -> String {
     format!("{pointer}/{escaped}")
 }
 
+// RawValue keeps the original numeric token and borrows exact source spans.
+// Serde owns JSON syntax, escapes and Unicode; this adapter only preserves
+// duplicate keys and limits the tree used by structural binding.
+const MAX_JSON_DEPTH: usize = 256;
+
 fn parse_json(source: &Source) -> Result<Json, Error> {
-    let mut parser = JsonParser { source, index: 0 };
-    let value = parser.value()?;
-    parser.skip_ws();
-    if parser.index != source.len() {
+    let raw: &RawValue = read_json(source, &source.text)?;
+    parse_value(source, raw, "", 0)
+}
+
+fn parse_value(
+    source: &Source,
+    raw: &RawValue,
+    pointer: &str,
+    depth: usize,
+) -> Result<Json, Error> {
+    let span = borrowed_span(source, raw.get());
+    if depth > MAX_JSON_DEPTH {
         return Err(Error::data(
             source,
-            Span::point(parser.index),
-            "",
-            "unexpected trailing JSON text",
+            span,
+            pointer,
+            "JSON nesting exceeds 256 levels",
         ));
     }
-    Ok(value)
-}
-
-struct JsonParser<'a> {
-    source: &'a Source,
-    index: usize,
-}
-
-impl JsonParser<'_> {
-    fn value(&mut self) -> Result<Json, Error> {
-        self.skip_ws();
-        match self.peek() {
-            Some(b'n') => self.keyword(b"null").map(Json::Null),
-            Some(b't') => self.keyword(b"true").map(Json::Bool),
-            Some(b'f') => self.keyword(b"false").map(Json::Bool),
-            Some(b'"') => self.string(),
-            Some(b'[') => self.array(),
-            Some(b'{') => self.object(),
-            Some(b'-' | b'0'..=b'9') => self.number(),
-            _ => Err(self.error_at("expected a JSON value")),
-        }
-    }
-
-    fn object(&mut self) -> Result<Json, Error> {
-        let start = self.index;
-        self.bump();
-        self.skip_ws();
-        let mut entries = Vec::new();
-        let mut keys = HashSet::new();
-        if !self.take(b'}') {
-            loop {
-                self.skip_ws();
-                let Json::String {
-                    value: key,
-                    span: key_span,
-                } = self.string()?
-                else {
-                    unreachable!()
-                };
+    Ok(match raw.get().as_bytes()[0] {
+        b'{' => {
+            let RawObject(pairs) = read_json(source, raw.get())?;
+            let mut keys = HashSet::new();
+            let mut entries = Vec::with_capacity(pairs.len());
+            for (key, value) in pairs {
+                let key_span = borrowed_span(source, key.get());
+                let key: String = read_json(source, key.get())?;
+                let child = join_pointer(pointer, &key);
                 if !keys.insert(key.clone()) {
                     return Err(Error::data(
-                        self.source,
+                        source,
                         key_span,
-                        "",
+                        &child,
                         format!("duplicate object property '{key}'"),
                     ));
                 }
-                self.skip_ws();
-                self.expect(b':', "expected ':'")?;
-                let value = self.value()?;
                 entries.push(ObjectEntry {
                     key,
                     key_span,
-                    value,
+                    value: parse_value(source, value, &child, depth + 1)?,
                 });
-                if !self.comma_or_close(b'}', "expected ',' or '}'")? {
-                    break;
-                }
             }
+            Json::Object { entries, span }
         }
-        Ok(Json::Object {
-            entries,
-            span: Span::new(start, self.index),
-        })
-    }
-
-    fn array(&mut self) -> Result<Json, Error> {
-        let start = self.index;
-        self.bump();
-        self.skip_ws();
-        let mut items = Vec::new();
-        if !self.take(b']') {
-            loop {
-                items.push(self.value()?);
-                if !self.comma_or_close(b']', "expected ',' or ']'")? {
-                    break;
-                }
-            }
-        }
-        Ok(Json::Array {
-            items,
-            span: Span::new(start, self.index),
-        })
-    }
-
-    fn string(&mut self) -> Result<Json, Error> {
-        let start = self.index;
-        self.expect(b'"', "expected a string")?;
-        let mut value = String::new();
-        while let Some(byte) = self.peek() {
-            match byte {
-                b'"' => {
-                    self.bump();
-                    return Ok(Json::String {
+        b'[' => {
+            let values: Vec<&RawValue> = read_json(source, raw.get())?;
+            let items = values
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    parse_value(
+                        source,
                         value,
-                        span: Span::new(start, self.index),
-                    });
+                        &join_pointer(pointer, &index.to_string()),
+                        depth + 1,
+                    )
+                })
+                .collect::<Result<_, _>>()?;
+            Json::Array { items, span }
+        }
+        b'n' => Json::Null(span),
+        b't' | b'f' => Json::Bool(span),
+        b'"' => {
+            let _: String = read_json(source, raw.get())?;
+            Json::String(span)
+        }
+        _ => Json::Number(span),
+    })
+}
+
+fn borrowed_span(source: &Source, text: &str) -> Span {
+    let start = text.as_ptr() as usize - source.text.as_ptr() as usize;
+    Span::new(start, start + text.len())
+}
+
+fn read_json<'de, T: Deserialize<'de>>(source: &Source, text: &'de str) -> Result<T, Error> {
+    serde_json::from_str(text).map_err(|error| {
+        let line_start: usize = text
+            .split_inclusive('\n')
+            .take(error.line().saturating_sub(1))
+            .map(str::len)
+            .sum();
+        let offset =
+            borrowed_span(source, text).start + line_start + error.column().saturating_sub(1);
+        Error::data(source, Span::point(offset), "", error.to_string())
+    })
+}
+
+struct RawObject<'a>(Vec<(&'a RawValue, &'a RawValue)>);
+
+impl<'de> Deserialize<'de> for RawObject<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ObjectVisitor;
+        impl<'de> Visitor<'de> for ObjectVisitor {
+            type Value = RawObject<'de>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a JSON object")
+            }
+
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
                 }
-                b'\\' => {
-                    self.bump();
-                    match self.peek() {
-                        Some(b'"') => value.push('"'),
-                        Some(b'\\') => value.push('\\'),
-                        Some(b'/') => value.push('/'),
-                        Some(b'b') => value.push('\u{0008}'),
-                        Some(b'f') => value.push('\u{000c}'),
-                        Some(b'n') => value.push('\n'),
-                        Some(b'r') => value.push('\r'),
-                        Some(b't') => value.push('\t'),
-                        Some(b'u') => {
-                            self.bump();
-                            value.push(self.unicode_escape()?);
-                            continue;
-                        }
-                        _ => return Err(self.error_at("invalid escape")),
-                    }
-                    self.bump();
-                }
-                b if b < 0x20 => return Err(self.error_at("unescaped control character")),
-                _ => {
-                    let ch = self.source.text[self.index..]
-                        .chars()
-                        .next()
-                        .unwrap_or('\0');
-                    value.push(ch);
-                    self.index += ch.len_utf8();
-                }
+                Ok(RawObject(entries))
             }
         }
-        Err(self.error_at("unterminated string"))
-    }
-
-    fn unicode_escape(&mut self) -> Result<char, Error> {
-        let mut code = 0u32;
-        let mut valid = true;
-        for _ in 0..4 {
-            let Some(digit) = self.peek() else {
-                return Err(self.error_at("invalid unicode escape"));
-            };
-            self.bump();
-            let nibble = match digit {
-                b'0'..=b'9' => digit - b'0',
-                b'a'..=b'f' => digit - b'a' + 10,
-                b'A'..=b'F' => digit - b'A' + 10,
-                _ => {
-                    valid = false;
-                    0
-                }
-            };
-            code = (code << 4) | u32::from(nibble);
-        }
-        if !valid {
-            return Err(self.error_at("invalid unicode escape"));
-        }
-        char::from_u32(code).ok_or_else(|| self.error_at("invalid unicode escape"))
-    }
-
-    fn number(&mut self) -> Result<Json, Error> {
-        let start = self.index;
-        let _ = self.take(b'-');
-        match self.peek() {
-            Some(b'0') => self.bump(),
-            Some(b'1'..=b'9') => {
-                self.consume_digits();
-            }
-            _ => return Err(self.error_at("invalid number")),
-        }
-        if self.take(b'.') && !self.consume_digits() {
-            return Err(self.error_at("invalid number"));
-        }
-        if self.take(b'e') || self.take(b'E') {
-            let _ = self.take(b'+') || self.take(b'-');
-            if !self.consume_digits() {
-                return Err(self.error_at("invalid number"));
-            }
-        }
-        Ok(Json::Number(Span::new(start, self.index)))
-    }
-
-    fn keyword(&mut self, token: &[u8]) -> Result<Span, Error> {
-        let start = self.index;
-        for expected in token {
-            if !self.take(*expected) {
-                return Err(self.error_at("invalid JSON keyword"));
-            }
-        }
-        Ok(Span::new(start, self.index))
-    }
-
-    fn comma_or_close(&mut self, close: u8, message: &'static str) -> Result<bool, Error> {
-        self.skip_ws();
-        if self.take(b',') {
-            Ok(true)
-        } else if self.take(close) {
-            Ok(false)
-        } else {
-            Err(self.error_at(message))
-        }
-    }
-
-    fn consume_digits(&mut self) -> bool {
-        let start = self.index;
-        while matches!(self.peek(), Some(b'0'..=b'9')) {
-            self.bump();
-        }
-        self.index > start
-    }
-
-    fn expect(&mut self, byte: u8, message: &'static str) -> Result<(), Error> {
-        if self.take(byte) {
-            Ok(())
-        } else {
-            Err(self.error_at(message))
-        }
-    }
-
-    fn take(&mut self, byte: u8) -> bool {
-        if self.peek() == Some(byte) {
-            self.bump();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn error_at(&self, message: impl Into<String>) -> Error {
-        Error::data(self.source, Span::point(self.index), "", message)
-    }
-
-    fn skip_ws(&mut self) {
-        while matches!(self.peek(), Some(b' ' | b'\n' | b'\r' | b'\t')) {
-            self.bump();
-        }
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.source.byte(self.index)
-    }
-
-    fn bump(&mut self) {
-        self.index += 1;
+        deserializer.deserialize_map(ObjectVisitor)
     }
 }

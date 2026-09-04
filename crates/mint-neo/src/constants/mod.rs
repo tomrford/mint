@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::diagnostic::Error;
 use crate::integers::parse_c_unsigned;
@@ -6,34 +6,78 @@ use crate::source::{Source, Span};
 use crate::syntax::{MacroDef, strip_c_comments};
 
 pub const MAX_MACRO_DEPTH: usize = 128;
+const MAX_EXPANSION_TOKENS: usize = 16_384;
 
 #[derive(Clone, Debug)]
+pub enum EnumValue {
+    Expression(String),
+    Successor(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumConstant {
+    pub name: String,
+    pub span: Span,
+    pub value: EnumValue,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct ShapeEnv {
     macros: HashMap<String, Vec<MacroDef>>,
-    constants: HashMap<String, (u64, Span)>,
+    constants: HashMap<String, Vec<EnumConstant>>,
 }
 
 impl ShapeEnv {
     pub fn new() -> Self {
-        Self {
-            macros: HashMap::new(),
-            constants: HashMap::new(),
-        }
+        Self::default()
     }
 
-    pub fn insert_constant(&mut self, name: String, value: u64, span: Span) -> Option<Span> {
+    pub fn insert_enum(&mut self, constant: EnumConstant) {
         self.constants
-            .insert(name, (value, span))
-            .map(|(_, previous)| previous)
+            .entry(constant.name.clone())
+            .or_default()
+            .push(constant);
+    }
+
+    #[cfg(test)]
+    pub fn insert_constant(&mut self, name: String, value: u64, span: Span) {
+        self.insert_enum(EnumConstant {
+            name,
+            span,
+            value: EnumValue::Expression(value.to_string()),
+        });
     }
 
     pub fn insert_macro(&mut self, def: MacroDef) {
         self.macros.entry(def.name.clone()).or_default().push(def);
     }
+
+    pub fn reject_macro_use(&self, source: &Source, span: Span) -> Result<(), Error> {
+        let name = source.slice(span);
+        if let Some(def) = self.macros.get(name).and_then(|defs| {
+            defs.iter()
+                .find(|def| def.span.end <= span.start && !def.function_like)
+        }) {
+            return Err(Error::schema(
+                source,
+                span,
+                format!("macro '{name}' may only be used in shape expressions"),
+            )
+            .related(def.span, "macro defined here"));
+        }
+        Ok(())
+    }
 }
 
 pub fn evaluate(source: &Source, span: Span, text: &str, env: &ShapeEnv) -> Result<u64, Error> {
-    let value = evaluate_any(source, span, text, env)?;
+    let mut evaluation = Evaluation {
+        source,
+        env,
+        visiting: Vec::new(),
+        remaining: MAX_EXPANSION_TOKENS,
+        enum_values: HashMap::new(),
+    };
+    let value = evaluation.expression(span, text, span.start)?;
     if value == 0 {
         return Err(Error::schema(
             source,
@@ -44,49 +88,184 @@ pub fn evaluate(source: &Source, span: Span, text: &str, env: &ShapeEnv) -> Resu
     u64::try_from(value).map_err(|_| Error::schema(source, span, "array extent does not fit u64"))
 }
 
-pub fn evaluate_any(
-    source: &Source,
-    span: Span,
-    text: &str,
-    env: &ShapeEnv,
-) -> Result<u128, Error> {
-    let mut visiting = HashSet::new();
-    evaluate_in(source, span, span.start, text, env, &mut visiting, 0)
+struct Evaluation<'a> {
+    source: &'a Source,
+    env: &'a ShapeEnv,
+    visiting: Vec<(String, Span)>,
+    remaining: usize,
+    enum_values: HashMap<String, u128>,
 }
 
-fn evaluate_in(
-    source: &Source,
-    span: Span,
-    at: usize,
-    text: &str,
-    env: &ShapeEnv,
-    visiting: &mut HashSet<String>,
-    depth: usize,
-) -> Result<u128, Error> {
-    let tokens = lex(source, span, text)?;
-    let mut parser = Parser {
-        source,
-        span,
-        at,
-        tokens,
-        index: 0,
-        env,
-        visiting,
-        depth,
-    };
-    let value = parser.expr()?;
-    parser.expect_eof()?;
-    Ok(value)
+impl Evaluation<'_> {
+    fn expression(&mut self, span: Span, text: &str, at: usize) -> Result<u128, Error> {
+        let mut tokens = Vec::new();
+        self.expand(span, text, at, &mut tokens)?;
+        let mut parser = Parser {
+            source: self.source,
+            span,
+            tokens,
+            index: 0,
+            depth: 0,
+        };
+        let value = parser.expr()?;
+        parser.expect_eof()?;
+        Ok(value)
+    }
+
+    // Macros replace tokens. Only enumerators are evaluated separately,
+    // using the definitions visible at their declaration.
+    fn expand(
+        &mut self,
+        span: Span,
+        text: &str,
+        at: usize,
+        out: &mut Vec<Token>,
+    ) -> Result<(), Error> {
+        for token in lex(self.source, span, text)? {
+            self.remaining = self.remaining.checked_sub(1).ok_or_else(|| {
+                Error::schema(self.source, span, "shape expansion exceeds 16384 tokens")
+            })?;
+            let Token::Ident(name) = token else {
+                out.push(token);
+                continue;
+            };
+            if matches!(
+                name.as_str(),
+                "sizeof" | "_Alignof" | "alignof" | "offsetof" | "_Pragma"
+            ) {
+                return Err(Error::schema(
+                    self.source,
+                    span,
+                    format!("'{name}' is not allowed in shape expressions"),
+                ));
+            }
+            if let Some(defs) = self.env.macros.get(&name) {
+                if defs.len() > 1 {
+                    return Err(self.duplicate(
+                        span,
+                        &name,
+                        "referenced macro",
+                        defs.iter().map(|d| d.span),
+                    ));
+                }
+                if let Some(def) = defs.iter().find(|def| def.span.end <= at) {
+                    if let Some(constant) = self
+                        .env
+                        .constants
+                        .get(&name)
+                        .and_then(|defs| defs.iter().find(|d| d.span.end <= at))
+                    {
+                        return Err(Error::schema(self.source, span,
+                            format!("shape constant '{name}' is defined as both a macro and an enumerator"))
+                            .related(def.span, "macro defined here")
+                            .related(constant.span, "enumerator defined here"));
+                    }
+                    if def.function_like {
+                        return Err(Error::schema(
+                            self.source,
+                            span,
+                            format!(
+                                "function-like macro '{name}' cannot be used as an array extent"
+                            ),
+                        )
+                        .related(def.span, "macro defined here"));
+                    }
+                    self.enter(&name, def.span)?;
+                    self.expand(def.span, &def.body, at, out)?;
+                    self.visiting.pop();
+                    continue;
+                }
+            }
+            let value = self.enumerator(&name, span, at)?;
+            out.push(Token::Number(value.to_string()));
+        }
+        Ok(())
+    }
+
+    fn enumerator(&mut self, name: &str, span: Span, at: usize) -> Result<u128, Error> {
+        let Some(defs) = self.env.constants.get(name) else {
+            let reason = if self.env.macros.contains_key(name) {
+                "is not available here"
+            } else {
+                "is unknown"
+            };
+            return Err(Error::schema(
+                self.source,
+                span,
+                format!("shape constant '{name}' {reason}"),
+            ));
+        };
+        if defs.len() > 1 {
+            return Err(self.duplicate(span, name, "enumerator", defs.iter().map(|d| d.span)));
+        }
+        let def = &defs[0];
+        if def.span.end > at {
+            return Err(Error::schema(
+                self.source,
+                span,
+                format!("shape constant '{name}' is not available here"),
+            ));
+        }
+        if let Some(&value) = self.enum_values.get(name) {
+            return Ok(value);
+        }
+        self.env.reject_macro_use(self.source, def.span)?;
+        self.enter(name, def.span)?;
+        let value = match &def.value {
+            EnumValue::Expression(text) => self.expression(def.span, text, def.span.start)?,
+            EnumValue::Successor(previous) => self
+                .enumerator(previous, def.span, def.span.start)?
+                .checked_add(1)
+                .ok_or_else(|| Error::schema(self.source, def.span, "enumerator overflow"))?,
+        };
+        self.visiting.pop();
+        self.enum_values.insert(name.to_owned(), value);
+        Ok(value)
+    }
+
+    fn enter(&mut self, name: &str, span: Span) -> Result<(), Error> {
+        if self.visiting.iter().any(|(n, _)| n == name) {
+            let mut error = Error::schema(
+                self.source,
+                span,
+                format!("cyclic shape-constant dependency involving '{name}'"),
+            );
+            for (name, span) in &self.visiting {
+                error = error.related(*span, format!("'{name}' participates in the cycle"));
+            }
+            return Err(error);
+        }
+        if self.visiting.len() >= MAX_MACRO_DEPTH {
+            return Err(Error::schema(
+                self.source,
+                span,
+                "shape-constant expansion exceeds 128 levels",
+            ));
+        }
+        self.visiting.push((name.to_owned(), span));
+        Ok(())
+    }
+
+    fn duplicate(
+        &self,
+        span: Span,
+        name: &str,
+        kind: &str,
+        spans: impl Iterator<Item = Span>,
+    ) -> Error {
+        let mut error = Error::schema(self.source, span, format!("duplicate {kind} '{name}'"));
+        for span in spans {
+            error = error.related(span, "defined here");
+        }
+        error
+    }
 }
 
 struct Parser<'a> {
     source: &'a Source,
     span: Span,
-    at: usize,
     tokens: Vec<Token>,
     index: usize,
-    env: &'a ShapeEnv,
-    visiting: &'a mut HashSet<String>,
     depth: usize,
 }
 
@@ -149,11 +328,10 @@ impl Parser<'_> {
     }
 
     fn factor(&mut self) -> Result<u128, Error> {
+        while matches!(self.peek(), Some(Token::Plus)) {
+            self.bump();
+        }
         match self.peek() {
-            Some(Token::Plus) => {
-                self.bump();
-                self.factor()
-            }
             Some(Token::Minus) => {
                 Err(self.error("unary minus is not allowed in shape expressions"))
             }
@@ -168,14 +346,14 @@ impl Parser<'_> {
                 self.bump();
                 parse_c_unsigned(&text).map_err(|message| self.error(message))
             }
-            Some(Token::Ident(name)) => {
-                let name = name.clone();
-                self.bump();
-                self.lookup(&name)
-            }
             Some(Token::LParen) => {
                 self.bump();
+                if self.depth >= MAX_MACRO_DEPTH {
+                    return Err(self.error("shape-expression nesting exceeds 128 levels"));
+                }
+                self.depth += 1;
                 let value = self.expr()?;
+                self.depth -= 1;
                 if !matches!(self.peek(), Some(Token::RParen)) {
                     return Err(self.error("expected ')'"));
                 }
@@ -184,111 +362,6 @@ impl Parser<'_> {
             }
             _ => Err(self.error("expected a shape expression")),
         }
-    }
-
-    fn lookup(&mut self, name: &str) -> Result<u128, Error> {
-        if matches!(
-            name,
-            "sizeof" | "_Alignof" | "alignof" | "offsetof" | "_Pragma"
-        ) {
-            return Err(self.error(format!("'{name}' is not allowed in shape expressions")));
-        }
-        if let Some(defs) = self.env.macros.get(name) {
-            let defs = defs.clone();
-            if defs.len() > 1 {
-                return Err(self.duplicate_macros(name, &defs));
-            }
-            if let Some(def) = defs.into_iter().find(|def| def.span.end <= self.at) {
-                if let Some((_, constant_span)) = self.env.constants.get(name).copied()
-                    && constant_span.end <= self.at
-                {
-                    return Err(self.macro_enum_collision(name, def.span, constant_span));
-                }
-                return self.expand_macro(name, &def);
-            }
-        }
-        if let Some((value, span)) = self.env.constants.get(name).copied() {
-            if span.end > self.at {
-                return Err(self.error(format!("shape constant '{name}' is not available here")));
-            }
-            return Ok(u128::from(value));
-        }
-        if self.env.macros.contains_key(name) {
-            return Err(self.error(format!("shape constant '{name}' is not available here")));
-        }
-        Err(self.error(format!("unknown shape constant '{name}'")))
-    }
-
-    fn expand_macro(&mut self, name: &str, def: &MacroDef) -> Result<u128, Error> {
-        if def.function_like {
-            return Err(Error::schema(
-                self.source,
-                self.span,
-                format!("function-like macro '{name}' cannot be used as an array extent"),
-            )
-            .related(def.span, "macro defined here"));
-        }
-        if self.depth >= MAX_MACRO_DEPTH {
-            return Err(self.error(format!("macro expansion exceeds {MAX_MACRO_DEPTH} levels")));
-        }
-        if !self.visiting.insert(name.to_owned()) {
-            return Err(self.cycle(name, def.span));
-        }
-        let result = evaluate_in(
-            self.source,
-            def.span,
-            self.at,
-            &def.body,
-            self.env,
-            self.visiting,
-            self.depth + 1,
-        );
-        self.visiting.remove(name);
-        result
-    }
-
-    fn duplicate_macros(&self, name: &str, defs: &[MacroDef]) -> Error {
-        let mut error = Error::schema(
-            self.source,
-            self.span,
-            format!("duplicate referenced macro '{name}'"),
-        );
-        for def in defs {
-            error = error.related(def.span, format!("'{name}' defined here"));
-        }
-        error
-    }
-
-    fn macro_enum_collision(&self, name: &str, macro_span: Span, enumerator_span: Span) -> Error {
-        Error::schema(
-            self.source,
-            self.span,
-            format!("shape constant '{name}' is defined as both a macro and an enumerator"),
-        )
-        .related(macro_span, "macro defined here")
-        .related(enumerator_span, "enumerator defined here")
-    }
-
-    fn cycle(&self, name: &str, span: Span) -> Error {
-        let mut error = Error::schema(
-            self.source,
-            self.span,
-            format!("cyclic shape-constant dependency involving '{name}'"),
-        )
-        .related(span, format!("'{name}' participates in the cycle"));
-        for participant in self.visiting.iter() {
-            let span = self
-                .env
-                .macros
-                .get(participant)
-                .and_then(|defs| defs.first())
-                .map(|def| def.span)
-                .or_else(|| self.env.constants.get(participant).map(|(_, span)| *span));
-            if let Some(span) = span {
-                error = error.related(span, format!("'{participant}' participates in the cycle"));
-            }
-        }
-        error
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -331,6 +404,13 @@ fn lex(source: &Source, span: Span, text: &str) -> Result<Vec<Token>, Error> {
     let mut tokens = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
+        if matches!(bytes[index], b'+' | b'-') && bytes.get(index + 1) == Some(&bytes[index]) {
+            return Err(Error::schema(
+                source,
+                span,
+                "increment and decrement are not shape operators",
+            ));
+        }
         let simple = match bytes[index] {
             b' ' | b'\t' | b'\n' | b'\r' => {
                 index += 1;
@@ -445,7 +525,7 @@ mod tests {
         );
         let mut env = ShapeEnv::new();
         env.insert_macro(object_macro("AXIS", Span::new(0, 1), "3u"));
-        let _ = env.insert_constant("AXIS".into(), 4, Span::new(2, 3));
+        env.insert_constant("AXIS".into(), 4, Span::new(2, 3));
         assert!(
             evaluate(&source, Span::new(10, 14), "AXIS", &env)
                 .unwrap_err()

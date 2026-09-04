@@ -391,3 +391,122 @@ typedef struct { t200 value; } config_t;
     let error = compile_err(&text);
     assert!(error.contains("exceeds"), "{error}");
 }
+
+#[test]
+fn macros_preserve_c_precedence_and_enum_declaration_context() {
+    let text = mint_block(
+        "#define N 1 + \\\n2\nenum { FIRST = N * 2, NEXT, UNUSED = -1, RESET = 7, LAST };\n#define LATER 99\n",
+        "typedef struct { uint16_t values[N * 2]; uint16_t other[NEXT]; uint16_t last[LAST]; } config_t;",
+    );
+    let schema = compile_header(Source::new("config.h", text)).unwrap();
+    let fields = &schema.layout.root_layout().fields;
+    assert_eq!(
+        fields.iter().map(|f| f.size).collect::<Vec<_>>(),
+        [10, 12, 16]
+    );
+    let late = mint_block(
+        "#define N LATER\nenum { COUNT = N };\n#define LATER 3\n",
+        "typedef struct { uint16_t values[COUNT]; } config_t;",
+    );
+    assert!(compile_err(&late).contains("not available"));
+}
+
+#[test]
+fn reachable_macro_rewrites_and_conflicting_builtin_typedefs_are_rejected() {
+    for (prelude, member) in [
+        (
+            "typedef uint32_t word_t;\n#define word_t uint64_t\n",
+            "word_t value;",
+        ),
+        ("#define value renamed\n", "uint32_t value;"),
+        ("#define uint32_t uint64_t\n", "uint32_t value;"),
+        ("typedef uint64_t float32_t;\n", "float32_t value;"),
+        ("typedef uint64_t uint32_t;\n", "uint32_t value;"),
+        ("typedef uint32_t int32_t;\n", "int32_t value;"),
+    ] {
+        let error = compile_err(&mint_block(
+            prelude,
+            &format!("typedef struct {{ {member} }} config_t;"),
+        ));
+        assert!(
+            error.contains("macro") || error.contains("conflicts"),
+            "{error}"
+        );
+    }
+    compile_header(Source::new(
+        "config.h",
+        mint_block(
+            "typedef float float32_t;\ntypedef double float64_t;\n",
+            "typedef struct { float32_t x; float64_t y; } config_t;",
+        ),
+    ))
+    .unwrap();
+}
+
+#[test]
+fn unreachable_local_types_and_enum_expressions_do_not_change_the_schema() {
+    let plain = mint_block(
+        "typedef uint32_t word_t;\n",
+        "typedef struct { word_t value; } config_t;",
+    );
+    let extra = mint_block(
+        "typedef uint32_t word_t;\nenum { ERROR = -1, MASK = 1 << 3 };\nvoid f(void) { typedef uint16_t word_t; enum { COUNT = -1 }; }\nvoid g(void) { typedef uint8_t word_t; enum { COUNT = 1 << 4 }; }\n",
+        "typedef struct { word_t value; } config_t;",
+    );
+    let a = compile_header(Source::new("a.h", plain)).unwrap();
+    let b = compile_header(Source::new("b.h", extra)).unwrap();
+    assert_eq!(a.fingerprint, b.fingerprint);
+    assert_eq!(b.layout.root_layout().size, 4);
+}
+
+#[test]
+fn record_depth_is_independent_of_cached_shallow_fields() {
+    for wrappers in [126, 127] {
+        let mut prelude = String::from("typedef struct { uint16_t x; } leaf_t;\n");
+        let mut previous = String::from("leaf_t");
+        for n in 0..wrappers {
+            prelude.push_str(&format!("typedef struct {{ {previous} child; }} r{n}_t;\n"));
+            previous = format!("r{n}_t");
+        }
+        for shallow in ["", "leaf_t shallow;"] {
+            let text = mint_block(
+                &prelude,
+                &format!("typedef struct {{ {shallow} {previous} deep; }} config_t;"),
+            );
+            let result = compile_header(Source::new("config.h", text));
+            if wrappers == 126 {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                assert!(result.unwrap_err().to_string().contains("record nesting"));
+            }
+        }
+    }
+}
+
+#[test]
+fn expansion_work_and_expression_nesting_are_bounded() {
+    let mut prelude = String::from("#define N0 1\n");
+    for n in 1..29 {
+        prelude.push_str(&format!("#define N{n} (N{} + N{})\n", n - 1, n - 1));
+    }
+    let text = mint_block(
+        &prelude,
+        "typedef struct { uint16_t values[N28]; } config_t;",
+    );
+    assert!(compile_err(&text).contains("exceeds"));
+    let prelude = format!("#define N {}1{}\n", "(".repeat(1000), ")".repeat(1000));
+    assert!(
+        compile_err(&mint_block(
+            &prelude,
+            "typedef struct { uint16_t values[N]; } config_t;"
+        ))
+        .contains("nesting exceeds")
+    );
+    assert!(
+        compile_err(&mint_block(
+            "#define N ++1\n",
+            "typedef struct { uint16_t values[N]; } config_t;"
+        ))
+        .contains("increment")
+    );
+}

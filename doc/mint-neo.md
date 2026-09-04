@@ -174,13 +174,17 @@ and compiler mode controls can change field offsets or representations.
 `#pragma once` is the sole accepted pragma because it only controls repeated
 inclusion and cannot change the root shape.
 
-Only object-like macros referenced by reachable array extents must satisfy
-Neo's shape-expression grammar. Other object-like and function-like macro
-definitions are ignored and never evaluated. Referring to a function-like
-macro from an extent is an error.
+Only object-like macros referenced by reachable shape expressions must satisfy
+Neo's shape-expression grammar. Macro replacement preserves C token precedence;
+it does not implicitly parenthesise the replacement list. Macros that rewrite
+reachable type names, member names or other declaration tokens are rejected.
+Unreferenced macro definitions are ignored. Referring to a function-like macro
+from an extent is an error.
 
 Declarations not reachable from the root record are parsed for syntax but are
-otherwise ignored. An unreachable pointer, union, bitfield, function prototype
+otherwise ignored. Function-local and prototype-local declarations do not enter
+the file-scope type or constant tables. Enum expressions are evaluated only
+when needed by a reachable extent, in their original declaration context. An unreachable pointer, union, bitfield, function prototype
 or external object does not become part of the schema.
 
 ## Header annotations
@@ -257,9 +261,12 @@ The first version supports:
 - `float`, `double`, `float32_t` and `float64_t`; and
 - local typedef aliases that eventually resolve to one of these types.
 
+A local typedef using a built-in scalar name must resolve to that same scalar
+representation; conflicting definitions are errors.
+
 `float32_t` and `float64_t` explicitly select IEEE-754 binary32 and binary64.
-`float` and `double` map to those same representations only where the selected
-ABI profile guarantees them. All four use the selected ABI's byte order. ABI
+`float` and `double` map to those same representations on all current profiles,
+including TI C28x EABI. All four use the selected ABI's byte order. ABI
 verification must test format as well as size and alignment.
 
 The first version rejects `_Bool`, `bool`, plain `char`, `short`, `int`,
@@ -383,7 +390,9 @@ must be non-negative, and the final extent must be positive and fit `u64`.
 Division by zero, subtraction below zero and overflow are errors. Integer
 suffixes are accepted but do not change this shape-only arithmetic model.
 Names form a dependency graph; cycles report every participating declaration.
-Enumerators without initialisers follow C's implicit numbering rules.
+Enumerators without initialisers follow C's implicit numbering rules. Shape
+expansion is limited to 128 dependency levels and 16,384 visited tokens per
+extent. Parenthesised expressions are limited to 128 nested levels.
 
 Rejected expressions include function-like macros, token pasting,
 stringification, casts, `sizeof`, `_Alignof`, `offsetof`, the ternary operator
@@ -427,9 +436,11 @@ field
 ```
 
 The graph contains named declarations, but resolved layout and fingerprints
-operate on canonical structural nodes with aliases removed. Resolution uses
-memoised depth-first traversal with explicit visiting states. A cycle through
-by-value members is an error with a diagnostic at every edge. Source spans and
+operate on canonical structural nodes with aliases removed. Alias resolution
+uses an iterative walk with at most 128 consecutive aliases.
+Records use memoised depth-first traversal with explicit visiting states and
+cached structural heights, so depth limits are independent of traversal order.
+A cycle through by-value members is an error with a diagnostic at every edge. Source spans and
 the `fingerprint` marker are emission metadata and do not enter the structural
 hash.
 
@@ -519,7 +530,8 @@ Binding rules:
 - The one optional `@mint fingerprint` field must be absent.
 - Extra object properties are errors.
 - Duplicate object properties are errors; parsing never uses last-value-wins
-  semantics.
+  semantics. Escaped and literal spellings of the same key count as duplicates.
+- JSON values may be nested at most 256 levels below the root.
 - `null` is never a fallback and is invalid for every supported field.
 - JSON booleans and strings are invalid for every first-version field type.
 - Integer JSON values must be integral and fit the exact destination range.
@@ -693,8 +705,9 @@ not add ast-grep as an intermediate query layer.
   token blobs in the C syntax tree, so shape expressions use a dedicated small
   lexer and expression parser.
 - A separate type graph performs dependency and layout resolution.
-- JSON source text uses a dedicated spanned reader that preserves number
-  tokens and rejects duplicate keys before producing bound values.
+- `serde_json` parses JSON syntax. A small adapter uses borrowed `RawValue`
+  slices to retain number tokens and byte spans. An ordered map visitor keeps
+  all keys so duplicate decoded names are rejected before binding.
 
 Tree-sitter error recovery is not acceptance. Any `ERROR` or `MISSING` node
 anywhere in the file is a fatal diagnostic. Unsupported attributes and
@@ -730,10 +743,9 @@ Mint Neo must not depend on Mint v2's TOML `Config`, `Entry`, `DataSource` or
 header generator. Those types cannot represent arrays of records and carry
 policies Neo intentionally removes.
 
-Initially, Neo can reuse the public ABI and scalar definitions from
-`mint-core` for the first flat-layout proof. Immediately after that proof,
-extract a small shared crate so TOML, Excel and unrelated build machinery do
-not enter the Neo binary. The likely shared boundary is:
+Neo currently owns its ABI and scalar definitions, with comparative tests
+against `mint-core`. A shared ABI crate is deferred to a separate PR after
+the decision to retain Neo. The likely shared boundary is:
 
 - named ABI profiles and scalar representations;
 - scalar-to-byte conversion with Neo's integer and floating-point policies;
@@ -782,22 +794,6 @@ The implementation should be validated at four boundaries.
 - Proof that layout-equivalent dimensions such as `[2][6]` and `[12]` hash
   differently.
 - Golden Intel HEX output for 8-bit and wider address-unit ABIs.
-
-## Delivery sequence
-
-Each stage ends with a coherent, strict subset rather than partially accepting
-later syntax.
-
-1. Add the crate, parser, annotation grammar and span diagnostics.
-2. Resolve one flat root record of exact-width scalar fields.
-3. Extract the proven scalar/ABI boundary into a small shared crate.
-4. Implement `inspect` and compare its layout with Mint v2 and compiler probes.
-5. Add aliases, nested records and by-value dependency diagnostics.
-6. Add literal dimensions, multidimensional arrays and arrays of records.
-7. Add the bounded shape-constant evaluator.
-8. Add strict structural JSON binding and scalar byte encoding.
-9. Add Neo fingerprinting and optional fingerprint-field insertion.
-10. Add fixed Intel HEX output and the final CLI.
 
 ## Decisions deliberately deferred
 
