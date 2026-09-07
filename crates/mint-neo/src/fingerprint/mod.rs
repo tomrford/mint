@@ -26,9 +26,6 @@ fn hash_type(layout: &ResolvedLayout, id: TypeId, hasher: &mut blake3::Hasher) {
             hasher.update(&[scalar.hash_tag()]);
             hash_u64(resolved.size as u64, hasher);
             hash_u64(resolved.alignment as u64, hasher);
-            hash_u64(resolved.size as u64, hasher);
-            hash_u64(resolved.alignment as u64, hasher);
-            hash_u64(resolved.size as u64, hasher);
         }
         LayoutKind::Record(fields) => {
             hasher.update(&[1]);
@@ -46,14 +43,12 @@ fn hash_type(layout: &ResolvedLayout, id: TypeId, hasher: &mut blake3::Hasher) {
             hasher.update(&[2]);
             hash_u64(resolved.size as u64, hasher);
             hash_u64(resolved.alignment as u64, hasher);
-            {
-                hash_u64(array.dimensions.len() as u64, hasher);
-                for dim in &array.dimensions {
-                    hash_u64(*dim, hasher);
-                }
-                hash_u64(array.stride as u64, hasher);
-                hash_type(layout, array.element, hasher);
+            hash_u64(array.dimensions.len() as u64, hasher);
+            for dim in &array.dimensions {
+                hash_u64(*dim, hasher);
             }
+            hash_u64(array.stride as u64, hasher);
+            hash_type(layout, array.element, hasher);
         }
     }
 }

@@ -247,39 +247,51 @@ fn preproc_logical_rest(text: &str, start: usize) -> &str {
     &text[start..index]
 }
 
-/// Replace C comments with whitespace so directive and macro text can be
-/// compared and evaluated without treating comment punctuation as tokens.
+/// First non-trivia byte, without scanning or allocating the rest of the source.
+pub fn next_c_token_byte(text: &str) -> Option<u8> {
+    c_bytes(text).find(|byte| !byte.is_ascii_whitespace())
+}
+
+/// Remove line splices and replace comments with whitespace, in C phase order.
 pub fn strip_c_comments(text: &str) -> String {
-    // C removes escaped newlines before it recognises comments or tokens.
-    let text = text.replace("\\\r\n", "").replace("\\\n", "");
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'/') {
-            index += 2;
-            while index < bytes.len() && bytes[index] != b'\n' {
-                index += 1;
+    String::from_utf8_lossy(&c_bytes(text).collect::<Vec<_>>()).into_owned()
+}
+
+fn c_bytes(text: &str) -> impl Iterator<Item = u8> + '_ {
+    let mut raw = text.as_bytes();
+    let mut bytes = std::iter::from_fn(move || {
+        loop {
+            if let Some(rest) = raw
+                .strip_prefix(b"\\\n")
+                .or_else(|| raw.strip_prefix(b"\\\r\n"))
+            {
+                raw = rest;
+                continue;
             }
-            continue;
+            let (&byte, rest) = raw.split_first()?;
+            raw = rest;
+            return Some(byte);
         }
-        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
-            index += 2;
-            while index + 1 < bytes.len() && !(bytes[index] == b'*' && bytes[index + 1] == b'/') {
-                index += 1;
+    })
+    .peekable();
+    std::iter::from_fn(move || {
+        let byte = bytes.next()?;
+        match (byte, bytes.peek()) {
+            (b'/', Some(b'/')) => bytes.by_ref().find(|&byte| byte == b'\n'),
+            (b'/', Some(b'*')) => {
+                bytes.next();
+                let mut star = false;
+                for byte in bytes.by_ref() {
+                    if star && byte == b'/' {
+                        break;
+                    }
+                    star = byte == b'*';
+                }
+                Some(b' ')
             }
-            if index + 1 < bytes.len() {
-                index += 2;
-            } else {
-                index = bytes.len();
-            }
-            out.push(b' ');
-            continue;
+            _ => Some(byte),
         }
-        out.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
+    })
 }
 
 pub(crate) fn descendants<'tree>(root: Node<'tree>, named: bool) -> Vec<Node<'tree>> {

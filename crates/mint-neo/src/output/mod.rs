@@ -16,52 +16,44 @@ pub fn render_i32hex(schema: &CompiledSchema, bytes: &[u8]) -> Result<String, Er
     }
     let start = u64::from(schema.layout.octet_start);
 
-    let mut lines = Vec::new();
+    let mut out = String::new();
     let mut offset = 0usize;
     let mut last_ela = None;
     while offset < bytes.len() {
         let address = start + offset as u64;
         let upper = (address >> 16) as u16;
         if last_ela != Some(upper) {
-            lines.push(ela_record(upper));
+            hex_record(&mut out, 0, 0x04, &upper.to_be_bytes());
             last_ela = Some(upper);
         }
         let room = (0x1_0000 - (address & 0xFFFF)) as usize;
         let remaining = bytes.len() - offset;
         let width = remaining.min(RECORD_WIDTH).min(room);
         let record_addr = (address & 0xFFFF) as u16;
-        lines.push(data_record(record_addr, &bytes[offset..offset + width]));
+        hex_record(&mut out, record_addr, 0x00, &bytes[offset..offset + width]);
         offset += width;
     }
-    lines.push(":00000001FF".to_owned());
-    let mut out = lines.join("\n");
-    out.push('\n');
+    out.push_str(":00000001FF\n");
     Ok(out)
 }
 
-fn ela_record(upper: u16) -> String {
-    let data = upper.to_be_bytes();
-    hex_record(0, 0x04, &data)
-}
-
-fn data_record(address: u16, data: &[u8]) -> String {
-    hex_record(address, 0x00, data)
-}
-
-fn hex_record(address: u16, record_type: u8, data: &[u8]) -> String {
-    let mut bytes = Vec::with_capacity(4 + data.len() + 1);
-    bytes.push(data.len() as u8);
-    bytes.extend_from_slice(&address.to_be_bytes());
-    bytes.push(record_type);
-    bytes.extend_from_slice(data);
-    let sum: u32 = bytes.iter().map(|byte| u32::from(*byte)).sum();
-    let checksum = (!sum + 1) as u8;
-    bytes.push(checksum);
-    let mut line = String::from(":");
-    for byte in bytes {
-        line.push_str(&format!("{byte:02X}"));
+fn hex_record(out: &mut String, address: u16, record_type: u8, data: &[u8]) {
+    let [high, low] = address.to_be_bytes();
+    let header = [data.len() as u8, high, low, record_type];
+    let mut sum = 0u8;
+    out.push(':');
+    for &byte in header.iter().chain(data) {
+        hex_byte(out, byte);
+        sum = sum.wrapping_add(byte);
     }
-    line
+    hex_byte(out, sum.wrapping_neg());
+    out.push('\n');
+}
+
+fn hex_byte(out: &mut String, byte: u8) {
+    const DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+    out.push(DIGITS[(byte >> 4) as usize] as char);
+    out.push(DIGITS[(byte & 15) as usize] as char);
 }
 
 fn encode(schema: &CompiledSchema, message: impl Into<String>) -> Error {

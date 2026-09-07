@@ -43,7 +43,7 @@ typedef struct {
 "#,
     ))
     .expect("header");
-    assert_eq!(schema.layout.root_layout().size, 16);
+    assert_eq!(schema.layout().root_layout().size, 16);
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn unreferenced_duplicate_macros_are_ignored() {
         "typedef struct { uint16_t values[N]; } config_t;",
     ))
     .expect("unreferenced duplicates");
-    assert_eq!(schema.layout.root_layout().size, 6);
+    assert_eq!(schema.layout().root_layout().size, 6);
 }
 
 #[test]
@@ -87,7 +87,7 @@ typedef struct {
 "#,
     ))
     .expect("nested tag");
-    assert_eq!(schema.layout.root_layout().size, 8);
+    assert_eq!(schema.layout().root_layout().size, 8);
 }
 
 #[test]
@@ -222,7 +222,7 @@ typedef struct {
 "#,
     ))
     .expect("multi-declarator aliases");
-    assert_eq!(schema.layout.root_layout().size, 20);
+    assert_eq!(schema.layout().root_layout().size, 20);
 }
 
 #[test]
@@ -304,7 +304,7 @@ fn unreachable_packed_helper_is_trivia() {
         "typedef struct { uint32_t id; } config_t;",
     ))
     .expect("unreachable packed helper");
-    assert_eq!(schema.layout.root_layout().size, 4);
+    assert_eq!(schema.layout().root_layout().size, 4);
 }
 
 #[test]
@@ -399,7 +399,7 @@ fn macros_preserve_c_precedence_and_enum_declaration_context() {
         "typedef struct { uint16_t values[N * 2]; uint16_t other[NEXT]; uint16_t last[LAST]; } config_t;",
     );
     let schema = compile_header(Source::new("config.h", text)).unwrap();
-    let fields = &schema.layout.root_fields();
+    let fields = &schema.layout().root_fields();
     assert_eq!(
         fields.iter().map(|f| f.size).collect::<Vec<_>>(),
         [10, 12, 16]
@@ -455,8 +455,8 @@ fn unreachable_local_types_and_enum_expressions_do_not_change_the_schema() {
     );
     let a = compile_header(Source::new("a.h", plain)).unwrap();
     let b = compile_header(Source::new("b.h", extra)).unwrap();
-    assert_eq!(a.fingerprint, b.fingerprint);
-    assert_eq!(b.layout.root_layout().size, 4);
+    assert_eq!(a.fingerprint(), b.fingerprint());
+    assert_eq!(b.layout().root_layout().size, 4);
 }
 
 #[test]
@@ -512,6 +512,69 @@ fn expansion_work_and_expression_nesting_are_bounded() {
 }
 
 #[test]
+fn reachable_function_macros_cannot_rewrite_declarations() {
+    for separator in [
+        " ",
+        " /* comment */ ",
+        " // comment\n",
+        "\\\n",
+        "\\\r\n",
+        "/\\\n* comment */",
+    ] {
+        let declaration = format!("typedef struct {{ uint32_t{separator}(value); }} config_t;");
+        let text = mint_block("#define uint32_t(name) uint8_t name\n", &declaration);
+        let error = compile_err(&text);
+        assert!(
+            error.contains("macro 'uint32_t'") || error.contains("invalid C syntax"),
+            "{error}"
+        );
+    }
+    // A function-like macro does not expand unless followed by an opening
+    // parenthesis. Ordinary uses of the same identifier remain valid C.
+    let text = mint_block(
+        "#define uint32_t(name) uint8_t name\n",
+        "typedef struct { uint32_t value; } config_t;",
+    );
+    assert_eq!(compile(&text).unwrap().layout().root_layout().size, 4);
+}
+
+#[test]
+fn member_arrays_reject_parameter_only_syntax() {
+    for extent in [
+        "static 4",
+        "const 4",
+        "volatile 4",
+        "restrict 4",
+        "static const 4",
+    ] {
+        for declaration in [
+            format!("typedef struct {{ uint8_t value[{extent}]; }} config_t;"),
+            format!("typedef struct {{ uint8_t value[2][{extent}]; }} config_t;"),
+        ] {
+            let error = compile_err(&mint_block("", &declaration));
+            assert!(
+                error.contains("only valid in function parameters"),
+                "{error}"
+            );
+        }
+        let prelude = format!("typedef uint8_t array_t[{extent}];\n");
+        let error = compile_err(&mint_block(
+            &prelude,
+            "typedef struct { array_t value; } config_t;",
+        ));
+        assert!(
+            error.contains("only valid in function parameters"),
+            "{error}"
+        );
+    }
+    let text = mint_block(
+        "",
+        "typedef struct { const volatile uint8_t value[4]; } config_t;",
+    );
+    assert_eq!(compile(&text).unwrap().layout().root_layout().size, 4);
+}
+
+#[test]
 fn shape_arithmetic_uses_c11_types_for_the_selected_abi() {
     for (abi, hex_count) in [("generic-le", 2), ("ti-c28x-eabi", 1)] {
         for (expression, expected) in [
@@ -534,7 +597,7 @@ fn shape_arithmetic_uses_c11_types_for_the_selected_abi() {
             let schema =
                 compile(&source).unwrap_or_else(|error| panic!("{abi}: {expression}: {error}"));
             assert_eq!(
-                schema.layout.root_fields()[0].size,
+                schema.layout().root_fields()[0].size,
                 expected * 2,
                 "{abi}: {expression}"
             );
@@ -563,7 +626,7 @@ fn shape_arithmetic_uses_c11_types_for_the_selected_abi() {
             "typedef struct { uint16_t x[COUNT]; } config_t;",
         )
         .replace("generic-le", abi);
-        assert_eq!(compile(&source).unwrap().layout.root_fields()[0].size, 6);
+        assert_eq!(compile(&source).unwrap().layout().root_fields()[0].size, 6);
         let source = mint_block(
             "enum { COUNT = 32768 };",
             "typedef struct { uint16_t x[COUNT % 3 + 1]; } config_t;",

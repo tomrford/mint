@@ -4,7 +4,7 @@ use crate::abi::Abi;
 use crate::diagnostic::Error;
 mod integer;
 use crate::source::{Source, Span};
-use crate::syntax::{MacroDef, strip_c_comments};
+use crate::syntax::{MacroDef, next_c_token_byte, strip_c_comments};
 use integer::Integer;
 
 pub const MAX_MACRO_DEPTH: usize = 128;
@@ -57,8 +57,11 @@ impl ShapeEnv {
     pub fn reject_macro_use(&self, source: &Source, span: Span) -> Result<(), Error> {
         let name = source.slice(span);
         if let Some(def) = self.macros.get(name).and_then(|defs| {
-            defs.iter()
-                .find(|def| def.span.end <= span.start && !def.function_like)
+            defs.iter().find(|def| {
+                def.span.end <= span.start
+                    && (!def.function_like
+                        || next_c_token_byte(&source.text[span.end..]) == Some(b'('))
+            })
         }) {
             return Err(Error::schema(
                 source,

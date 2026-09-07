@@ -112,9 +112,9 @@ typedef struct {
 "#,
     ))
     .expect("huge scalar array should compile");
-    assert_eq!(schema.layout.root_layout().size, 33554432 * 4);
-    assert!(schema.layout.padding_ranges.is_empty());
-    assert_eq!(schema.layout.padding_octets(), 0);
+    assert_eq!(schema.layout().root_layout().size, 33554432 * 4);
+    assert!(schema.layout().padding_ranges.is_empty());
+    assert_eq!(schema.layout().padding_octets(), 0);
 
     let text = inspect(&schema, InspectFormat::Text).unwrap();
     assert!(text.contains("values"));
@@ -145,21 +145,21 @@ typedef struct {
 "#,
     ))
     .expect("huge record array should compile");
-    assert_eq!(schema.layout.root_layout().size, 8388608 * 8);
+    assert_eq!(schema.layout().root_layout().size, 8388608 * 8);
     assert_eq!(
-        schema.layout.padding_ranges.len(),
+        schema.layout().padding_ranges.len(),
         1,
         "padding discovery must not allocate one range per element: {:?}",
-        schema.layout.padding_ranges
+        schema.layout().padding_ranges
     );
-    let range = &schema.layout.padding_ranges[0];
+    let range = &schema.layout().padding_ranges[0];
     assert_eq!(range.offset, 1);
     assert_eq!(range.size, 3);
     assert_eq!(range.path, "items[]");
     assert_eq!(range.repeats.len(), 1);
     assert_eq!(range.repeats[0].count, 8_388_608);
     assert_eq!(range.repeats[0].stride, 8);
-    assert_eq!(schema.layout.padding_octets(), 8_388_608 * 3);
+    assert_eq!(schema.layout().padding_octets(), 8_388_608 * 3);
 
     let text = inspect(&schema, InspectFormat::Text).unwrap();
     assert!(text.contains("items[] [1, 4) × 8388608 stride 8  25165824 octets"));
@@ -201,13 +201,13 @@ typedef struct {
     ))
     .expect("header");
 
-    assert_eq!(schema.layout.padding_ranges.len(), 4);
-    assert_eq!(schema.layout.padding_ranges[0].offset, 1);
-    assert_eq!(schema.layout.padding_ranges[0].size, 3);
-    assert!(schema.layout.padding_ranges[0].repeats.is_empty());
+    assert_eq!(schema.layout().padding_ranges.len(), 4);
+    assert_eq!(schema.layout().padding_ranges[0].offset, 1);
+    assert_eq!(schema.layout().padding_ranges[0].size, 3);
+    assert!(schema.layout().padding_ranges[0].repeats.is_empty());
 
     let cell_in_group = schema
-        .layout
+        .layout()
         .padding_ranges
         .iter()
         .find(|range| range.path == "groups[].cells[]")
@@ -221,7 +221,7 @@ typedef struct {
     assert_eq!(cell_in_group.repeats[1].stride, 28);
 
     let group_tail = schema
-        .layout
+        .layout()
         .padding_ranges
         .iter()
         .find(|range| range.path == "groups[]" && range.offset == 33)
@@ -232,7 +232,7 @@ typedef struct {
     assert_eq!(group_tail.repeats[0].stride, 28);
 
     let grid = schema
-        .layout
+        .layout()
         .padding_ranges
         .iter()
         .find(|range| range.path == "grid[]")
@@ -339,8 +339,8 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(schema.layout.octet_start, 0x200);
-    assert_eq!(schema.layout.root_layout().size, 40);
+    assert_eq!(schema.layout().octet_start, 0x200);
+    assert_eq!(schema.layout().root_layout().size, 40);
 
     let values: Vec<String> = (1..=20).map(|value| value.to_string()).collect();
     let bytes = encode_json(
@@ -380,7 +380,7 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(high.layout.octet_start, 0x1_0000);
+    assert_eq!(high.layout().octet_start, 0x1_0000);
     let values: Vec<String> = (0..16).map(|value| value.to_string()).collect();
     let bytes = encode_json(
         &high,
@@ -408,7 +408,7 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(cross.layout.octet_start, 0xFFF0);
+    assert_eq!(cross.layout().octet_start, 0xFFF0);
     let values: Vec<String> = (1..=20).map(|value| value.to_string()).collect();
     let bytes = encode_json(
         &cross,

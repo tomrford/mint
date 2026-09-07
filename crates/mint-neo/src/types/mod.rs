@@ -585,13 +585,6 @@ impl<'a> Resolver<'a> {
     ) -> Result<TypeId, Error> {
         let mut dims = Vec::new();
         self.walk_declarator(declarator, &mut dims)?;
-        if dims.len() > MAX_ARRAY_DIMENSIONS {
-            return Err(schema(
-                self.parsed,
-                ParsedFile::span(declarator),
-                format!("arrays may have at most {MAX_ARRAY_DIMENSIONS} dimensions"),
-            ));
-        }
         if !dims.is_empty() {
             type_id = self.canonicalize_array(type_id, dims, ParsedFile::span(declarator))?;
         }
@@ -626,68 +619,87 @@ impl<'a> Resolver<'a> {
         }))
     }
 
-    fn walk_declarator(&self, node: Node<'a>, dims: &mut Vec<u64>) -> Result<(), Error> {
-        self.env
-            .reject_macro_use(self.parsed.source, ParsedFile::span(node))?;
-        match node.kind() {
-            "identifier" | "field_identifier" | "type_identifier" => Ok(()),
-            "primitive_type" if self.parsed.text(node).ends_with("_t") => Ok(()),
-            "array_declarator" => {
-                let inner = node.child_by_field_name("declarator").ok_or_else(|| {
-                    schema(
-                        self.parsed,
-                        ParsedFile::span(node),
-                        "array declarator is missing a name",
-                    )
-                })?;
-                let size = node.child_by_field_name("size").ok_or_else(|| {
-                    schema(
-                        self.parsed,
-                        ParsedFile::span(node),
-                        "flexible and variable-length arrays are not supported",
-                    )
-                })?;
-                if self.parsed.text(size).trim() == "*" {
-                    return Err(schema(
-                        self.parsed,
-                        ParsedFile::span(size),
-                        "variable-length arrays are not supported",
-                    ));
+    fn walk_declarator(&self, mut node: Node<'a>, dims: &mut Vec<u64>) -> Result<(), Error> {
+        loop {
+            self.env
+                .reject_macro_use(self.parsed.source, ParsedFile::span(node))?;
+            match node.kind() {
+                "identifier" | "field_identifier" | "type_identifier" => {
+                    dims.reverse();
+                    return Ok(());
                 }
-                self.walk_declarator(inner, dims)?;
-                dims.push(evaluate(
-                    self.parsed.source,
-                    ParsedFile::span(size),
-                    self.parsed.text(size),
-                    &self.env,
-                    self.abi,
-                )?);
-                Ok(())
+                "primitive_type" if self.parsed.text(node).ends_with("_t") => {
+                    dims.reverse();
+                    return Ok(());
+                }
+                "array_declarator" => {
+                    let mut cursor = node.walk();
+                    if let Some(qualifier) = node
+                        .children(&mut cursor)
+                        .find(|child| matches!(child.kind(), "static" | "type_qualifier"))
+                    {
+                        return Err(schema(
+                            self.parsed,
+                            ParsedFile::span(qualifier),
+                            "static and qualifiers in array brackets are only valid in function parameters",
+                        ));
+                    }
+                    if dims.len() == MAX_ARRAY_DIMENSIONS {
+                        return Err(schema(
+                            self.parsed,
+                            ParsedFile::span(node),
+                            format!("arrays may have at most {MAX_ARRAY_DIMENSIONS} dimensions"),
+                        ));
+                    }
+                    let size = node
+                        .child_by_field_name("size")
+                        .filter(|size| self.parsed.text(*size).trim() != "*")
+                        .ok_or_else(|| {
+                            schema(
+                                self.parsed,
+                                ParsedFile::span(node),
+                                "flexible and variable-length arrays are not supported",
+                            )
+                        })?;
+                    dims.push(evaluate(
+                        self.parsed.source,
+                        ParsedFile::span(size),
+                        self.parsed.text(size),
+                        &self.env,
+                        self.abi,
+                    )?);
+                }
+                "parenthesized_declarator" => {
+                    node = first_named(node).ok_or_else(|| {
+                        schema(
+                            self.parsed,
+                            ParsedFile::span(node),
+                            "declarator is missing a name",
+                        )
+                    })?;
+                    continue;
+                }
+                other => {
+                    let message = match other {
+                        "pointer_declarator" => {
+                            "pointers are not supported in reachable types".to_owned()
+                        }
+                        "function_declarator" => {
+                            "function types are not supported in reachable types".to_owned()
+                        }
+                        "attributed_declarator" => "attributes are not supported".to_owned(),
+                        _ => format!("unsupported declarator '{other}'"),
+                    };
+                    return Err(schema(self.parsed, ParsedFile::span(node), message));
+                }
             }
-            "pointer_declarator" => Err(schema(
-                self.parsed,
-                ParsedFile::span(node),
-                "pointers are not supported in reachable types",
-            )),
-            "function_declarator" => Err(schema(
-                self.parsed,
-                ParsedFile::span(node),
-                "function types are not supported in reachable types",
-            )),
-            "parenthesized_declarator" => match first_named(node) {
-                Some(child) => self.walk_declarator(child, dims),
-                None => Ok(()),
-            },
-            "attributed_declarator" => Err(schema(
-                self.parsed,
-                ParsedFile::span(node),
-                "attributes are not supported",
-            )),
-            other => Err(schema(
-                self.parsed,
-                ParsedFile::span(node),
-                format!("unsupported declarator '{other}'"),
-            )),
+            node = node.child_by_field_name("declarator").ok_or_else(|| {
+                schema(
+                    self.parsed,
+                    ParsedFile::span(node),
+                    "declarator is missing a name",
+                )
+            })?;
         }
     }
 

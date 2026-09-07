@@ -41,7 +41,7 @@ typedef struct {
 "#,
     )
     .expect("unused function-like macros are trivia");
-    assert_eq!(schema.layout.root_layout().size, 4);
+    assert_eq!(schema.layout().root_layout().size, 4);
 }
 
 #[test]

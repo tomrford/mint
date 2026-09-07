@@ -652,6 +652,12 @@ target-address to octet-address conversion as Mint v2.
 Range combination, gap fill, reserved-region padding, checksums, signatures and
 format conversion belong downstream.
 
+`build` writes a temporary file in the destination directory and replaces the
+output entry after the complete image has been written. Failed writes leave
+the previous image intact. An output hard-linked to an input is replaced
+without changing the input. Paths and symbolic links resolving to an input
+are rejected. Other output symbolic links are replaced, rather than followed.
+
 ## Command-line interface
 
 The initial CLI surface is:
