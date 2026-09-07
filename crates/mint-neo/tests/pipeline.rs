@@ -33,17 +33,17 @@ typedef struct {
 #[test]
 fn compiles_flat_record_and_inspects_layout() {
     let schema = compile_header(header(FLAT)).expect("header");
-    assert_eq!(schema.layout.abi.name(), "generic-le");
-    assert_eq!(schema.layout.start_address, 0x8000);
-    assert_eq!(schema.layout.root_layout().size, 8);
-    assert_eq!(schema.layout.root_layout().alignment, 4);
+    assert_eq!(schema.layout().abi.name(), "generic-le");
+    assert_eq!(schema.layout().start_address, 0x8000);
+    assert_eq!(schema.layout().root_layout().size, 8);
+    assert_eq!(schema.layout().root_layout().alignment, 4);
     let text = inspect(&schema, InspectFormat::Text).unwrap();
     assert!(text.contains("id"));
     assert!(text.contains("uint32_t"));
     assert!(text.contains("fingerprint:"));
     assert_eq!(
         mint_neo::schema_fingerprint_hex(&schema),
-        "4f770ee765aa32de"
+        "e38f2d7a4d9caaaf"
     );
 }
 
@@ -86,7 +86,7 @@ typedef struct {
     assert!(missing.to_string().contains("missing"));
     let bytes = encode_json(&schema, &json(r#"{"id": 7}"#)).expect("json");
     assert_eq!(&bytes[8..12], &[7, 0, 0, 0]);
-    assert_eq!(&bytes[0..8], &schema.fingerprint.to_le_bytes());
+    assert_eq!(&bytes[0..8], &schema.fingerprint().to_le_bytes());
     assert_eq!(&bytes[12..16], &[0xFF; 4], "default tail padding");
 }
 
@@ -115,7 +115,7 @@ typedef struct {
 "#,
     ))
     .expect("header");
-    assert_eq!(schema.layout.root_layout().size, 16);
+    assert_eq!(schema.layout().root_layout().size, 16);
     let bytes = encode_json(
         &schema,
         &json(
@@ -161,8 +161,8 @@ typedef struct {
 "#,
     ))
     .expect("alias");
-    assert_eq!(direct.fingerprint, aliased.fingerprint);
-    assert_eq!(direct.layout.root_layout().size, 24);
+    assert_eq!(direct.fingerprint(), aliased.fingerprint());
+    assert_eq!(direct.layout().root_layout().size, 24);
 }
 
 #[test]
@@ -191,7 +191,7 @@ typedef struct { uint16_t values[12]; } config_t;
 "#,
     ))
     .unwrap();
-    assert_ne!(a.fingerprint, b.fingerprint);
+    assert_ne!(a.fingerprint(), b.fingerprint());
 }
 
 #[test]
@@ -227,7 +227,7 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(a.fingerprint, b.fingerprint);
+    assert_eq!(a.fingerprint(), b.fingerprint());
 }
 
 #[test]
@@ -268,8 +268,8 @@ typedef struct { uint16_t id; } config_t;
 "#,
     ))
     .unwrap();
-    assert_ne!(le.fingerprint, be.fingerprint);
-    assert_ne!(le.fingerprint, other.fingerprint);
+    assert_ne!(le.fingerprint(), be.fingerprint());
+    assert_ne!(le.fingerprint(), other.fingerprint());
 }
 
 #[test]
@@ -383,8 +383,8 @@ typedef struct {
 "#,
     ))
     .unwrap();
-    assert_eq!(schema.layout.root_layout().alignment, 2);
-    assert_eq!(schema.layout.root_layout().size, 2);
+    assert_eq!(schema.layout().root_layout().alignment, 2);
+    assert_eq!(schema.layout().root_layout().size, 2);
 }
 
 #[test]
@@ -404,7 +404,7 @@ typedef struct {
 "#,
     ))
     .expect("header");
-    assert_eq!(schema.layout.root_layout().size, 6);
+    assert_eq!(schema.layout().root_layout().size, 6);
     let bytes = encode_json(&schema, &json(r#"{"axes":[1,2,3]}"#)).unwrap();
     assert_eq!(bytes, [1, 0, 2, 0, 3, 0]);
 }

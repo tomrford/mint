@@ -1,149 +1,154 @@
-use std::path::PathBuf;
-use std::process::Command;
+use std::{
+    fs,
+    path::Path,
+    process::{Command, Output},
+};
 
-fn mint_neo() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_mint-neo"))
+const HEADER: &str = "/**\n * @mint block\n * @mint abi generic-le\n * @mint start-address 0x10\n */\ntypedef struct { uint32_t id; } config_t;\n";
+const JSON: &str = r#"{"id": 1}"#;
+const HEX: &str = ":020000040000FA\n:0400100001000000EB\n:00000001FF\n";
+
+fn fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("schema.h"), HEADER).unwrap();
+    fs::write(dir.path().join("values.json"), JSON).unwrap();
+    dir
 }
 
-fn write_temp(name: &str, contents: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!("mint-neo-{name}-{}", std::process::id()));
-    std::fs::write(&path, contents).expect("write temp");
-    path
+fn run(dir: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_mint-neo"))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn build(dir: &Path, out: &str) -> Output {
+    run(
+        dir,
+        &["build", "schema.h", "--json", "values.json", "--out", out],
+    )
+}
+
+fn success(output: Output) -> String {
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn inputs_intact(dir: &Path) {
+    assert_eq!(fs::read_to_string(dir.join("schema.h")).unwrap(), HEADER);
+    assert_eq!(fs::read_to_string(dir.join("values.json")).unwrap(), JSON);
 }
 
 #[test]
 fn abi_list_and_show() {
-    let list = mint_neo().args(["abi", "list"]).output().expect("list");
-    assert!(list.status.success());
-    let stdout = String::from_utf8_lossy(&list.stdout);
-    assert!(stdout.contains("generic-le"));
-    assert!(stdout.contains("ti-c28x-eabi"));
-    assert!(list.stderr.is_empty());
-
-    let show = mint_neo()
-        .args(["abi", "show", "tricore-eabi-le"])
-        .output()
-        .expect("show");
-    assert!(show.status.success());
-    let stdout = String::from_utf8_lossy(&show.stdout);
-    assert!(stdout.contains("name: tricore-eabi-le"));
-    assert!(stdout.contains("u64"));
-    assert!(show.stderr.is_empty());
+    let dir = fixture();
+    let list = success(run(dir.path(), &["abi", "list"]));
+    assert!(list.contains("generic-le") && list.contains("ti-c28x-eabi"));
+    let show = success(run(dir.path(), &["abi", "show", "tricore-eabi-le"]));
+    assert!(show.contains("name: tricore-eabi-le") && show.contains("u64"));
 }
 
 #[test]
 fn fingerprint_prints_hex_newline() {
-    let header = write_temp(
-        "fp.h",
-        r#"
-#include <stdint.h>
-/**
- * @mint block
- * @mint abi generic-le
- * @mint start-address 0
- */
-typedef struct { uint32_t id; } config_t;
-"#,
-    );
-    let output = mint_neo()
-        .args(["fingerprint", &header.display().to_string()])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let dir = fixture();
+    let stdout = success(run(dir.path(), &["fingerprint", "schema.h"]));
     assert_eq!(stdout.len(), 17);
     assert!(stdout.ends_with('\n'));
     assert!(stdout[..16].chars().all(|c| c.is_ascii_hexdigit()));
-    assert!(output.stderr.is_empty());
 }
 
 #[test]
 fn build_writes_hex() {
-    let header = write_temp(
-        "build.h",
-        r#"
-#include <stdint.h>
-/**
- * @mint block
- * @mint abi generic-le
- * @mint start-address 0x10
- */
-typedef struct { uint32_t id; } config_t;
-"#,
+    let dir = fixture();
+    assert_eq!(success(build(dir.path(), "image.hex")), "");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("image.hex")).unwrap(),
+        HEX
     );
-    let json = write_temp("build.json", r#"{"id": 1}"#);
-    let out = std::env::temp_dir().join(format!("mint-neo-out-{}.hex", std::process::id()));
-    let output = mint_neo()
-        .args([
-            "build",
-            &header.display().to_string(),
-            "--json",
-            &json.display().to_string(),
-            "--out",
-            &out.display().to_string(),
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let hex = std::fs::read_to_string(&out).unwrap();
-    assert!(hex.contains(":020000040000FA"));
-    assert!(hex.ends_with(":00000001FF\n"));
 }
 
 #[test]
 fn build_rejects_output_paths_that_resolve_to_an_input() {
-    let header_text = r#"
-#include <stdint.h>
-/**
- * @mint block
- * @mint abi generic-le
- * @mint start-address 0
- */
-typedef struct { uint32_t id; } config_t;
-"#;
-    let header = write_temp("collision.h", header_text);
-    let json = write_temp("collision.json", r#"{"id": 1}"#);
-
-    for (out, input_name, expected) in [
-        (&header, "header", header_text),
-        (&json, "JSON input", r#"{"id": 1}"#),
-    ] {
-        let output = mint_neo()
-            .args(["build"])
-            .arg(&header)
-            .arg("--json")
-            .arg(&json)
-            .arg("--out")
-            .arg(out)
-            .output()
-            .expect("build collision check");
+    let dir = fixture();
+    for (out, name) in [("schema.h", "header"), ("values.json", "JSON input")] {
+        let output = build(dir.path(), out);
         assert_eq!(output.status.code(), Some(1));
         assert!(
             String::from_utf8_lossy(&output.stderr)
-                .contains(&format!("--out resolves to the {input_name} path"))
-        );
-        assert_eq!(
-            std::fs::read_to_string(out).expect("input remains readable"),
-            expected
+                .contains(&format!("--out resolves to the {name} path"))
         );
     }
+    inputs_intact(dir.path());
+}
+
+#[test]
+#[cfg(unix)]
+fn output_symlinks_to_inputs_are_rejected() {
+    let dir = fixture();
+    for input in ["schema.h", "values.json"] {
+        let out = format!("{input}.hex");
+        std::os::unix::fs::symlink(input, dir.path().join(&out)).unwrap();
+        let output = build(dir.path(), &out);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("--out resolves to"));
+    }
+    inputs_intact(dir.path());
+}
+
+#[test]
+#[cfg(unix)]
+fn output_permissions_follow_creation_umask_and_preserve_existing_modes() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = fixture();
+    let out = dir.path().join("image.hex");
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    success(build(dir.path(), "image.hex"));
+    assert_eq!(mode(&out), mode(&dir.path().join("values.json")));
+    fs::set_permissions(&out, fs::Permissions::from_mode(0o640)).unwrap();
+    success(build(dir.path(), "image.hex"));
+    assert_eq!(mode(&out), 0o640);
+}
+
+#[test]
+fn replacing_hard_linked_outputs_preserves_inputs() {
+    let dir = fixture();
+    for input in ["schema.h", "values.json"] {
+        let out = format!("{input}.hex");
+        fs::hard_link(dir.path().join(input), dir.path().join(&out)).unwrap();
+        success(build(dir.path(), &out));
+        assert_eq!(fs::read_to_string(dir.path().join(out)).unwrap(), HEX);
+    }
+    inputs_intact(dir.path());
+}
+
+#[test]
+fn failed_build_preserves_existing_output_and_cleans_temporary_files() {
+    let dir = fixture();
+    let out = dir.path().join("image.hex");
+    fs::write(dir.path().join("values.json"), r#"{"id": 4294967296}"#).unwrap();
+    fs::write(&out, "previous image").unwrap();
+    assert_eq!(build(dir.path(), "image.hex").status.code(), Some(1));
+    assert_eq!(fs::read_to_string(out).unwrap(), "previous image");
+
+    // Force replacement to fail after writing the temporary file.
+    fs::write(dir.path().join("values.json"), JSON).unwrap();
+    fs::create_dir(dir.path().join("directory")).unwrap();
+    assert_eq!(build(dir.path(), "directory").status.code(), Some(1));
+    assert!(dir.path().join("directory").is_dir());
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 4);
 }
 
 #[test]
 fn schema_failure_is_exit_1() {
-    let header = write_temp("bad.h", "#include <stdio.h>\n");
-    let output = mint_neo()
-        .args(["fingerprint", &header.display().to_string()])
-        .output()
-        .unwrap();
+    let dir = fixture();
+    fs::write(dir.path().join("schema.h"), "#include <stdio.h>\n").unwrap();
+    let output = run(dir.path(), &["fingerprint", "schema.h"]);
     assert_eq!(output.status.code(), Some(1));
     assert!(!output.stderr.is_empty());
     assert!(output.stdout.is_empty());

@@ -105,7 +105,7 @@ typedef struct {
     .expect("neo header");
     let bytes = encode_json(&neo, &Source::new("config.json", r#"{"small":1,"wide":2}"#))
         .expect("neo json");
-    assert_eq!(neo.layout.root_layout().size, expected.len());
+    assert_eq!(neo.layout().root_layout().size, expected.len());
     assert_eq!(bytes, expected);
 }
 
@@ -142,7 +142,7 @@ fn every_neo_scalar_layout_matches_mint_profiles() {
                 continue;
             };
             let schema = schema.unwrap();
-            let field = &schema.layout.root_fields()[1];
+            let field = &schema.layout().root_fields()[1];
             assert_eq!(
                 field.size,
                 2 * expected.storage_size,
@@ -156,7 +156,7 @@ fn every_neo_scalar_layout_matches_mint_profiles() {
                 abi.name()
             );
             assert_eq!(
-                match &schema.layout.layouts[field.type_id.0].kind {
+                match &schema.layout().layouts[field.type_id.0].kind {
                     mint_neo::LayoutKind::Array(array) => array.stride,
                     _ => panic!("array expected"),
                 },

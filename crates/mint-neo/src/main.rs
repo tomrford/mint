@@ -9,7 +9,7 @@
     )
 )]
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -78,13 +78,7 @@ fn parse_abi_arg(name: &str) -> Result<String, String> {
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(error) => {
-            let _ = error.print();
-            return clap_exit_code(&error);
-        }
-    };
+    let cli = Cli::parse();
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -94,39 +88,31 @@ fn main() -> ExitCode {
     }
 }
 
-fn clap_exit_code(error: &clap::Error) -> ExitCode {
-    match u8::try_from(error.exit_code()) {
-        Ok(code) => ExitCode::from(code),
-        Err(_) => ExitCode::from(2),
-    }
-}
-
 fn run(cli: Cli) -> Result<(), Error> {
-    match cli.command {
-        Command::Build { header, json, out } => build(&header, &json, &out),
+    let output = match cli.command {
+        Command::Build { header, json, out } => return build(&header, &json, &out),
         Command::Fingerprint { header } => {
             let schema = load_header(&header)?;
-            println!("{}", mint_neo::schema_fingerprint_hex(&schema));
-            Ok(())
+            format!("{}\n", mint_neo::schema_fingerprint_hex(&schema))
         }
-        Command::Inspect { header, format } => {
-            let schema = load_header(&header)?;
-            print!("{}", inspect(&schema, format)?);
-            Ok(())
-        }
+        Command::Inspect { header, format } => inspect(&load_header(&header)?, format)?,
         Command::Abi {
             command: AbiCommand::List,
-        } => {
-            print!("{}", abi_list());
-            Ok(())
-        }
+        } => abi_list(),
         Command::Abi {
             command: AbiCommand::Show { abi },
-        } => {
-            print!("{}", abi_show(&abi)?);
-            Ok(())
-        }
-    }
+        } => abi_show(&abi)?,
+    };
+    io::stdout()
+        .lock()
+        .write_all(output.as_bytes())
+        .map_err(|error| {
+            Error::named(
+                Category::Encoding,
+                "<stdout>",
+                format!("failed to write stdout: {error}"),
+            )
+        })
 }
 
 fn build(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
@@ -135,7 +121,7 @@ fn build(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
     let json_source = load_json(json)?;
     let bytes = encode_json(&schema, &json_source)?;
     let hex = render_hex(&schema, &bytes)?;
-    std::fs::write(out, hex).map_err(|error| {
+    write_output(out, hex.as_bytes()).map_err(|error| {
         Error::named(
             Category::Encoding,
             out.display().to_string(),
@@ -145,46 +131,49 @@ fn build(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+fn write_output(out: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = out
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let builder = &mut tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o666));
+    }
+    let mut file = builder.tempfile_in(parent)?;
+    if let Ok(metadata) = out.symlink_metadata()
+        && metadata.is_file()
+    {
+        file.as_file().set_permissions(metadata.permissions())?;
+    }
+    file.write_all(bytes)?;
+    // Replace the directory entry only after the complete image is written.
+    // In particular, never truncate an input reached through a hard link.
+    file.persist(out).map_err(|error| error.error)?;
+    Ok(())
+}
+
 fn reject_output_collision(header: &Path, json: &Path, out: &Path) -> Result<(), Error> {
-    let collision = if same_destination(header, out)? {
-        Some("header")
-    } else if json != Path::new("-") && same_destination(json, out)? {
-        Some("JSON input")
-    } else {
-        None
-    };
-    let Some(input) = collision else {
+    // A missing destination cannot alias an existing input. Hard links are
+    // safe because write_output replaces the output entry instead of its data.
+    let Ok(destination) = out.canonicalize() else {
         return Ok(());
     };
-    Err(Error::named(
-        Category::Encoding,
-        out.display().to_string(),
-        format!("--out resolves to the {input} path"),
-    ))
-}
-
-fn same_destination(left: &Path, right: &Path) -> Result<bool, Error> {
-    Ok(destination_identity(left)? == destination_identity(right)?)
-}
-
-fn destination_identity(path: &Path) -> Result<PathBuf, Error> {
-    let absolute = std::path::absolute(path).map_err(|error| {
-        Error::named(
-            Category::Encoding,
-            path.display().to_string(),
-            format!("failed to resolve path {}: {error}", path.display()),
-        )
-    })?;
-    if let Ok(canonical) = absolute.canonicalize() {
-        return Ok(canonical);
+    for (input, name) in [(header, "header"), (json, "JSON input")] {
+        if name == "JSON input" && input == Path::new("-") {
+            continue;
+        }
+        if input.canonicalize().is_ok_and(|path| path == destination) {
+            return Err(Error::named(
+                Category::Encoding,
+                out.display().to_string(),
+                format!("--out resolves to the {name} path"),
+            ));
+        }
     }
-    let Some(parent) = absolute.parent() else {
-        return Ok(absolute);
-    };
-    match (parent.canonicalize(), absolute.file_name()) {
-        (Ok(parent), Some(name)) => Ok(parent.join(name)),
-        _ => Ok(absolute),
-    }
+    Ok(())
 }
 
 fn load_header(path: &Path) -> Result<CompiledSchema, Error> {

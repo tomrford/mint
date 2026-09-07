@@ -30,26 +30,31 @@ pub use source::Source;
 
 #[derive(Clone, Debug)]
 pub struct CompiledSchema {
-    pub source: Source,
-    pub layout: layout::ResolvedLayout,
-    pub fingerprint: u64,
+    source: Source,
+    layout: ResolvedLayout,
+    fingerprint: u64,
+}
+
+impl CompiledSchema {
+    pub fn layout(&self) -> &ResolvedLayout {
+        &self.layout
+    }
+
+    pub fn fingerprint(&self) -> u64 {
+        self.fingerprint
+    }
 }
 
 pub fn compile_header(source: Source) -> Result<CompiledSchema, Error> {
-    let (layout, fingerprint) = compile(&source)?;
+    let parsed = syntax::ParsedFile::parse(&source)?;
+    let types = types::compile_types(&parsed)?;
+    let layout = layout::resolve(types, &source)?;
+    let fingerprint = fingerprint::calculate(&layout);
     Ok(CompiledSchema {
         source,
         layout,
         fingerprint,
     })
-}
-
-fn compile(source: &Source) -> Result<(layout::ResolvedLayout, u64), Error> {
-    let parsed = syntax::ParsedFile::parse(source)?;
-    let types = types::compile_types(&parsed)?;
-    let layout = layout::resolve(types, source)?;
-    let fingerprint = fingerprint::calculate(&layout);
-    Ok((layout, fingerprint))
 }
 
 pub fn schema_fingerprint_hex(schema: &CompiledSchema) -> String {
