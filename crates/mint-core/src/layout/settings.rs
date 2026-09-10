@@ -10,9 +10,30 @@ use std::collections::HashMap;
 pub struct MintConfig {
     pub abi: Abi,
     #[serde(default)]
+    pub header: HeaderConfig,
+    #[serde(default)]
     pub checksum: HashMap<String, ChecksumConfig>,
     #[serde(rename = "const", default)]
     pub consts: HashMap<String, ValueSource>,
+}
+
+/// C header generation settings from `[mint.header]`.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HeaderConfig {
+    /// Complete ordered include list, with C quote or angle-bracket delimiters.
+    /// An empty list suppresses all includes.
+    pub includes: Vec<String>,
+}
+
+impl Default for HeaderConfig {
+    fn default() -> Self {
+        Self {
+            includes: ["<limits.h>", "<stddef.h>", "<stdint.h>"]
+                .map(str::to_owned)
+                .to_vec(),
+        }
+    }
 }
 
 impl MintConfig {

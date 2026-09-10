@@ -92,6 +92,12 @@ Every accepted key in a mint layout file, with types, defaults, and constraints.
 | ----- | ------------- | ------------ | ------------------------------------------------ |
 | `abi` | Named profile | — (required) | Target layout profile; discover names with `mint abi list` |
 
+### `[mint.header]` — C header generation (optional)
+
+`includes` is an ordered array of strings containing C include delimiters, for example `includes = ['"platform/types.h"', '<project/extra.h>']`. It replaces the complete include list. Omission defaults to `['<limits.h>', '<stddef.h>', '<stdint.h>']`; `[]` emits no includes. Names must be non-empty, without control characters, backslashes or nested delimiters. Paths are emitted unchanged for the C compiler to resolve. Layouts combined into one header must use identical effective lists, including order.
+
+The supplied headers must provide the existing generated type names, `CHAR_BIT`, `offsetof` and any integer constant macros used. This setting leaves binary output and ABI fingerprints unchanged.
+
 ### `[mint.checksum.<name>]` — named CRC configurations (optional, repeatable)
 
 Define as many as needed (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]`). Referenced by name in checksum fields. All fields are required — no inheritance or partial configs.
