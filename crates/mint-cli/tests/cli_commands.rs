@@ -348,10 +348,7 @@ fn equivalent_output_and_report_paths_are_rejected_without_writing() {
             .output()
             .expect("mint build should run");
         assert!(!output.status.success());
-        assert!(
-            String::from_utf8_lossy(&output.stderr)
-                .contains("--out and --export-json resolve to the same destination")
-        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
         let contents = std::fs::read_to_string(&path).ok();
         assert_eq!(contents.as_deref(), existing.then_some("keep me"));
     }
@@ -390,4 +387,100 @@ fn format_extension_mismatch_warning_respects_quiet() {
         }
         assert!(out.exists(), "expected output file: {}", out.display());
     }
+}
+
+#[test]
+fn outputs_cannot_replace_layout_or_data_inputs() {
+    let contents = "[mint]\nabi = \"generic-le\"\n[block.header]\nstart_address = 0\nlength = 4\n[block.data]\nx = {value = 1, type = \"u8\"}\n";
+    let layout = common::write_layout_file("protected-input", contents);
+    for command in ["build", "header"] {
+        let output = mint_command()
+            .args([command, &layout, "--out", &layout])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
+        assert_eq!(std::fs::read_to_string(&layout).unwrap(), contents);
+    }
+    for format in ["json", "xlsx"] {
+        let data = common::unique_out_path("protected-data", format);
+        if format == "json" {
+            std::fs::write(&data, r#"{"Default":{"Value":1}}"#).unwrap();
+        } else {
+            std::fs::copy("../mint-core/tests/data/data.xlsx", &data).unwrap();
+        }
+        let original = std::fs::read(&data).unwrap();
+        let out = common::unique_out_path("protected-output", "hex");
+        let output = mint_command()
+            .args(["build", &layout])
+            .arg(format!("--{format}"))
+            .arg(&data)
+            .args(["--variants", "Default"])
+            .arg("--export-json")
+            .arg(&data)
+            .arg("--out")
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
+        assert_eq!(std::fs::read(&data).unwrap(), original);
+        assert!(!out.exists());
+    }
+}
+
+#[test]
+fn output_aliases_are_rejected_before_either_file_is_written() {
+    let root = common::unique_out_path("output-aliases", "dir");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    let path = root.join("out.hex");
+    let mut aliases = vec![root.join("sub/../out.hex")];
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&root, root.join("alias")).unwrap();
+        aliases.push(root.join("alias/out.hex"));
+    }
+    let block = "../mint-core/tests/data/blocks.toml#simple_block";
+    for alias in aliases {
+        let output = mint_command()
+            .args(["build", block])
+            .arg("--out")
+            .arg(&path)
+            .arg("--export-json")
+            .arg(&alias)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
+        assert!(!path.exists());
+    }
+    #[cfg(unix)]
+    {
+        let dangling = root.join("dangling.hex");
+        std::os::unix::fs::symlink(&path, &dangling).unwrap();
+        let output = mint_command()
+            .args(["build", block])
+            .arg("--out")
+            .arg(&dangling)
+            .arg("--export-json")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(!path.exists());
+    }
+    std::fs::write(&path, "keep me").unwrap();
+    let alias = root.join("hardlink.hex");
+    std::fs::hard_link(&path, &alias).unwrap();
+    let output = mint_command()
+        .args(["build", block])
+        .arg("--out")
+        .arg(&path)
+        .arg("--export-json")
+        .arg(&alias)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
 }

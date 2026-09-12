@@ -96,6 +96,15 @@ macro_rules! err {
     };
 }
 
+fn require_finite(value: &DataValue) -> Result<(), LayoutError> {
+    if let DataValue::F64(value) = value
+        && !value.is_finite()
+    {
+        return Err(err!("cannot encode non-finite value"));
+    }
+    Ok(())
+}
+
 fn finite_integral_f64(value: f64) -> Result<f64, LayoutError> {
     if !value.is_finite() {
         return Err(err!(
@@ -270,6 +279,7 @@ pub fn clamp_bitfield_value(
     signed: bool,
     strict: bool,
 ) -> Result<i128, LayoutError> {
+    require_finite(value)?;
     let raw: i128 = if strict {
         i128::try_from_strict(value)?
     } else {
@@ -316,14 +326,6 @@ fn fixed_point_overflow_error(
         fixed.storage_label(),
         data_value_display(value),
         scaled
-    ))
-}
-
-fn fixed_point_non_finite_error(fixed: FixedPointType, value: &DataValue) -> LayoutError {
-    LayoutError::DataValueExportFailed(format!(
-        "fixed-point type '{}' cannot encode non-finite value {}",
-        fixed,
-        data_value_display(value)
     ))
 }
 
@@ -407,10 +409,6 @@ fn clamp_fixed_point_float(
     strict: bool,
     original: &DataValue,
 ) -> Result<i128, LayoutError> {
-    if !raw.is_finite() {
-        return Err(fixed_point_non_finite_error(fixed, original));
-    }
-
     let scaled = raw * (2f64).powi(i32::from(fixed.fractional_bits));
     if !scaled.is_finite() {
         if strict {
@@ -442,7 +440,7 @@ fn encode_integer_bytes(
     fixed: FixedPointType,
     endianness: Endianness,
 ) -> Result<Vec<u8>, LayoutError> {
-    match (fixed.signed, fixed.total_bits) {
+    match (fixed.signed, fixed.total_bits()) {
         (false, 8) => Ok((encoded as u8).to_endian_bytes(endianness)),
         (false, 16) => Ok((encoded as u16).to_endian_bytes(endianness)),
         (false, 32) => Ok((encoded as u32).to_endian_bytes(endianness)),
@@ -478,6 +476,7 @@ pub fn convert_value_to_bytes(
     endianness: Endianness,
     strict: bool,
 ) -> Result<Vec<u8>, LayoutError> {
+    require_finite(value)?;
     macro_rules! to_bytes {
         ($t:ty) => {{
             let val: $t = if strict {

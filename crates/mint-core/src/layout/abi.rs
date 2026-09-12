@@ -264,14 +264,14 @@ fn natural_scalar(scalar: ScalarType) -> ScalarAbi {
         ScalarType::I64 => (8, "int64_t"),
         ScalarType::F32 => (4, "float"),
         ScalarType::F64 => (8, "double"),
-        ScalarType::Fixed(fixed) if fixed.signed => match fixed.total_bits {
+        ScalarType::Fixed(fixed) if fixed.signed => match fixed.total_bits() {
             8 => (1, "int8_t"),
             16 => (2, "int16_t"),
             32 => (4, "int32_t"),
             64 => (8, "int64_t"),
             _ => unreachable!(),
         },
-        ScalarType::Fixed(fixed) => match fixed.total_bits {
+        ScalarType::Fixed(fixed) => match fixed.total_bits() {
             8 => (1, "uint8_t"),
             16 => (2, "uint16_t"),
             32 => (4, "uint32_t"),

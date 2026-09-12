@@ -2,7 +2,6 @@ use crate::build::BlockSelector;
 use crate::layout;
 use crate::layout::block::Config;
 use crate::layout::error::LayoutError;
-use crate::layout::resolved::validate_static;
 
 /// A block's deterministic 64-bit ABI fingerprint.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -22,10 +21,16 @@ impl BlockFingerprint {
 
 /// Calculate every block fingerprint in declaration order.
 pub fn calculate(config: &Config) -> Result<Vec<BlockFingerprint>, LayoutError> {
-    for block in config.blocks.values() {
-        validate_static(block, &config.mint)?;
+    let resolved = layout::fingerprint::calculate_scoped(
+        config,
+        config.blocks.keys().map(String::as_str),
+        true,
+    )?;
+    for (name, block) in &resolved.blocks {
+        block.validate(&config.blocks[name], &config.mint)?;
     }
-    Ok(layout::fingerprint::calculate(config)?
+    Ok(resolved
+        .fingerprints
         .into_iter()
         .map(|(block, value)| BlockFingerprint { block, value })
         .collect())
@@ -34,18 +39,9 @@ pub fn calculate(config: &Config) -> Result<Vec<BlockFingerprint>, LayoutError> 
 /// Calculate one block's fingerprint, fully validating that block and resolving
 /// the ABIs of its fingerprint targets.
 pub fn calculate_block(config: &Config, name: &str) -> Result<BlockFingerprint, LayoutError> {
-    let block = config.blocks.get(name).ok_or_else(|| {
-        LayoutError::BlockNotFound(format!(
-            "'{name}'. Available blocks: {}",
-            config.blocks.keys().cloned().collect::<Vec<_>>().join(", ")
-        ))
-    })?;
-    validate_static(block, &config.mint)?;
-    let value = layout::fingerprint::calculate_scoped(config, [name], true)?
-        .swap_remove(name)
-        .ok_or_else(|| {
-            LayoutError::BlockNotFound(format!("'{name}' missing from scoped calculation"))
-        })?;
+    let resolved = layout::fingerprint::calculate_scoped(config, [name], true)?;
+    resolved.blocks[name].validate(&config.blocks[name], &config.mint)?;
+    let value = resolved.fingerprints[name];
     Ok(BlockFingerprint {
         block: name.to_owned(),
         value,

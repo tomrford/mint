@@ -22,33 +22,37 @@ pub enum ScalarType {
     Fixed(FixedPointType),
 }
 
+/// A validated fixed-point type, obtained by parsing a `ScalarType` such as `q7.8`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FixedPointType {
-    pub signed: bool,
-    pub integer_bits: u8,
-    pub fractional_bits: u8,
-    pub total_bits: u8,
+    pub(crate) signed: bool,
+    pub(crate) integer_bits: u8,
+    pub(crate) fractional_bits: u8,
 }
 
 impl FixedPointType {
+    pub fn total_bits(&self) -> u8 {
+        u8::from(self.signed) + self.integer_bits + self.fractional_bits
+    }
+
     pub fn size_bytes(&self) -> usize {
-        usize::from(self.total_bits / 8)
+        usize::from(self.total_bits() / 8)
     }
 
     pub fn storage_label(&self) -> String {
         format!(
             "{} {}-bit storage",
             if self.signed { "signed" } else { "unsigned" },
-            self.total_bits
+            self.total_bits()
         )
     }
 
     pub fn encoded_bounds(&self) -> (i128, i128) {
         if self.signed {
-            let half = 1i128 << (self.total_bits - 1);
+            let half = 1i128 << (self.total_bits() - 1);
             (-half, half - 1)
         } else {
-            (0, (1i128 << self.total_bits) - 1)
+            (0, (1i128 << self.total_bits()) - 1)
         }
     }
 }
@@ -209,7 +213,6 @@ fn parse_fixed_point_type(value: &str) -> Result<FixedPointType, String> {
         signed,
         integer_bits,
         fractional_bits,
-        total_bits,
     })
 }
 
@@ -235,7 +238,6 @@ mod tests {
                     signed: false,
                     integer_bits: 0,
                     fractional_bits: 16,
-                    total_bits: 16,
                 }),
             ),
             (
@@ -244,7 +246,6 @@ mod tests {
                     signed: true,
                     integer_bits: 15,
                     fractional_bits: 16,
-                    total_bits: 32,
                 }),
             ),
         ];

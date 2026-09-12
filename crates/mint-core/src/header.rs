@@ -5,10 +5,10 @@ use crate::layout::block::{Block, Entry};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
-use crate::layout::resolved::{ResolvedNode, validate_static};
+use crate::layout::resolved::ResolvedNode;
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Generate a complete C11 header for the selected layout blocks.
@@ -85,6 +85,13 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     }
 
     let guard = format!("MINT_{}_H", guard_parts.join("_"));
+    for member in &names.members {
+        if member == &guard || names.macros.contains_key(member) {
+            return Err(
+                header_error(format!("field '{member}' collides with a generated macro")).into(),
+            );
+        }
+    }
     let mut output = format!("#ifndef {guard}\n#define {guard}\n");
     if let Some((_, includes)) = includes
         && !includes.is_empty()
@@ -163,6 +170,7 @@ struct MacroDefinition {
 struct NameRegistry {
     block_prefixes: HashMap<String, String>,
     macros: HashMap<String, String>,
+    members: HashSet<String>,
 }
 
 impl NameRegistry {
@@ -192,14 +200,15 @@ fn render_block(
     block_name: &str,
     block: &Block,
     settings: &MintConfig,
-    fingerprints: &IndexMap<String, u64>,
+    fingerprints: &fingerprint::ResolvedBlocks<'_>,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
     let typedef_name = format!("{block_name}_t");
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
-    let resolved = validate_static(block, settings)?;
+    let resolved = &fingerprints.blocks[block_name];
+    resolved.validate(block, settings)?;
 
     let Entry::Branch(source) = &block.data else {
         return Err(header_error("block data must be a table"));
@@ -228,7 +237,7 @@ fn render_block(
         source,
         block_name,
         &macro_prefix,
-        fingerprints,
+        &fingerprints.fingerprints,
         names,
         &mut path,
         &mut macros,
@@ -268,6 +277,7 @@ fn collect_macros(
     abi: Abi,
 ) -> Result<(), LayoutError> {
     for (name, node) in fields {
+        names.members.insert(name.clone());
         path.push(name.clone());
         match node {
             Entry::Branch(children) => {
@@ -309,7 +319,7 @@ fn collect_leaf_macros(
     output: &mut Vec<MacroDefinition>,
     abi: Abi,
 ) -> Result<(), LayoutError> {
-    let size = leaf.size()?;
+    let size = leaf.size;
 
     let path_prefix = macro_path(block_prefix, path)?;
     if let Some(size) = size {
@@ -436,7 +446,7 @@ fn render_fields(
             }
             Entry::Leaf(leaf) => {
                 let c_type = abi.scalar(leaf.scalar_type)?.c_type;
-                let dimensions = match leaf.size()? {
+                let dimensions = match leaf.size {
                     None => String::new(),
                     Some(SizeSource::OneD(_)) => {
                         format!("[{}_LEN]", macro_path(block_prefix, path)?)

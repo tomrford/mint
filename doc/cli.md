@@ -286,7 +286,7 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --stric
 - Value `300` → `u8` produces an error
 - Fixed-point `300.5` → `uq8.8` produces an error after scaling and ties-to-even rounding
 
-For fixed-point `qI.F` / `uqI.F` types, mint always scales by `2^F` and rounds to nearest with ties to even before checking the storage range. Non-finite values are always rejected.
+For fixed-point `qI.F` / `uqI.F` types, mint always scales by `2^F` and rounds to nearest with ties to even before checking the storage range. Non-finite inputs are rejected for every numeric type, with or without `--strict`.
 
 ---
 

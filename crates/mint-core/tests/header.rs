@@ -468,3 +468,28 @@ nested.value = { const = "missing", type = "u32" }
         "{missing_const}"
     );
 }
+
+#[test]
+fn rejects_fields_that_collide_with_generated_macros_or_the_guard() {
+    for member in ["B_X_LEN", "B_START_ADDRESS", "MINT_B_H"] {
+        let message = error(
+            "header-member-macro",
+            &format!(
+                r#"
+[mint]
+abi = "generic-le"
+[b.header]
+start_address = 0
+length = 16
+[b.data]
+nested.{member} = {{ value = 3, type = "u8" }}
+x = {{ value = [1, 2], type = "u8", size = 2 }}
+"#
+            ),
+        );
+        assert!(
+            message.contains(&format!("field '{member}' collides with a generated macro")),
+            "{message}"
+        );
+    }
+}

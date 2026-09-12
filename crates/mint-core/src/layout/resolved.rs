@@ -22,79 +22,71 @@ pub(crate) struct ResolvedLayout<'a> {
     abi: Abi,
 }
 
-pub(crate) fn validate_static<'a>(
-    block: &'a Block,
-    settings: &MintConfig,
-) -> Result<ResolvedLayout<'a>, LayoutError> {
-    let resolved = ResolvedLayout::new(&block.data, settings.abi)?;
-    let total_size = resolved.total_size();
-    if total_size > MAX_RESOLVED_BLOCK_SIZE {
-        return Err(LayoutError::InvalidLayout(format!(
-            "resolved layout size ({total_size} octets) exceeds Mint's materialized block limit ({MAX_RESOLVED_BLOCK_SIZE} octets)"
-        )));
-    }
-    if total_size > block.header.length as usize {
-        return Err(LayoutError::InvalidLayout(format!(
-            "resolved layout size ({total_size} octets) exceeds configured block length ({} octets)",
-            block.header.length
-        )));
-    }
-
-    let unit_octets = settings.abi.address_unit_octets();
-    if !(block.header.length as usize).is_multiple_of(unit_octets) {
-        return Err(LayoutError::InvalidLayout(format!(
-            "configured block length ({} octets) is not divisible by the {}-octet addressable unit of ABI '{}'",
-            block.header.length,
-            unit_octets,
-            settings.abi.name()
-        )));
-    }
-    if !total_size.is_multiple_of(unit_octets) {
-        return Err(LayoutError::InvalidLayout(format!(
-            "resolved layout size ({total_size} octets) is not divisible by the {}-octet addressable unit of ABI '{}'",
-            unit_octets,
-            settings.abi.name()
-        )));
-    }
-
-    let output_start = u64::from(block.header.start_address)
-        .checked_mul(unit_octets as u64)
-        .ok_or_else(|| {
-            LayoutError::InvalidLayout("block output start address overflow".to_owned())
-        })?;
-    let output_end = output_start + u64::from(block.header.length);
-    if output_end > u64::from(u32::MAX) + 1 {
-        return Err(LayoutError::InvalidLayout(format!(
-            "block octet-addressed output range 0x{output_start:08X}-0x{:08X} exceeds the 32-bit address space",
-            output_end.saturating_sub(1)
-        )));
-    }
-    for (path, coordinates, _, leaf) in resolved.emission_leaves() {
-        let size = leaf.size().map_err(|error| in_field_path(path, error))?;
-        let result = match &leaf.source {
-            EntrySource::Const(name) => leaf
-                .validate_const(name, &settings.consts, size.as_ref())
-                .map(|_| ()),
-            EntrySource::Value(_) if matches!(size, Some(SizeSource::TwoD(_))) => {
-                Err(LayoutError::InvalidLayout(
-                    "2D arrays within the layout file are not supported.".to_owned(),
-                ))
-            }
-            EntrySource::Checksum(_) if coordinates.offset == 0 => Err(LayoutError::InvalidLayout(
-                "Checksum must follow at least one data byte.".to_owned(),
-            )),
-            EntrySource::Checksum(name) => settings.checksum_config(name).map(|_| ()),
-            EntrySource::Ref(source) => {
-                validate_ref_addresses(path, source, leaf, &resolved, block.header.start_address)
-            }
-            _ => Ok(()),
-        };
-        result.map_err(|error| in_field_path(path, error))?;
-    }
-    Ok(resolved)
-}
-
 impl<'a> ResolvedLayout<'a> {
+    pub(crate) fn validate(&self, block: &Block, settings: &MintConfig) -> Result<(), LayoutError> {
+        let total_size = self.total_size();
+        if total_size > block.header.length as usize {
+            return Err(LayoutError::InvalidLayout(format!(
+                "resolved layout size ({total_size} octets) exceeds configured block length ({} octets)",
+                block.header.length
+            )));
+        }
+
+        let unit_octets = settings.abi.address_unit_octets();
+        if !(block.header.length as usize).is_multiple_of(unit_octets) {
+            return Err(LayoutError::InvalidLayout(format!(
+                "configured block length ({} octets) is not divisible by the {}-octet addressable unit of ABI '{}'",
+                block.header.length,
+                unit_octets,
+                settings.abi.name()
+            )));
+        }
+        if !total_size.is_multiple_of(unit_octets) {
+            return Err(LayoutError::InvalidLayout(format!(
+                "resolved layout size ({total_size} octets) is not divisible by the {}-octet addressable unit of ABI '{}'",
+                unit_octets,
+                settings.abi.name()
+            )));
+        }
+
+        let output_start = u64::from(block.header.start_address)
+            .checked_mul(unit_octets as u64)
+            .ok_or_else(|| {
+                LayoutError::InvalidLayout("block output start address overflow".to_owned())
+            })?;
+        let output_end = output_start + u64::from(block.header.length);
+        if output_end > u64::from(u32::MAX) + 1 {
+            return Err(LayoutError::InvalidLayout(format!(
+                "block octet-addressed output range 0x{output_start:08X}-0x{:08X} exceeds the 32-bit address space",
+                output_end.saturating_sub(1)
+            )));
+        }
+        for (path, coordinates, _, leaf) in self.emission_leaves() {
+            let size = leaf.size;
+            let result = match &leaf.source {
+                EntrySource::Const(name) => leaf
+                    .validate_const(name, &settings.consts, size.as_ref())
+                    .map(|_| ()),
+                EntrySource::Value(_) if matches!(size, Some(SizeSource::TwoD(_))) => {
+                    Err(LayoutError::InvalidLayout(
+                        "2D arrays within the layout file are not supported.".to_owned(),
+                    ))
+                }
+                EntrySource::Checksum(_) if coordinates.offset == 0 => {
+                    Err(LayoutError::InvalidLayout(
+                        "Checksum must follow at least one data byte.".to_owned(),
+                    ))
+                }
+                EntrySource::Checksum(name) => settings.checksum_config(name).map(|_| ()),
+                EntrySource::Ref(source) => {
+                    validate_ref_addresses(path, source, leaf, self, block.header.start_address)
+                }
+                _ => Ok(()),
+            };
+            result.map_err(|error| in_field_path(path, error))?;
+        }
+        Ok(())
+    }
     pub(crate) fn new(entry: &'a Entry, abi: Abi) -> Result<Self, LayoutError> {
         let mut root = collect_entry(entry, abi, &mut Vec::new())?;
         let mut cursor = 0usize;
@@ -107,6 +99,12 @@ impl<'a> ResolvedLayout<'a> {
             &mut leaves,
             &mut nodes,
         )?;
+
+        if cursor > MAX_RESOLVED_BLOCK_SIZE {
+            return Err(LayoutError::InvalidLayout(format!(
+                "resolved layout size ({cursor} octets) exceeds Mint's materialized block limit ({MAX_RESOLVED_BLOCK_SIZE} octets)"
+            )));
+        }
 
         for leaf in &leaves {
             if let EntrySource::Ref(source) = &leaf.leaf.source {
@@ -269,7 +267,7 @@ fn collect_entry<'a>(
     match entry {
         Entry::Leaf(leaf) => {
             let scalar_abi = abi.scalar(leaf.scalar_type)?;
-            let dimensions = leaf.size()?;
+            let dimensions = leaf.size;
             if let Some(dimensions) = &dimensions {
                 let zero = match dimensions {
                     SizeSource::OneD(length) => *length == 0,
@@ -302,7 +300,7 @@ fn collect_entry<'a>(
                 coordinates: ResolvedCoordinates {
                     offset: 0,
                     size,
-                    alignment: leaf.get_alignment(scalar_abi),
+                    alignment: scalar_abi.alignment,
                 },
                 scalar_abi,
                 leaf,

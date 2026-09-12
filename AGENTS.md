@@ -22,7 +22,7 @@ mint is a Cargo workspace with two crates:
 
 1. **Parse**: Serde parses each TOML layout into layout configuration types.
 2. **Resolve**: `ResolvedLayout` validates the ABI shape and calculates every field's offset, size and alignment.
-3. **Emit**: Each block starts as a padding-filled buffer. Data values, refs and fingerprints are written at resolved offsets, then checksums are resolved in field order.
+3. **Emit**: Each block starts as a padding-filled buffer. Data values, refs, fingerprints and prefix checksums are written at resolved offsets in field order.
 4. **Output**: Emitted blocks become address ranges, overlap checks run, and the selected output format is rendered.
 
 ### Key Directories

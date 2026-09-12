@@ -9,15 +9,16 @@ use std::collections::{HashMap, HashSet};
 
 const HASH_CONTEXT: &str = "mint block ABI fingerprint v2";
 
-pub(crate) fn calculate(config: &Config) -> Result<IndexMap<String, u64>, LayoutError> {
-    calculate_scoped(config, config.blocks.keys().map(String::as_str), true)
+pub(crate) struct ResolvedBlocks<'a> {
+    pub(crate) blocks: HashMap<String, ResolvedLayout<'a>>,
+    pub(crate) fingerprints: IndexMap<String, u64>,
 }
 
-pub(crate) fn calculate_scoped<'a>(
-    config: &Config,
-    roots: impl IntoIterator<Item = &'a str>,
+pub(crate) fn calculate_scoped<'a, 'b>(
+    config: &'a Config,
+    roots: impl IntoIterator<Item = &'b str>,
     hash_roots: bool,
-) -> Result<IndexMap<String, u64>, LayoutError> {
+) -> Result<ResolvedBlocks<'a>, LayoutError> {
     let available = || config.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
     let mut resolved_roots = HashMap::new();
     let mut root_names = HashSet::new();
@@ -56,13 +57,20 @@ pub(crate) fn calculate_scoped<'a>(
         if !hash_names.contains(name) {
             continue;
         }
-        let resolved = match resolved_roots.remove(name) {
+        let target;
+        let resolved = match resolved_roots.get(name) {
             Some(resolved) => resolved,
-            None => ResolvedLayout::new(&block.data, config.mint.abi)?,
+            None => {
+                target = ResolvedLayout::new(&block.data, config.mint.abi)?;
+                &target
+            }
         };
-        fingerprints.insert(name.clone(), fingerprint(&resolved)?);
+        fingerprints.insert(name.clone(), fingerprint(resolved)?);
     }
-    Ok(fingerprints)
+    Ok(ResolvedBlocks {
+        blocks: resolved_roots,
+        fingerprints,
+    })
 }
 
 fn fingerprint(resolved: &ResolvedLayout<'_>) -> Result<u64, LayoutError> {
@@ -216,7 +224,7 @@ fn hash_scalar(scalar: ScalarType, hasher: &mut blake3::Hasher) {
                 u8::from(fixed.signed),
                 fixed.integer_bits,
                 fixed.fractional_bits,
-                fixed.total_bits,
+                fixed.total_bits(),
             ]);
         }
     };

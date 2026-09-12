@@ -3,7 +3,8 @@ use crate::error::MintError;
 use crate::layout;
 use crate::layout::block::Config;
 use crate::layout::error::LayoutError;
-use crate::layout::used_values::{NoopValueSink, ValueCollector};
+use crate::layout::fingerprint::ResolvedBlocks;
+use crate::layout::used_values::ValueCollector;
 use crate::output;
 use crate::output::error::OutputError;
 use crate::output::{DataRange, OutputFormat};
@@ -146,7 +147,6 @@ pub(crate) struct ResolvedBlock {
 }
 
 struct BlockBuildResult {
-    selector: BlockSelector,
     data_range: DataRange,
     stat: BlockStat,
     used_values: Option<serde_json::Value>,
@@ -192,7 +192,7 @@ fn build_resolved(
     strict: bool,
     capture_values: bool,
 ) -> Result<BuildArtifact, MintError> {
-    let fingerprints = calculate_layout_fingerprints(layouts, &resolved_blocks)?;
+    let fingerprints = resolve_layouts(layouts, &resolved_blocks)?;
     let mut results = build_bytestreams(
         &resolved_blocks,
         layouts,
@@ -217,10 +217,10 @@ fn build_resolved(
     })
 }
 
-fn calculate_layout_fingerprints(
-    layouts: &HashMap<PathBuf, Config>,
+fn resolve_layouts<'a>(
+    layouts: &'a HashMap<PathBuf, Config>,
     resolved_blocks: &[ResolvedBlock],
-) -> Result<HashMap<PathBuf, HashMap<String, u64>>, LayoutError> {
+) -> Result<HashMap<PathBuf, ResolvedBlocks<'a>>, LayoutError> {
     layouts
         .par_iter()
         .map(|(path, config)| {
@@ -229,7 +229,7 @@ fn calculate_layout_fingerprints(
                 .filter(|block| &block.layout == path)
                 .map(|block| block.name.as_str());
             layout::fingerprint::calculate_scoped(config, roots, false)
-                .map(|values| (path.clone(), values.into_iter().collect()))
+                .map(|values| (path.clone(), values))
         })
         .collect()
 }
@@ -341,7 +341,7 @@ pub(crate) fn resolve_blocks(
 fn build_bytestreams(
     blocks: &[ResolvedBlock],
     layouts: &HashMap<PathBuf, Config>,
-    fingerprints: &HashMap<PathBuf, HashMap<String, u64>>,
+    fingerprints: &HashMap<PathBuf, ResolvedBlocks<'_>>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
@@ -364,7 +364,7 @@ fn build_bytestreams(
 fn build_single_bytestream(
     resolved: &ResolvedBlock,
     layouts: &HashMap<PathBuf, Config>,
-    fingerprints: &HashMap<PathBuf, HashMap<String, u64>>,
+    fingerprints: &HashMap<PathBuf, ResolvedBlocks<'_>>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
@@ -387,17 +387,11 @@ fn build_single_bytestream(
         })?;
         let fingerprints = fingerprints.get(&resolved.layout).ok_or_else(|| {
             LayoutError::FileError(format!(
-                "resolved layout missing from fingerprint map: {}",
+                "resolved layout missing from build plan: {}",
                 resolved.layout.display()
             ))
         })?;
-        let mut collector = ValueCollector::new();
-        let mut noop = NoopValueSink;
-        let value_sink = if capture_values {
-            &mut collector as &mut dyn crate::layout::used_values::ValueSink
-        } else {
-            &mut noop as &mut dyn crate::layout::used_values::ValueSink
-        };
+        let mut collector = ValueCollector::new(capture_values);
 
         let build_output = block.emit(
             &resolved.name,
@@ -405,7 +399,7 @@ fn build_single_bytestream(
             data_source,
             &layout.mint,
             strict,
-            value_sink,
+            &mut collector,
         )?;
 
         let data_range = output::bytestream_to_datarange(
@@ -425,13 +419,9 @@ fn build_single_bytestream(
         };
 
         Ok(BlockBuildResult {
-            selector: BlockSelector {
-                layout: resolved.layout.clone(),
-                block: Some(resolved.name.clone()),
-            },
             data_range,
             stat,
-            used_values: capture_values.then(|| collector.into_value()),
+            used_values: collector.into_value(),
         })
     })();
 
@@ -449,8 +439,9 @@ fn collect_results(
     let named_ranges: Vec<(String, DataRange)> = results
         .into_iter()
         .map(|r| {
+            let name = r.stat.display_name();
             stats.add_block(r.stat);
-            (r.selector.display_name(), r.data_range)
+            (name, r.data_range)
         })
         .collect();
 
@@ -532,7 +523,7 @@ fn take_used_values_report(
             OutputError::FileError("JSON export requested but values were not captured.".to_owned())
         })?;
         let file_entry = report
-            .entry(result.selector.layout.display().to_string())
+            .entry(result.stat.layout.display().to_string())
             .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
         let serde_json::Value::Object(blocks) = file_entry else {
             return Err(OutputError::FileError(
@@ -540,14 +531,12 @@ fn take_used_values_report(
             )
             .into());
         };
-        let block_name = result.selector.block.as_deref().ok_or_else(|| {
-            OutputError::FileError("resolved build result is missing a block name.".to_owned())
-        })?;
+        let block_name = result.stat.block.as_str();
         if blocks.contains_key(block_name) {
             return Err(OutputError::FileError(format!(
                 "Duplicate block '{}' in JSON export for file '{}'.",
                 block_name,
-                result.selector.layout.display()
+                result.stat.layout.display()
             ))
             .into());
         }

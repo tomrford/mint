@@ -3,42 +3,35 @@ use serde_json::{Map, Number, Value};
 use crate::layout::error::LayoutError;
 use crate::layout::value::DataValue;
 
-/// Records resolved values for export.
-pub trait ValueSink {
-    /// Insert a value at the given path.
-    fn record_value(&mut self, path: &[String], value: Value) -> Result<(), LayoutError>;
-}
-
 /// Collects used values into a nested JSON object.
 #[derive(Debug, Default)]
 pub struct ValueCollector {
-    root: Map<String, Value>,
+    root: Option<Map<String, Value>>,
 }
 
 impl ValueCollector {
     /// Create an empty collector.
-    pub fn new() -> Self {
-        Self { root: Map::new() }
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            root: enabled.then(Map::new),
+        }
     }
 
     /// Convert the collected values into a JSON object.
-    pub fn into_value(self) -> Value {
-        Value::Object(self.root)
+    pub fn into_value(self) -> Option<Value> {
+        self.root.map(Value::Object)
     }
-}
 
-impl ValueSink for ValueCollector {
-    fn record_value(&mut self, path: &[String], value: Value) -> Result<(), LayoutError> {
-        insert_value(&mut self.root, path, value)
-    }
-}
-
-/// No-op sink for builds that don't export JSON.
-pub struct NoopValueSink;
-
-impl ValueSink for NoopValueSink {
-    fn record_value(&mut self, _path: &[String], _value: Value) -> Result<(), LayoutError> {
-        Ok(())
+    /// Construct report values only when capture is enabled.
+    pub fn record_value(
+        &mut self,
+        path: &[String],
+        value: impl FnOnce() -> Result<Value, LayoutError>,
+    ) -> Result<(), LayoutError> {
+        match &mut self.root {
+            Some(root) => insert_value(root, path, value()?),
+            None => Ok(()),
+        }
     }
 }
 

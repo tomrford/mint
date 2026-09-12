@@ -4,7 +4,7 @@ use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
 use super::scalar_type::{ScalarType, fixed_point_unsupported_error};
 use super::used_values::{
-    ValueSink, array_2d_to_json, array_to_json, data_value_to_json, i128_to_json,
+    ValueCollector, array_2d_to_json, array_to_json, data_value_to_json, i128_to_json,
 };
 use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
@@ -40,7 +40,8 @@ const BITMAP_KEYS: &[&str] = &["bits", "name", "value"];
 #[derive(Debug)]
 pub struct LeafEntry {
     pub scalar_type: ScalarType,
-    size_keys: SizeKeys,
+    pub size: Option<SizeSource>,
+    strict_size: bool,
     pub source: EntrySource,
 }
 
@@ -48,8 +49,9 @@ pub struct LeafEntry {
 struct RawLeafEntry {
     #[serde(rename = "type")]
     scalar_type: ScalarType,
-    #[serde(flatten, default)]
-    size_keys: SizeKeys,
+    size: Option<SizeSource>,
+    #[serde(rename = "SIZE")]
+    strict_size: Option<SizeSource>,
     #[serde(flatten)]
     source: EntrySource,
 }
@@ -73,40 +75,19 @@ impl<'de> Deserialize<'de> for LeafEntry {
             .map_err(D::Error::custom)?;
         Ok(Self {
             scalar_type: raw.scalar_type,
-            size_keys: raw.size_keys,
+            size: raw.size.or(raw.strict_size),
+            strict_size: raw.strict_size.is_some(),
             source: raw.source,
         })
     }
 }
 
 /// Size source enum.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(untagged)]
 pub enum SizeSource {
     OneD(usize),
     TwoD([usize; 2]),
-}
-
-/// Helper struct to capture both 'size' and 'SIZE' keys.
-#[derive(Debug, Default, Deserialize)]
-struct SizeKeys {
-    #[serde(rename = "size")]
-    size: Option<SizeSource>,
-    #[serde(rename = "SIZE")]
-    strict_size: Option<SizeSource>,
-}
-
-impl SizeKeys {
-    fn resolve(&self) -> Result<(Option<SizeSource>, bool), LayoutError> {
-        match (&self.size, &self.strict_size) {
-            (Some(_), Some(_)) => Err(LayoutError::InvalidLayout(
-                "Use either 'size' or 'SIZE', not both.".into(),
-            )),
-            (Some(s), None) => Ok((Some(s.clone()), false)),
-            (None, Some(s)) => Ok((Some(s.clone()), true)),
-            (None, None) => Ok((None, false)),
-        }
-    }
 }
 
 /// Mutually exclusive source enum.
@@ -356,20 +337,11 @@ impl BitmapField {
 }
 
 impl LeafEntry {
-    pub(crate) fn size(&self) -> Result<Option<SizeSource>, LayoutError> {
-        self.size_keys.resolve().map(|(size, _)| size)
-    }
-
-    /// Returns the alignment of the leaf entry.
-    pub fn get_alignment(&self, scalar_abi: ScalarAbi) -> usize {
-        scalar_abi.alignment
-    }
-
     pub(crate) fn emit_bytes(
         &self,
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
-        value_sink: &mut dyn ValueSink,
+        value_sink: &mut ValueCollector,
         field_path: &[String],
         scalar_abi: ScalarAbi,
     ) -> Result<Vec<u8>, LayoutError> {
@@ -384,7 +356,7 @@ impl LeafEntry {
             );
         }
 
-        let (size, strict_len) = self.size_keys.resolve()?;
+        let (size, strict_len) = (self.size, self.strict_size);
         match size {
             None => self.emit_bytes_single(data_source, config, value_sink, field_path),
             Some(SizeSource::OneD(size)) => self.emit_bytes_1d(
@@ -463,7 +435,7 @@ impl LeafEntry {
             ));
         }
 
-        let (size, strict_len) = self.size_keys.resolve()?;
+        let (size, strict_len) = (self.size, self.strict_size);
         match (source, size) {
             (RefSource::Scalar(_), None) => {}
             (RefSource::Scalar(_), Some(_)) => {
@@ -517,7 +489,7 @@ impl LeafEntry {
         if self.scalar_type.fixed_point().is_some() {
             return Err(fixed_point_unsupported_error("Checksum", self.scalar_type));
         }
-        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
+        if self.size.is_some() {
             return Err(LayoutError::InvalidLayout(
                 "size/SIZE keys are forbidden with checksum.".into(),
             ));
@@ -533,7 +505,7 @@ impl LeafEntry {
     }
 
     pub fn validate_fingerprint(&self) -> Result<(), LayoutError> {
-        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
+        if self.size.is_some() {
             return Err(LayoutError::InvalidLayout(
                 "size/SIZE keys are forbidden with fingerprint.".into(),
             ));
@@ -557,7 +529,7 @@ impl LeafEntry {
         if self.scalar_type.fixed_point().is_some() {
             return Err(fixed_point_unsupported_error("Bitmap", self.scalar_type));
         }
-        if self.size_keys.size.is_some() || self.size_keys.strict_size.is_some() {
+        if self.size.is_some() {
             return Err(LayoutError::InvalidLayout(
                 "size/SIZE keys are forbidden with bitmap.".into(),
             ));
@@ -602,7 +574,7 @@ impl LeafEntry {
         fields: &[BitmapField],
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
-        value_sink: &mut dyn ValueSink,
+        value_sink: &mut ValueCollector,
         field_path: &[String],
         scalar_abi: ScalarAbi,
     ) -> Result<Vec<u8>, LayoutError> {
@@ -619,7 +591,7 @@ impl LeafEntry {
 
             let mut bitmap_path = field_path.to_vec();
             bitmap_path.push(bitmap_field_key(field, offset));
-            value_sink.record_value(&bitmap_path, i128_to_json(clamped)?)?;
+            value_sink.record_value(&bitmap_path, || i128_to_json(clamped))?;
 
             offset += field.bits;
         }
@@ -636,7 +608,7 @@ impl LeafEntry {
         &self,
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
-        value_sink: &mut dyn ValueSink,
+        value_sink: &mut ValueCollector,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
         match &self.source {
@@ -650,12 +622,12 @@ impl LeafEntry {
                 let value = ds.retrieve_single_value(name)?;
                 let bytes =
                     value.to_bytes(self.scalar_type, config.abi.endianness(), config.strict)?;
-                value_sink.record_value(field_path, data_value_to_json(&value)?)?;
+                value_sink.record_value(field_path, || data_value_to_json(&value))?;
                 Ok(bytes)
             }
             EntrySource::Value(ValueSource::Single(v)) => {
                 let bytes = v.to_bytes(self.scalar_type, config.abi.endianness(), config.strict)?;
-                value_sink.record_value(field_path, data_value_to_json(v)?)?;
+                value_sink.record_value(field_path, || data_value_to_json(v))?;
                 Ok(bytes)
             }
             EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
@@ -665,7 +637,7 @@ impl LeafEntry {
                 ValueSource::Single(v) => {
                     let bytes =
                         v.to_bytes(self.scalar_type, config.abi.endianness(), config.strict)?;
-                    value_sink.record_value(field_path, data_value_to_json(v)?)?;
+                    value_sink.record_value(field_path, || data_value_to_json(v))?;
                     Ok(bytes)
                 }
                 ValueSource::Array(_) => Err(LayoutError::DataValueExportFailed(
@@ -687,7 +659,7 @@ impl LeafEntry {
         size: usize,
         config: &BuildConfig,
         encoding: ArrayEncoding,
-        value_sink: &mut dyn ValueSink,
+        value_sink: &mut ValueCollector,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
         let scalar_abi = encoding.scalar_abi;
@@ -697,13 +669,6 @@ impl LeafEntry {
             .ok_or(LayoutError::DataValueExportFailed(
                 "Array size overflow".into(),
             ))?;
-        let mut out = Vec::new();
-        out.try_reserve_exact(total_bytes).map_err(|error| {
-            LayoutError::DataValueExportFailed(format!(
-                "failed to allocate {total_bytes}-byte field buffer: {error}"
-            ))
-        })?;
-
         let retrieved;
         let value = match &self.source {
             EntrySource::Name(name) => {
@@ -728,6 +693,32 @@ impl LeafEntry {
             }
         };
 
+        let length = match value {
+            ValueSource::Array(values) => values.len(),
+            ValueSource::Single(DataValue::Str(value)) => value.len(),
+            _ => {
+                return Err(LayoutError::DataValueExportFailed(
+                    "String expected for string type.".into(),
+                ));
+            }
+        };
+        if length > size {
+            return Err(LayoutError::DataValueExportFailed(
+                "Array/string is larger than defined size.".to_owned(),
+            ));
+        }
+        if encoding.strict_len && length < size {
+            return Err(LayoutError::DataValueExportFailed(
+                "Array/string is smaller than defined size (strict SIZE).".to_owned(),
+            ));
+        }
+        let mut out = Vec::new();
+        out.try_reserve_exact(total_bytes).map_err(|error| {
+            LayoutError::DataValueExportFailed(format!(
+                "failed to allocate {total_bytes}-byte field buffer: {error}"
+            ))
+        })?;
+
         match value {
             ValueSource::Array(values) => {
                 for value in values {
@@ -742,7 +733,7 @@ impl LeafEntry {
                         config.padding,
                     );
                 }
-                value_sink.record_value(field_path, array_to_json(values)?)?;
+                value_sink.record_value(field_path, || array_to_json(values))?;
             }
             ValueSource::Single(value) => {
                 if !matches!(self.scalar_type, ScalarType::U8 | ScalarType::U16) {
@@ -756,23 +747,11 @@ impl LeafEntry {
                     scalar_abi,
                     config.padding,
                 );
-                value_sink.record_value(field_path, data_value_to_json(value)?)?;
+                value_sink.record_value(field_path, || data_value_to_json(value))?;
             }
         }
 
-        if out.len() > total_bytes {
-            return Err(LayoutError::DataValueExportFailed(
-                "Array/string is larger than defined size.".to_owned(),
-            ));
-        }
-        if encoding.strict_len && out.len() < total_bytes {
-            return Err(LayoutError::DataValueExportFailed(
-                "Array/string is smaller than defined size (strict SIZE).".to_owned(),
-            ));
-        }
-        while out.len() < total_bytes {
-            out.push(config.padding);
-        }
+        out.resize(total_bytes, config.padding);
         Ok(out)
     }
 
@@ -782,7 +761,7 @@ impl LeafEntry {
         size: [usize; 2],
         config: &BuildConfig,
         encoding: ArrayEncoding,
-        value_sink: &mut dyn ValueSink,
+        value_sink: &mut ValueCollector,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
         let scalar_abi = encoding.scalar_abi;
@@ -847,11 +826,9 @@ impl LeafEntry {
                 );
             }
         }
-        value_sink.record_value(field_path, array_2d_to_json(&data)?)?;
+        value_sink.record_value(field_path, || array_2d_to_json(&data))?;
 
-        while out.len() < total_bytes {
-            out.push(config.padding);
-        }
+        out.resize(total_bytes, config.padding);
 
         Ok(out)
     }

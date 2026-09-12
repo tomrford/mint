@@ -339,7 +339,7 @@ version = { name = "Version", type = "u16" }
 checksum = { checksum = "crc32", type = "u32" }
 ```
 
-The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Checksums are resolved after all non-checksum fields are emitted; if a block contains multiple checksum fields, they are resolved in field order, so later checksums include the bytes of earlier checksum fields.
+The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Fields are emitted in order, so later checksums include the bytes of earlier checksum fields.
 
 **Checksum rules:**
 

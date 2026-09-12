@@ -47,3 +47,16 @@ pub struct DataArgs {
     )]
     pub variants: Vec<String>,
 }
+
+impl DataArgs {
+    pub fn path(&self) -> Option<&std::path::Path> {
+        self.xlsx
+            .as_deref()
+            .or_else(|| {
+                self.json
+                    .as_deref()
+                    .filter(|input| !input.trim_start().starts_with('{'))
+            })
+            .map(std::path::Path::new)
+    }
+}

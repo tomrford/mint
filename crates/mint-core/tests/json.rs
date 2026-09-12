@@ -29,7 +29,7 @@ fn json_retrieve_single_value_priority_order() {
         }
     }"#;
 
-    let ds = build_json_source("VarA/Debug/Default", json_data);
+    let ds = build_json_source("VarA/Debug/Default/VarA", json_data);
 
     // VarA has TemperatureMax=55, should take priority
     let value = ds.retrieve_single_value("TemperatureMax").unwrap();

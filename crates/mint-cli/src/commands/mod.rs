@@ -6,12 +6,17 @@ use mint_core::data::DataSource;
 use mint_core::error::MintError;
 use mint_core::layout::abi::Abi;
 use mint_core::layout::scalar_type::ScalarType;
-use mint_core::output::{self, error::OutputError};
-use writer::{same_destination, write_text};
+use mint_core::output;
+use writer::write_files;
 
 pub fn header(args: &HeaderArgs) -> Result<(), MintError> {
     let contents = mint_core::header::generate(&args.blocks)?;
-    write_text(&args.out, &contents)?;
+    let inputs = args
+        .blocks
+        .iter()
+        .map(|block| block.layout.as_path())
+        .collect::<Vec<_>>();
+    write_files(&inputs, &[(&args.out, &contents)])?;
     Ok(())
 }
 
@@ -77,14 +82,6 @@ pub fn abi(args: &AbiArgs) {
 }
 
 pub fn build(args: &Args, data_source: Option<&dyn DataSource>) -> Result<BuildStats, MintError> {
-    if let Some(report_path) = &args.output.export_json
-        && same_destination(&args.output.out, report_path)?
-    {
-        return Err(OutputError::FileError(
-            "--out and --export-json resolve to the same destination".to_owned(),
-        )
-        .into());
-    }
     let artifact = build::build(BuildRequest {
         blocks: args.layout.blocks.clone(),
         data_source,
@@ -94,10 +91,23 @@ pub fn build(args: &Args, data_source: Option<&dyn DataSource>) -> Result<BuildS
 
     let contents = artifact.render(args.output.format, args.output.record_width as usize)?;
 
-    if let (Some(path), Some(report)) = (&args.output.export_json, &artifact.used_values) {
-        write_text(path, &output::report::render_used_values_json(report)?)?;
+    let report = artifact
+        .used_values
+        .as_ref()
+        .map(output::report::render_used_values_json)
+        .transpose()?;
+    let mut outputs = vec![(args.output.out.as_path(), contents.as_str())];
+    if let (Some(path), Some(report)) = (&args.output.export_json, &report) {
+        outputs.push((path.as_path(), report.as_str()));
     }
-    write_text(&args.output.out, &contents)?;
+    let inputs = args
+        .layout
+        .blocks
+        .iter()
+        .map(|block| block.layout.as_path())
+        .chain(args.data.path())
+        .collect::<Vec<_>>();
+    write_files(&inputs, &outputs)?;
 
     Ok(artifact.stats)
 }

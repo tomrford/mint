@@ -125,3 +125,21 @@ bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
         ]
     );
 }
+
+#[test]
+fn non_finite_inputs_are_rejected_by_encoding_without_json_reporting() {
+    use mint_core::layout::{abi::Endianness, scalar_type::ScalarType, value::DataValue};
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        for scalar in [ScalarType::U8, ScalarType::F32, ScalarType::F64] {
+            for strict in [false, true] {
+                let error = DataValue::F64(value)
+                    .to_bytes(scalar, Endianness::Little, strict)
+                    .unwrap_err();
+                assert!(
+                    error.to_string().contains("cannot encode non-finite"),
+                    "{error}"
+                );
+            }
+        }
+    }
+}

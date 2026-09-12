@@ -1,10 +1,11 @@
-use super::abi::{Abi, Endianness, ScalarAbi};
+use super::abi::{Abi, ScalarAbi};
 use super::entry::{EntrySource, LeafEntry, RefSource, SizeSource, append_array_element};
 use super::error::{LayoutError, in_field_path};
+use super::fingerprint::ResolvedBlocks;
 use super::header::Header;
-use super::resolved::{ResolvedLayout, validate_static};
+use super::resolved::ResolvedLayout;
 use super::settings::MintConfig;
-use super::used_values::ValueSink;
+use super::used_values::ValueCollector;
 use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
 use crate::output::checksum;
@@ -14,40 +15,6 @@ use serde::de::{Error as _, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
-
-struct PendingChecksum {
-    leaf_index: usize,
-    buffer_position: usize,
-    scalar_abi: ScalarAbi,
-    config_name: String,
-    field_path: Vec<String>,
-}
-
-struct PendingValueRecord {
-    leaf_index: usize,
-    path: Vec<String>,
-    value: serde_json::Value,
-}
-
-struct StagingValueSink<'a> {
-    leaf_index: usize,
-    records: &'a mut Vec<PendingValueRecord>,
-}
-
-impl ValueSink for StagingValueSink<'_> {
-    fn record_value(
-        &mut self,
-        path: &[String],
-        value: serde_json::Value,
-    ) -> Result<(), LayoutError> {
-        self.records.push(PendingValueRecord {
-            leaf_index: self.leaf_index,
-            path: path.to_vec(),
-            value,
-        });
-        Ok(())
-    }
-}
 
 pub(crate) struct BuildConfig<'a> {
     pub(crate) abi: Abi,
@@ -151,13 +118,14 @@ impl Block {
     pub(crate) fn emit(
         &self,
         block_name: &str,
-        fingerprints: &HashMap<String, u64>,
+        blocks: &ResolvedBlocks<'_>,
         data_source: Option<&dyn DataSource>,
         settings: &MintConfig,
         strict: bool,
-        value_sink: &mut dyn ValueSink,
+        value_sink: &mut ValueCollector,
     ) -> Result<BuildOutput, LayoutError> {
-        let resolved = validate_static(self, settings)?;
+        let resolved = &blocks.blocks[block_name];
+        resolved.validate(self, settings)?;
         let total_size = resolved.total_size();
         let config = BuildConfig {
             abi: settings.abi,
@@ -172,45 +140,38 @@ impl Block {
             ))
         })?;
         buffer.resize(total_size, self.header.padding);
-        let mut pending_checksums = Vec::new();
-        let mut pending_values = Vec::new();
+        let mut checksum_values = Vec::new();
 
-        for (leaf_index, (path, coordinates, scalar_abi, leaf)) in
-            resolved.emission_leaves().enumerate()
-        {
+        for (path, coordinates, scalar_abi, leaf) in resolved.emission_leaves() {
             let field_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
-            let mut staging_sink = StagingValueSink {
-                leaf_index,
-                records: &mut pending_values,
-            };
             let bytes = (|| -> Result<Vec<u8>, LayoutError> {
                 match &leaf.source {
                     EntrySource::Ref(_) => Self::emit_ref(
                         leaf,
-                        &resolved,
+                        resolved,
                         &self.header,
                         &config,
                         scalar_abi,
-                        &mut staging_sink,
+                        value_sink,
                         &field_path,
                     ),
                     EntrySource::Checksum(config_name) => {
-                        settings.checksum_config(config_name)?;
-                        pending_checksums.push(PendingChecksum {
-                            leaf_index,
-                            buffer_position: coordinates.offset,
-                            scalar_abi,
-                            config_name: config_name.clone(),
-                            field_path: field_path.clone(),
-                        });
-                        Ok(vec![0; scalar_abi.storage_size])
+                        // Every checksum covers only preceding fields, already emitted in order.
+                        let crc = checksum::calculate_crc(
+                            &buffer[..coordinates.offset], settings.checksum_config(config_name)?,
+                        );
+                        checksum_values.push(crc);
+                        value_sink.record_value(&field_path, || Ok(crc.into()))?;
+                        DataValue::U64(u64::from(crc)).to_bytes(
+                            leaf.scalar_type, config.abi.endianness(), true,
+                        )
                     }
                     EntrySource::Fingerprint(target) => {
                         let target_name = target.block_name(block_name);
-                        let value = fingerprints.get(target_name).ok_or_else(|| {
+                        let value = blocks.fingerprints.get(target_name).ok_or_else(|| {
                             LayoutError::BlockNotFound(format!(
                                 "fingerprint target '{target_name}' from block '{block_name}'. Available blocks: {}",
-                                fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
+                                blocks.fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
                             ))
                         })?;
                         let bytes = DataValue::U64(*value).to_bytes(
@@ -218,16 +179,16 @@ impl Block {
                             config.abi.endianness(),
                             true,
                         )?;
-                        staging_sink.record_value(
+                        value_sink.record_value(
                             &field_path,
-                            serde_json::Value::Number(serde_json::Number::from(*value)),
+                            || Ok((*value).into()),
                         )?;
                         Ok(bytes)
                     }
                     _ => leaf.emit_bytes(
                         data_source,
                         &config,
-                        &mut staging_sink,
+                        value_sink,
                         &field_path,
                         scalar_abi,
                     ),
@@ -267,19 +228,6 @@ impl Block {
             slot.copy_from_slice(&bytes);
         }
 
-        let checksum_values = Self::resolve_checksums(
-            &mut buffer,
-            &pending_checksums,
-            settings,
-            &config,
-            &mut pending_values,
-        )?;
-
-        pending_values.sort_by_key(|record| record.leaf_index);
-        for record in pending_values {
-            value_sink.record_value(&record.path, record.value)?;
-        }
-
         Ok(BuildOutput {
             bytestream: buffer,
             checksum_values,
@@ -292,7 +240,7 @@ impl Block {
         header: &Header,
         config: &BuildConfig<'_>,
         scalar_abi: ScalarAbi,
-        value_sink: &mut dyn ValueSink,
+        value_sink: &mut ValueCollector,
         field_path: &[String],
     ) -> Result<Vec<u8>, LayoutError> {
         let EntrySource::Ref(source) = &leaf.source else {
@@ -311,14 +259,11 @@ impl Block {
                     config.abi.endianness(),
                     true,
                 )?;
-                value_sink.record_value(
-                    field_path,
-                    serde_json::Value::Number(serde_json::Number::from(address)),
-                )?;
+                value_sink.record_value(field_path, || Ok(address.into()))?;
                 Ok(bytes)
             }
             RefSource::List(_) => {
-                let Some(SizeSource::OneD(capacity)) = leaf.size()? else {
+                let Some(SizeSource::OneD(capacity)) = leaf.size else {
                     unreachable!("ref list shape was validated during resolution");
                 };
                 let total_bytes = capacity.checked_mul(scalar_abi.array_stride).ok_or(
@@ -345,116 +290,85 @@ impl Block {
                     append_array_element(&mut bytes, &zero, scalar_abi, config.padding);
                 }
 
-                value_sink.record_value(
-                    field_path,
-                    serde_json::Value::Array(
-                        addresses
-                            .into_iter()
-                            .map(|address| {
-                                serde_json::Value::Number(serde_json::Number::from(address))
-                            })
-                            .collect(),
-                    ),
-                )?;
+                value_sink.record_value(field_path, || Ok(addresses.into()))?;
                 Ok(bytes)
             }
         }
-    }
-
-    fn resolve_checksums(
-        buffer: &mut [u8],
-        pending_checksums: &[PendingChecksum],
-        settings: &MintConfig,
-        config: &BuildConfig<'_>,
-        pending_values: &mut Vec<PendingValueRecord>,
-    ) -> Result<Vec<u32>, LayoutError> {
-        let mut checksum_values = Vec::with_capacity(pending_checksums.len());
-        for pending in pending_checksums {
-            let crc_config = settings.checksum_config(&pending.config_name)?;
-            let crc_val = checksum::calculate_crc(&buffer[..pending.buffer_position], crc_config);
-            let crc_bytes = match config.abi.endianness() {
-                Endianness::Big => crc_val.to_be_bytes(),
-                Endianness::Little => crc_val.to_le_bytes(),
-            };
-            let size = pending.scalar_abi.storage_size;
-            buffer[pending.buffer_position..pending.buffer_position + size]
-                .copy_from_slice(&crc_bytes[..size]);
-            pending_values.push(PendingValueRecord {
-                leaf_index: pending.leaf_index,
-                path: pending.field_path.clone(),
-                value: serde_json::Value::Number(serde_json::Number::from(crc_val as u64)),
-            });
-            checksum_values.push(crc_val);
-        }
-        Ok(checksum_values)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
-
-    #[derive(Default)]
-    struct RecordingSink {
-        paths: Vec<String>,
-    }
-
-    impl ValueSink for RecordingSink {
-        fn record_value(&mut self, path: &[String], _value: Value) -> Result<(), LayoutError> {
-            self.paths.push(path.join("."));
-            Ok(())
-        }
-    }
 
     #[test]
-    fn value_sink_records_values_in_declaration_order() {
-        let config = crate::layout::parse_toml_layout(
-            r#"
+    fn prefix_checksums_and_capture_follow_field_order() {
+        // Fixed CRC-32/ISO-HDLC wires independently checked with Python zlib.
+        for (abi, expected, second_crc) in [
+            (
+                "generic-le",
+                [
+                    1, 2, 3, 0xEE, 0xAB, 0xF0, 0xE3, 0xF6, 4, 0xEE, 0xEE, 0xEE, 0x89, 0xA4, 0x73,
+                    0xCE,
+                ],
+                0xCE73_A489,
+            ),
+            (
+                "generic-be",
+                [
+                    1, 2, 3, 0xEE, 0xF6, 0xE3, 0xF0, 0xAB, 4, 0xEE, 0xEE, 0xEE, 0x13, 0xA7, 0xBF,
+                    0x82,
+                ],
+                0x13A7_BF82,
+            ),
+        ] {
+            let config = crate::layout::parse_toml_layout(&format!(
+                r#"
 [mint]
-abi = "generic-le"
-
+abi = "{abi}"
 [mint.checksum.crc32]
 polynomial = 0x04C11DB7
 start = 0xFFFFFFFF
 xor_out = 0xFFFFFFFF
 ref_in = true
 ref_out = true
-
 [block.header]
-start_address = 0x1000
-length = 0x40
-
+start_address = 0
+length = 16
+padding = 0xEE
 [block.data]
-first = { value = 1, type = "u16" }
-pointer = { ref = "first", type = "u16" }
-fingerprint = { fingerprint = true, type = "u64" }
-checksum_one = { checksum = "crc32", type = "u32" }
-after_checksum = { value = 2, type = "u32" }
-checksum_two = { checksum = "crc32", type = "u32" }
-"#,
-        )
-        .expect("layout parses");
-        let mut fingerprints = HashMap::new();
-        fingerprints.insert("block".to_owned(), 0x636c_a69e_b274_aafa);
-        let mut sink = RecordingSink::default();
-
-        let output = config.blocks["block"]
-            .emit("block", &fingerprints, None, &config.mint, false, &mut sink)
-            .expect("block emits");
-
-        assert_eq!(
-            sink.paths,
-            [
-                "first",
-                "pointer",
-                "fingerprint",
-                "checksum_one",
-                "after_checksum",
-                "checksum_two",
-            ]
-        );
-        assert_eq!(output.checksum_values.len(), 2);
+first = {{ value = [1,2,3], type = "u8", size = 3 }}
+checksum_one = {{ checksum = "crc32", type = "u32" }}
+after_checksum = {{ value = 4, type = "u8" }}
+checksum_two = {{ checksum = "crc32", type = "u32" }}
+"#
+            ))
+            .unwrap();
+            let blocks =
+                super::super::fingerprint::calculate_scoped(&config, ["block"], false).unwrap();
+            for capture in [false, true] {
+                let mut values = ValueCollector::new(capture);
+                let output = config.blocks["block"]
+                    .emit("block", &blocks, None, &config.mint, false, &mut values)
+                    .unwrap();
+                assert_eq!(output.bytestream, expected);
+                assert_eq!(output.checksum_values, [0xF6E3_F0AB, second_crc]);
+                let report = values.into_value();
+                assert_eq!(report.is_some(), capture);
+                if let Some(report) = report {
+                    assert_eq!(
+                        report
+                            .as_object()
+                            .unwrap()
+                            .keys()
+                            .map(String::as_str)
+                            .collect::<Vec<_>>(),
+                        ["first", "checksum_one", "after_checksum", "checksum_two"]
+                    );
+                    assert_eq!(report["checksum_two"], second_crc);
+                }
+            }
+        }
     }
 
     #[test]
@@ -475,12 +389,12 @@ word = { value = 1, type = "u32" }
 "#,
         )
         .expect("layout parses");
-        let mut sink = super::super::used_values::NoopValueSink;
+        let mut sink = ValueCollector::default();
 
         let output = config.blocks["block"]
             .emit(
                 "block",
-                &HashMap::new(),
+                &super::super::fingerprint::calculate_scoped(&config, ["block"], false).unwrap(),
                 None,
                 &config.mint,
                 false,

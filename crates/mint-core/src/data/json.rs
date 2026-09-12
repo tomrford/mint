@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::DataSource;
@@ -45,21 +45,16 @@ impl JsonDataSource {
     }
 
     fn from_variant_map(
-        data: HashMap<String, HashMap<String, Value>>,
+        mut data: HashMap<String, HashMap<String, Value>>,
         variants: &[String],
     ) -> Result<Self, DataError> {
         let mut variant_columns = Vec::with_capacity(variants.len());
+        let mut seen = HashSet::new();
 
-        for variant in variants {
-            let map = data
-                .get(variant)
-                .ok_or_else(|| {
-                    DataError::RetrievalError(format!(
-                        "variant '{}' not found in JSON data",
-                        variant
-                    ))
-                })?
-                .clone();
+        for variant in variants.iter().filter(|variant| seen.insert(*variant)) {
+            let map = data.remove(variant).ok_or_else(|| {
+                DataError::RetrievalError(format!("variant '{}' not found in JSON data", variant))
+            })?;
             variant_columns.push(map);
         }
 

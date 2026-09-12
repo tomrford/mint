@@ -497,3 +497,29 @@ fn fingerprint_fields_reject_invalid_storage_and_unknown_blocks() {
     let error = fingerprint::calculate(&unknown).expect_err("unknown block fails");
     assert!(error.to_string().contains("fingerprint target 'missing'"));
 }
+
+#[test]
+fn fingerprint_only_targets_obey_the_resolved_size_limit() {
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+abi = "generic-le"
+[large.header]
+start_address = 0
+length = 8
+[large.data]
+refs = { ref = [], type = "u64", size = 33554433 }
+[small.header]
+start_address = 0
+length = 8
+[small.data]
+schema = { fingerprint = "large", type = "u64" }
+"#,
+    )
+    .unwrap();
+    let error = fingerprint::calculate_block(&config, "small").unwrap_err();
+    assert!(
+        error.to_string().contains("materialized block limit"),
+        "{error}"
+    );
+}
