@@ -9,6 +9,7 @@ use crate::layout::resolved::{ResolvedNode, validate_static};
 use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// Generate a complete C11 header for the selected layout blocks.
 pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
@@ -26,6 +27,7 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let mut rendered = Vec::with_capacity(resolved.len());
     let mut names = NameRegistry::default();
     let mut guard_parts = Vec::with_capacity(resolved.len());
+    let mut includes: Option<(PathBuf, &[String])> = None;
 
     for selected in resolved {
         let layout = layouts.get(&selected.layout).ok_or_else(|| {
@@ -34,6 +36,24 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
                 selected.layout.display()
             ))
         })?;
+        let configured_includes = &layout.mint.header.includes;
+        if let Some((first_path, first_includes)) = &includes {
+            if *first_includes != configured_includes.as_slice() {
+                return Err(header_error(format!(
+                    "[mint.header].includes must match across selected layouts: '{}' and '{}' have different include lists",
+                    first_path.display(),
+                    selected.layout.display()
+                ))
+                .into());
+            }
+        } else {
+            for include in configured_includes {
+                validate_include(include).map_err(|message| {
+                    header_error(format!("{}: {message}", selected.layout.display()))
+                })?;
+            }
+            includes = Some((selected.layout.clone(), configured_includes));
+        }
         let block = layout.blocks.get(&selected.name).ok_or_else(|| {
             LayoutError::BlockNotFound(format!(
                 "'{}' in '{}'",
@@ -65,9 +85,15 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     }
 
     let guard = format!("MINT_{}_H", guard_parts.join("_"));
-    let mut output = format!(
-        "#ifndef {guard}\n#define {guard}\n\n#include <limits.h>\n#include <stddef.h>\n#include <stdint.h>\n"
-    );
+    let mut output = format!("#ifndef {guard}\n#define {guard}\n");
+    if let Some((_, includes)) = includes
+        && !includes.is_empty()
+    {
+        output.push('\n');
+        for include in includes {
+            output.push_str(&format!("#include {include}\n"));
+        }
+    }
 
     let macros = rendered
         .iter()
@@ -96,6 +122,29 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
 
     output.push_str(&format!("\n#endif /* {guard} */\n"));
     Ok(output)
+}
+
+fn validate_include(include: &str) -> Result<(), String> {
+    let name = include
+        .strip_prefix('"')
+        .and_then(|name| name.strip_suffix('"'))
+        .or_else(|| {
+            include
+                .strip_prefix('<')
+                .and_then(|name| name.strip_suffix('>'))
+        });
+    if name.is_some_and(|name| {
+        !name.is_empty()
+            && !name
+                .chars()
+                .any(|ch| ch.is_control() || matches!(ch, '<' | '>' | '"' | '\\'))
+    }) {
+        Ok(())
+    } else {
+        Err(format!(
+            "invalid [mint.header].includes entry {include:?}: expected a non-empty header name enclosed in double quotes or angle brackets, without control characters, backslashes or nested delimiters"
+        ))
+    }
 }
 
 struct RenderedBlock {
