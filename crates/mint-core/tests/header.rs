@@ -15,6 +15,173 @@ fn error(name: &str, layout: &str) -> String {
     common::error_chain(&error)
 }
 
+fn include_layout(block: &str, settings: &str) -> String {
+    format!(
+        r#"
+[mint]
+abi = "generic-le"
+{settings}
+[{block}.header]
+start_address = 0
+length = 16
+[{block}.data]
+schema = {{ fingerprint = true, type = "u64" }}
+value = {{ value = 42, type = "u32" }}
+"#
+    )
+}
+
+#[test]
+fn header_includes_default_replace_and_suppress_without_changing_layout() {
+    let default_path = common::write_layout_file("default-includes", &include_layout("block", ""));
+    let default_header = mint_core::header::generate(&[BlockSelector::all(&default_path)]).unwrap();
+    let default_bytes = common::build_block(&default_path, "block", false, None).unwrap();
+
+    for (settings, expected) in [
+        (
+            "",
+            vec![
+                "#include <limits.h>",
+                "#include <stddef.h>",
+                "#include <stdint.h>",
+            ],
+        ),
+        (
+            "[mint.header]",
+            vec![
+                "#include <limits.h>",
+                "#include <stddef.h>",
+                "#include <stdint.h>",
+            ],
+        ),
+        (
+            "[mint.header]\nincludes = ['\"platform/types.h\"', '<project/extra.h>']",
+            vec![
+                "#include \"platform/types.h\"",
+                "#include <project/extra.h>",
+            ],
+        ),
+        ("[mint.header]\nincludes = []", vec![]),
+    ] {
+        let path = common::write_layout_file("includes", &include_layout("block", settings));
+        let header = mint_core::header::generate(&[BlockSelector::all(&path)]).unwrap();
+        assert_eq!(
+            header
+                .lines()
+                .filter(|line| line.starts_with("#include"))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        // All declarations, assertions and fingerprint constants stay identical.
+        assert_eq!(
+            header.split_once("#define BLOCK_START_ADDRESS").unwrap().1,
+            default_header
+                .split_once("#define BLOCK_START_ADDRESS")
+                .unwrap()
+                .1
+        );
+        assert_eq!(
+            common::build_block(&path, "block", false, None).unwrap(),
+            default_bytes
+        );
+    }
+}
+
+#[test]
+fn rejects_invalid_header_include_tokens() {
+    for include in [
+        "",
+        "types.h",
+        "<>",
+        "\"\"",
+        "<types.h\"",
+        "<types.h> trailing",
+        "\"types.h\"\n#error injected",
+        "<types\r.h>",
+        "<types\0.h>",
+        "<types\\name.h>",
+        "<<types.h>>",
+        "\"types\"name.h\"",
+    ] {
+        let settings = format!(
+            "[mint.header]\nincludes = {}",
+            serde_json::to_string(&[include]).unwrap()
+        );
+        let message = error("invalid-include", &include_layout("block", &settings));
+        assert!(
+            message.contains("invalid [mint.header].includes entry"),
+            "{message}"
+        );
+        assert!(message.contains("invalid-include"), "{message}");
+    }
+    let message = error(
+        "unknown-header-setting",
+        &include_layout("block", "[mint.header]\ninclude = []"),
+    );
+    assert!(message.contains("unknown field `include`"), "{message}");
+}
+
+#[test]
+fn combined_layouts_require_identical_effective_include_lists() {
+    for (first, second, matches) in [
+        (
+            "",
+            "[mint.header]\nincludes = ['<limits.h>', '<stddef.h>', '<stdint.h>']",
+            true,
+        ),
+        (
+            "[mint.header]\nincludes = ['\"types.h\"']",
+            "[mint.header]\nincludes = ['\"types.h\"']",
+            true,
+        ),
+        (
+            "[mint.header]\nincludes = []",
+            "[mint.header]\nincludes = []",
+            true,
+        ),
+        ("", "[mint.header]\nincludes = ['\"types.h\"']", false),
+        ("[mint.header]\nincludes = []", "", false),
+        (
+            "[mint.header]\nincludes = ['<a.h>', '<b.h>']",
+            "[mint.header]\nincludes = ['<b.h>', '<a.h>']",
+            false,
+        ),
+    ] {
+        let first_path =
+            common::write_layout_file("first-includes", &include_layout("first", first));
+        let second_path =
+            common::write_layout_file("second-includes", &include_layout("second", second));
+        let result = mint_core::header::generate(&[
+            BlockSelector::all(&first_path),
+            BlockSelector::all(&second_path),
+        ]);
+        if matches {
+            let header = result.unwrap();
+            let single = mint_core::header::generate(&[BlockSelector::all(&first_path)]).unwrap();
+            assert!(header.contains("} first_t;"));
+            assert!(header.contains("} second_t;"));
+            assert_eq!(
+                header
+                    .lines()
+                    .filter(|line| line.starts_with("#include"))
+                    .collect::<Vec<_>>(),
+                single
+                    .lines()
+                    .filter(|line| line.starts_with("#include"))
+                    .collect::<Vec<_>>()
+            );
+        } else {
+            let message = common::error_chain(&result.unwrap_err());
+            assert!(
+                message.contains("[mint.header].includes must match"),
+                "{message}"
+            );
+            assert!(message.contains(&first_path), "{message}");
+            assert!(message.contains(&second_path), "{message}");
+        }
+    }
+}
+
 #[test]
 fn maps_all_scalar_fixed_point_and_storage_types() {
     let header = generate(

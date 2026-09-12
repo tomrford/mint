@@ -106,6 +106,17 @@ mint header layout.toml#config layout.toml#data -o blocks.h
 
 Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members. Ref members represent serialized target addresses, not C pointer objects.
 
+Headers include `<limits.h>`, `<stddef.h>` and `<stdint.h>` by default. Set `[mint.header].includes` to replace the complete list, in order:
+
+```toml
+[mint.header]
+includes = ['"platform/types.h"', '<project/extra.h>']
+```
+
+Each entry must include its C double quotes or angle brackets and contain a non-empty header name, without control characters, backslashes or nested delimiters. Mint prefixes each entry with `#include `. Include paths are passed to the C compiler unchanged; Mint does not resolve them relative to the TOML file. Omitting `includes` retains the defaults; `includes = []` emits no includes. To add headers, list the defaults alongside the additions. All layout files contributing blocks to one header must have identical effective include lists, including order.
+
+This setting changes only the include directives. Your compilation environment must still provide the emitted types (such as `uint32_t`), `CHAR_BIT`, `offsetof` and any integer constant macros used (such as `UINT64_C`). Binary output and ABI fingerprints are unaffected.
+
 Generated headers include C11 `_Static_assert` checks for every field offset and final structure size. The checks compare `sizeof` and `offsetof` through `CHAR_BIT`, so Mint's octet offsets remain valid on targets whose C addressable unit is wider than 8 bits. Compiling the header with the target compiler tests that compiler and flag combination; see the ABI table for the combinations that CI checks.
 
 Each block emits `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH` macros. Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
