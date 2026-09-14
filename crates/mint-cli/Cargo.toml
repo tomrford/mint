@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.5.42", features = ["derive"] }
 comfy-table = "7.1"
-mint-core = { path = "../mint-core", version = "2.0.1" }
+mint-core = { path = "../mint-core", version = "2.0.2" }
 same-file = "1.0.6"
 
 [lints]
