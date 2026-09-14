@@ -1,0 +1,30 @@
+[package]
+name = "mint-neo"
+version = "0.1.0"
+edition = "2024"
+description = "Encode one C header and one resolved JSON object into one Intel HEX range."
+license = "MIT"
+readme = "../../README.md"
+repository = "https://github.com/tomrford/mint"
+categories = ["command-line-utilities", "embedded", "encoding"]
+keywords = ["flash", "hex", "c", "header", "abi"]
+exclude = ["tests/**"]
+
+[[bin]]
+name = "mint-neo"
+path = "src/main.rs"
+
+[dependencies]
+blake3 = "1.8.5"
+clap = { version = "4.5.42", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0.142", features = ["raw_value"] }
+tempfile = "3.27.0"
+tree-sitter = "0.25.10"
+tree-sitter-c = "0.24.2"
+
+[dev-dependencies]
+mint-core = { path = "../mint-core" }
+
+[lints]
+workspace = true
