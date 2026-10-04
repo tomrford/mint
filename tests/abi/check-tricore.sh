@@ -24,7 +24,7 @@ if ! command -v "$tricore_gcc" >/dev/null 2>&1; then
   echo "Set TRICORE_GCC to a licensed tricore-gcc." >&2
   exit 1
 fi
-for tool in sfw jq; do
+for tool in cargo jq; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "error: required tool not found: $tool" >&2
     exit 1
@@ -39,16 +39,16 @@ for layout in doc/examples/block.toml tests/abi/pack.toml; do
   grep -q 'abi = "tricore-eabi-le"' "$target"
 done
 
-sfw cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
+cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
   header "$workdir/block.toml" -o "$workdir/mint_abi.h"
-sfw cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
+cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
   header "$workdir/pack.toml" -o "$workdir/mint_pack.h"
-sfw cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
+cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
   header "$repo/tests/abi/bytes.toml" -o "$workdir/mint_bytes.h"
 sed 's/@mint abi generic-le/@mint abi tricore-eabi-le/' \
   "$repo/tests/abi/neo-schema.h" > "$workdir/mint_neo.h"
 grep -q '@mint abi tricore-eabi-le' "$workdir/mint_neo.h"
-sfw cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-neo -- \
+cargo run --quiet --release --locked --manifest-path "$repo/Cargo.toml" -p mint-neo -- \
   inspect "$workdir/mint_neo.h" --format json > "$workdir/mint_neo_layout.json"
 jq -r -f "$repo/tests/abi/neo-expect.jq" \
   "$workdir/mint_neo_layout.json" > "$workdir/mint_neo_expect.h"
