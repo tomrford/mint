@@ -25,6 +25,7 @@
         };
 
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+        neoCargoToml = builtins.fromTOML (builtins.readFile ./crates/mint-neo/Cargo.toml);
 
         mintPkg = pkgs.rustPlatform.buildRustPackage {
           pname = "mint";
@@ -33,6 +34,15 @@
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = ["-p" "mint-cli"];
           cargoTestFlags = ["-p" "mint-cli"];
+          buildType = "release";
+        };
+        mintNeoProbePkg = pkgs.rustPlatform.buildRustPackage {
+          pname = "mint-neo-probe";
+          version = neoCargoToml.package.version;
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = ["-p" "mint-neo" "--bin" "mint-neo"];
+          doCheck = false;
           buildType = "release";
         };
 
@@ -44,11 +54,21 @@
           ${mintPkg}/bin/mint header layout.toml -o mint_abi.h
           ${mintPkg}/bin/mint header pack.toml -o mint_pack.h
         '';
+        generateNeoProbe = abi: ''
+          substitute ${./tests/abi/neo-schema.h} mint_neo.h \
+            --replace-fail '@mint abi generic-le' '@mint abi ${abi}'
+          ${mintNeoProbePkg}/bin/mint-neo inspect mint_neo.h --format json > mint_neo_layout.json
+          ${pkgs.jq}/bin/jq -r -f ${./tests/abi/neo-expect.jq} \
+            mint_neo_layout.json > mint_neo_expect.h
+        '';
         mkGccAbiProbe = {abi, compiler, flags}:
           pkgs.runCommand "mint-abi-${abi}" {} ''
             ${generateAbiHeaders abi ""}
+            ${generateNeoProbe abi}
             ${compiler} ${nixpkgs.lib.escapeShellArgs flags} \
               -I. -c ${./tests/abi/compiler-probe.c} -o probe.o
+            ${compiler} ${nixpkgs.lib.escapeShellArgs flags} \
+              -I. -c ${./tests/abi/neo-compiler-probe.c} -o neo-probe.o
             touch $out
           '';
       in {
@@ -78,9 +98,13 @@
           abi-generic-be = armProbe "generic-be" ["-mbig-endian" "-DMINT_EXPECT_BIG_ENDIAN"];
           abi-ti-c28x-eabi = pkgs.runCommand "mint-abi-ti-c28x-eabi" {} ''
             ${generateAbiHeaders "ti-c28x-eabi" "--replace-fail 'type = \"u8\"' 'type = \"u16\"'"}
+            ${generateNeoProbe "ti-c28x-eabi"}
             ${pkgs.c2000-cgt}/bin/cl2000 --abi=eabi --c11 --compile_only --quiet \
               --define=MINT_TI_C28X --include_path=${pkgs.c2000-cgt}/include --include_path=. --output_file=probe.obj \
               ${./tests/abi/compiler-probe.c}
+            ${pkgs.c2000-cgt}/bin/cl2000 --abi=eabi --c11 --compile_only --quiet \
+              --include_path=${pkgs.c2000-cgt}/include --include_path=. --output_file=neo-probe.obj \
+              ${./tests/abi/neo-compiler-probe.c}
             touch $out
           '';
         });
