@@ -211,7 +211,7 @@ fn bitmap_field_rejects_unknown_keys() {
 }
 
 #[test]
-fn nested_member_named_type_is_a_branch_child() {
+fn nested_members_named_type_and_value_build() {
     let layout = r#"
 [mint]
 abi = "generic-le"
@@ -222,19 +222,9 @@ length = 0x20
 outer.type = { value = 1, type = "u8" }
 outer.value = { value = 2, type = "u8" }
 "#;
-    let config = mint_core::layout::parse_toml_layout(layout).expect("layout should parse");
-    let block = config.blocks.get("block").expect("block present");
-    let mint_core::layout::block::Entry::Branch(root) = &block.data else {
-        panic!("block data should be a branch");
-    };
-    let mint_core::layout::block::Entry::Branch(outer) = root.get("outer").expect("outer present")
-    else {
-        panic!("outer should be a branch");
-    };
-    assert!(matches!(
-        outer.get("type"),
-        Some(mint_core::layout::block::Entry::Leaf(_))
-    ));
+    let path = common::write_layout_file("nested-source-names", layout);
+    let bytes = common::build_block(&path, "block", false, None).expect("block builds");
+    assert_eq!(bytes, [1, 2]);
 }
 
 #[test]

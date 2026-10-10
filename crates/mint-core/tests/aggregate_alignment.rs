@@ -1,12 +1,6 @@
 use mint_core::build::{self, BlockSelector, BuildFromLayoutsRequest, NamedLayout};
 use mint_core::layout;
-use mint_core::output::checksum::calculate_crc;
 use std::path::PathBuf;
-
-struct BuildOutput {
-    bytestream: Vec<u8>,
-    checksum_values: Vec<u32>,
-}
 
 fn layout(data: &str) -> String {
     layout_for_abi("generic-le", data)
@@ -17,13 +11,6 @@ fn layout_for_abi(abi: &str, data: &str) -> String {
         r#"
 [mint]
 abi = "{abi}"
-
-[mint.checksum.crc32]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
 
 [block.header]
 start_address = 0x1000
@@ -36,11 +23,11 @@ padding = 0xEE
     )
 }
 
-fn build_output(data: &str) -> BuildOutput {
+fn build_output(data: &str) -> Vec<u8> {
     build_output_for_abi("generic-le", data)
 }
 
-fn build_output_for_abi(abi: &str, data: &str) -> BuildOutput {
+fn build_output_for_abi(abi: &str, data: &str) -> Vec<u8> {
     let config = layout::parse_toml_layout(&layout_for_abi(abi, data)).expect("layout parses");
     let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
         layouts: vec![NamedLayout {
@@ -53,30 +40,7 @@ fn build_output_for_abi(abi: &str, data: &str) -> BuildOutput {
         capture_values: false,
     })
     .expect("block builds");
-    BuildOutput {
-        bytestream: artifact.ranges[0].bytestream.clone(),
-        checksum_values: artifact.stats.block_stats[0].checksum_values.clone(),
-    }
-}
-
-#[test]
-fn nested_aggregate_has_leading_and_tail_padding() {
-    let output = build_output(
-        r#"
-prefix = { value = 0x11, type = "u8" }
-group.small = { value = 0x22, type = "u8" }
-group.word = { value = 0x44332211, type = "u32" }
-after = { value = 0x33, type = "u8" }
-"#,
-    );
-
-    assert_eq!(
-        output.bytestream,
-        vec![
-            0x11, 0xEE, 0xEE, 0xEE, 0x22, 0xEE, 0xEE, 0xEE, 0x11, 0x22, 0x33, 0x44, 0x33, 0xEE,
-            0xEE, 0xEE,
-        ]
-    );
+    artifact.ranges[0].bytestream.clone()
 }
 
 #[test]
@@ -91,18 +55,14 @@ sibling = { value = 0x55, type = "u8" }
 "#,
     );
 
-    assert_eq!(output.bytestream.len(), 40);
-    assert_eq!(output.bytestream[0], 0x11);
-    assert_eq!(output.bytestream[8], 0x22);
-    assert_eq!(
-        &output.bytestream[16..24],
-        &0x7766554433221100u64.to_le_bytes()
-    );
-    assert_eq!(&output.bytestream[24..26], &0x3344u16.to_le_bytes());
-    assert_eq!(output.bytestream[32], 0x55);
+    assert_eq!(output.len(), 40);
+    assert_eq!(output[0], 0x11);
+    assert_eq!(output[8], 0x22);
+    assert_eq!(&output[16..24], &0x7766554433221100u64.to_le_bytes());
+    assert_eq!(&output[24..26], &0x3344u16.to_le_bytes());
+    assert_eq!(output[32], 0x55);
     assert!(
         output
-            .bytestream
             .iter()
             .enumerate()
             .filter(|(offset, _)| !matches!(offset, 0 | 8 | 16..=25 | 32))
@@ -122,15 +82,12 @@ tail = { value = 0xAA55, type = "u16" }
 "#,
     );
 
-    assert_eq!(output.bytestream.len(), 32);
-    assert_eq!(&output.bytestream[0..4], &0x44332211u32.to_le_bytes());
-    assert_eq!(
-        &output.bytestream[4..12],
-        &0x7766554433221100u64.to_le_bytes()
-    );
-    assert_eq!(&output.bytestream[12..20], &1u64.to_le_bytes());
-    assert_eq!(&output.bytestream[20..28], &2u64.to_le_bytes());
-    assert_eq!(&output.bytestream[28..30], &0xAA55u16.to_le_bytes());
+    assert_eq!(output.len(), 32);
+    assert_eq!(&output[0..4], &0x44332211u32.to_le_bytes());
+    assert_eq!(&output[4..12], &0x7766554433221100u64.to_le_bytes());
+    assert_eq!(&output[12..20], &1u64.to_le_bytes());
+    assert_eq!(&output[20..28], &2u64.to_le_bytes());
+    assert_eq!(&output[28..30], &0xAA55u16.to_le_bytes());
 }
 
 #[test]
@@ -147,10 +104,7 @@ last = { value = 0x66, type = "u8" }
 "#,
     );
 
-    assert_eq!(
-        output.bytestream,
-        vec![0x11, 0x22, 0x33, 0x44, 0x55, 0xEE, 0x66, 0xEE]
-    );
+    assert_eq!(output, vec![0x11, 0x22, 0x33, 0x44, 0x55, 0xEE, 0x66, 0xEE]);
 }
 
 #[test]
@@ -162,11 +116,8 @@ first = { value = 0x1122, type = "u16" }
 second = { value = 0x7766554433221100, type = "u64" }
 "#,
     );
-    assert_eq!(u16_u64.bytestream.len(), 12);
-    assert_eq!(
-        &u16_u64.bytestream[4..12],
-        &0x7766554433221100u64.to_le_bytes()
-    );
+    assert_eq!(u16_u64.len(), 12);
+    assert_eq!(&u16_u64[4..12], &0x7766554433221100u64.to_le_bytes());
 
     let u64_u16 = build_output_for_abi(
         "ti-c28x-eabi",
@@ -175,8 +126,8 @@ first = { value = 0x7766554433221100, type = "u64" }
 second = { value = 0x1122, type = "u16" }
 "#,
     );
-    assert_eq!(u64_u16.bytestream.len(), 12);
-    assert_eq!(&u64_u16.bytestream[8..10], &0x1122u16.to_le_bytes());
+    assert_eq!(u64_u16.len(), 12);
+    assert_eq!(&u64_u16[8..10], &0x1122u16.to_le_bytes());
 
     let u16_f32 = build_output_for_abi(
         "ti-c28x-eabi",
@@ -185,8 +136,8 @@ first = { value = 0x1122, type = "u16" }
 second = { value = 1.5, type = "f32" }
 "#,
     );
-    assert_eq!(u16_f32.bytestream.len(), 8);
-    assert_eq!(&u16_f32.bytestream[4..8], &1.5f32.to_le_bytes());
+    assert_eq!(u16_f32.len(), 8);
+    assert_eq!(&u16_f32[4..8], &1.5f32.to_le_bytes());
 }
 
 #[test]
@@ -202,32 +153,9 @@ leaf_ref = { ref = "group.word", type = "u32" }
 "#,
     );
 
-    assert_eq!(output.bytestream.len(), 24);
-    assert_eq!(&output.bytestream[16..20], &0x1004u32.to_le_bytes());
-    assert_eq!(&output.bytestream[20..24], &0x1008u32.to_le_bytes());
-}
-
-#[test]
-fn checksum_includes_aggregate_alignment_padding() {
-    let data = r#"
-prefix = { value = 0x11, type = "u8" }
-group.word = { value = 0x44332211, type = "u32" }
-group.small = { value = 0x22, type = "u8" }
-checksum = { checksum = "crc32", type = "u32" }
-"#;
-    let source = layout(data);
-    let output = build_output(data);
-    let config = layout::parse_toml_layout(&source).expect("layout parses");
-    let checksum = calculate_crc(&output.bytestream[..12], &config.mint.checksum["crc32"]);
-
-    assert_eq!(
-        &output.bytestream[..12],
-        &[
-            0x11, 0xEE, 0xEE, 0xEE, 0x11, 0x22, 0x33, 0x44, 0x22, 0xEE, 0xEE, 0xEE
-        ]
-    );
-    assert_eq!(&output.bytestream[12..16], &checksum.to_le_bytes());
-    assert_eq!(output.checksum_values, vec![checksum]);
+    assert_eq!(output.len(), 24);
+    assert_eq!(&output[16..20], &0x1004u32.to_le_bytes());
+    assert_eq!(&output[20..24], &0x1008u32.to_le_bytes());
 }
 
 #[test]

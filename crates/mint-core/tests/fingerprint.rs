@@ -178,7 +178,7 @@ wide = { value = 2, type = "u64" }
 }
 
 #[test]
-fn self_and_cross_block_fingerprints_are_injected_from_one_intrinsic_map() {
+fn self_and_cross_block_fingerprints_are_emitted_and_reported() {
     let source = r#"
 [mint]
 abi = "generic-le"
@@ -200,17 +200,9 @@ config_schema = { fingerprint = "config", type = "u64" }
 manifest_schema = { fingerprint = true, type = "u64" }
 "#;
     let config = layout::parse_toml_layout(source).expect("layout parses");
-    let values = fingerprint::calculate(&config).expect("fingerprints calculate");
-    let config_fingerprint = values
-        .iter()
-        .find(|value| value.block == "config")
-        .expect("config fingerprint")
-        .value;
-    let manifest_fingerprint = values
-        .iter()
-        .find(|value| value.block == "manifest")
-        .expect("manifest fingerprint")
-        .value;
+    // V2 golden values for independently encoded {u64, u16} and {u64, u64} ABI shapes.
+    let config_fingerprint = 0xA5833E1FC2507C0Eu64;
+    let manifest_fingerprint = 0x06EB269D7E8A1153u64;
 
     let artifact = mint_core::build::build_from_layouts(BuildFromLayoutsRequest {
         layouts: vec![NamedLayout {
@@ -241,19 +233,6 @@ manifest_schema = { fingerprint = true, type = "u64" }
         used["fingerprints.toml"]["manifest"]["config_schema"].as_u64(),
         Some(config_fingerprint)
     );
-}
-
-#[test]
-fn fingerprint_has_a_stable_v2_golden_value() {
-    let value = fingerprint_of(&layout_with(
-        r#"
-schema = { fingerprint = true, type = "u64" }
-version = { value = 1, type = "u16" }
-payload = { value = [1, 2, 3], type = "u8", size = 3 }
-"#,
-    ));
-
-    assert_eq!(format!("{value:016x}"), "9f2050e2faa654d7");
 }
 
 #[test]

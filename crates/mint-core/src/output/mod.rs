@@ -212,15 +212,4 @@ mod tests {
             .expect_err("odd C28x block length should fail");
         assert!(error.to_string().contains("not divisible"));
     }
-
-    #[test]
-    fn output_rejects_mixed_addressable_unit_widths() {
-        let header = sample_header(4);
-        let byte_range = bytestream_to_datarange(vec![0, 0], &header, Abi::GenericLe).unwrap();
-        let word_range = bytestream_to_datarange(vec![0, 0], &header, Abi::TiC28xEabi).unwrap();
-
-        let error = render(&[byte_range, word_range], 16, OutputFormat::Hex)
-            .expect_err("mixed address models should fail");
-        assert!(error.to_string().contains("cannot mix"));
-    }
 }

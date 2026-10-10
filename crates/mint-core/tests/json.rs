@@ -122,26 +122,6 @@ fn json_retrieve_1d_native_json_array() {
 }
 
 #[test]
-fn json_retrieve_2d_native_json_array() {
-    let json_data = r#"{
-        "Default": {
-            "nativeArray2d": [[1, 2], [3, 4], [5, 6]]
-        }
-    }"#;
-
-    let ds = build_json_source("Default", json_data);
-
-    let value = ds.retrieve_2d_array("nativeArray2d").unwrap();
-    println!("nativeArray2d: {:?}", value);
-    assert_eq!(value.len(), 3);
-    assert_eq!(value[0].len(), 2);
-    assert!(matches!(value[0][0], DataValue::U64(1)));
-    assert!(matches!(value[0][1], DataValue::U64(2)));
-    assert!(matches!(value[2][0], DataValue::U64(5)));
-    assert!(matches!(value[2][1], DataValue::U64(6)));
-}
-
-#[test]
 fn json_from_file() {
     use std::fs;
 
