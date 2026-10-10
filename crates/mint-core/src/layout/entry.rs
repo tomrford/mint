@@ -566,6 +566,7 @@ impl LeafEntry {
         field_path: &[String],
         scalar_abi: ScalarAbi,
     ) -> Result<Vec<u8>, LayoutError> {
+        self.validate_bitmap(fields, scalar_abi)?;
         let signed = self.scalar_type.is_signed();
         let mut accumulator: u128 = 0;
         let mut offset: usize = 0;

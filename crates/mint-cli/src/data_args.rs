@@ -16,7 +16,7 @@ pub struct DataArgs {
     #[arg(
         long,
         value_name = "NAME",
-        requires = "datasource",
+        requires = "xlsx",
         conflicts_with = "json",
         help = "Main sheet name in Excel"
     )]
