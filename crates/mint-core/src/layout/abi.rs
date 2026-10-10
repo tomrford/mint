@@ -27,7 +27,6 @@ pub enum AbiFamily {
     NaturalAlign4,
 }
 
-/// Byte order used to encode multi-byte scalar values.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Endianness {
     Little,
@@ -61,7 +60,6 @@ pub struct ScalarAbi {
     pub alignment: usize,
     /// Octet distance between adjacent values in an array.
     pub array_stride: usize,
-    /// C spelling used in generated headers.
     pub c_type: &'static str,
 }
 
@@ -181,7 +179,6 @@ impl AbiFamily {
         }
     }
 
-    /// Human-readable aggregate alignment and tail-padding rules.
     pub const fn aggregate_rules(self) -> &'static str {
         match self {
             Self::GenericNatural => {

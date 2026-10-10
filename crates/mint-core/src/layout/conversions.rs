@@ -268,11 +268,6 @@ impl TryFromStrict<&DataValue> for f64 {
     }
 }
 
-/// Converts a DataValue to an i128 for bitfield packing, with range clamping/checking.
-///
-/// - `bits`: field width in bits (must be > 0)
-/// - `signed`: whether to interpret as two's complement signed field
-/// - `strict`: if true, out-of-range or non-integer floats produce errors; otherwise saturate
 pub fn clamp_bitfield_value(
     value: &DataValue,
     bits: usize,

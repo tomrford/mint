@@ -40,7 +40,6 @@ impl BlockStat {
                 && (self.allocated_size as usize).is_multiple_of(self.address_unit_bits / 8),
             "build statistics must contain a whole number of target address units"
         );
-        // BlockStat fields are public, so avoid dividing by zero on a malformed unit width.
         let unit_octets = (self.address_unit_bits / 8).max(1) as u64;
         u64::from(self.allocated_size) / unit_octets
     }

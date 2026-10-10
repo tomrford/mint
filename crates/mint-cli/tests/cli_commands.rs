@@ -283,7 +283,6 @@ fn explicit_build_invocation_writes_excel_values() {
         .lines()
         .find(|record| record.get(7..9) == Some("00"))
         .expect("Intel HEX data record");
-    // The first two little-endian u32 fields are literal 0x1234 and Default's Value 2 = 1.
     assert_eq!(first_data_record.get(9..25), Some("3412000001000000"));
 }
 

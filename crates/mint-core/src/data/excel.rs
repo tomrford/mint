@@ -189,7 +189,6 @@ impl DataSource for ExcelDataSource {
                 ));
             };
 
-            // Check if the value starts with '#' to indicate a sheet reference
             if let Some(sheet_name) = cell_string.strip_prefix('#') {
                 let sheet = self.sheets.get(sheet_name).ok_or_else(|| {
                     let available: Vec<_> = self.sheets.keys().map(|s| s.as_str()).collect();
@@ -224,7 +223,6 @@ impl DataSource for ExcelDataSource {
                 return Ok(ValueSource::Array(out));
             }
 
-            // No '#' prefix, treat as a literal string
             Ok(ValueSource::Single(DataValue::Str(cell_string.to_owned())))
         })
     }

@@ -53,7 +53,7 @@ impl MintConfig {
 }
 
 /// Named checksum algorithm configuration, referenced by leaf entries via `checksum = "name"`.
-/// All fields are required — no inheritance or merging.
+/// All fields are required.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ChecksumConfig {

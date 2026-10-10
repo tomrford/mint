@@ -3,26 +3,22 @@ use serde_json::{Map, Number, Value};
 use crate::layout::error::LayoutError;
 use crate::layout::value::DataValue;
 
-/// Collects used values into a nested JSON object.
 #[derive(Debug, Default)]
 pub struct ValueCollector {
     root: Option<Map<String, Value>>,
 }
 
 impl ValueCollector {
-    /// Create an empty collector.
     pub fn new(enabled: bool) -> Self {
         Self {
             root: enabled.then(Map::new),
         }
     }
 
-    /// Convert the collected values into a JSON object.
     pub fn into_value(self) -> Option<Value> {
         self.root.map(Value::Object)
     }
 
-    /// Construct report values only when capture is enabled.
     pub fn record_value(
         &mut self,
         path: &[String],

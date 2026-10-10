@@ -1,4 +1,3 @@
-# `u32` before nested `u64` distinguishes 8-octet from 4-octet alignment.
 [mint]
 abi = "generic-le"
 [pack.header]

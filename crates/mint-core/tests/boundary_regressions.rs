@@ -77,7 +77,6 @@ value = {{ value = 2, type = "u16" }}
 
 #[test]
 fn prefix_checksums_and_capture_follow_field_order() {
-    // CRC-32/ISO-HDLC bytes independently checked with Python zlib.
     for (abi, expected, second_crc, expected_hex) in [
         (
             "generic-le",
@@ -164,8 +163,6 @@ checksum_two = {{ checksum = "crc32", type = "u32" }}
 
 #[test]
 fn excel_rejects_ambiguous_names_and_incomplete_matrices() {
-    // The fixtures contain duplicate Main names, duplicate Debug headers, or a
-    // blank right-hand matrix cell followed by a complete row respectively.
     for (fixture, expected) in [
         ("duplicate-names", "duplicate name 'CrcSeed'"),
         ("duplicate-variants", "duplicate variant 'Debug'"),

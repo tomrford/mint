@@ -1,5 +1,3 @@
-//! Integration tests for JsonDataSource.
-
 #[path = "common/mod.rs"]
 mod common;
 
@@ -31,22 +29,18 @@ fn json_retrieve_single_value_priority_order() {
 
     let ds = build_json_source("VarA/Debug/Default/VarA", json_data);
 
-    // VarA has TemperatureMax=55, should take priority
     let value = ds.retrieve_single_value("TemperatureMax").unwrap();
     println!("TemperatureMax (VarA/Debug/Default): {:?}", value);
     assert!(matches!(value, DataValue::U64(55)));
 
-    // VarA has boolean=false
     let value = ds.retrieve_single_value("boolean").unwrap();
     println!("boolean (VarA/Debug/Default): {:?}", value);
     assert!(matches!(value, DataValue::Bool(false)));
 
-    // debugMode only in Debug
     let value = ds.retrieve_single_value("debugMode").unwrap();
     println!("debugMode (VarA/Debug/Default): {:?}", value);
     assert!(matches!(value, DataValue::Bool(true)));
 
-    // "Value 2" only in Default
     let value = ds.retrieve_single_value("Value 2").unwrap();
     println!("Value 2 (VarA/Debug/Default): {:?}", value);
     assert!(matches!(value, DataValue::U64(2)));

@@ -36,7 +36,6 @@ const LEAF_KEYS: &[&str] = &[
 const BITMAP_SOURCE_KEYS: &[&str] = &["name", "value"];
 const BITMAP_KEYS: &[&str] = &["bits", "name", "value"];
 
-/// Leaf entry representing an item to add to the flash block.
 #[derive(Debug)]
 pub struct LeafEntry {
     pub scalar_type: ScalarType,
@@ -82,7 +81,6 @@ impl<'de> Deserialize<'de> for LeafEntry {
     }
 }
 
-/// Size source enum.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(untagged)]
 pub enum SizeSource {
@@ -90,7 +88,6 @@ pub enum SizeSource {
     TwoD([usize; 2]),
 }
 
-/// Mutually exclusive source enum.
 #[derive(Debug, Deserialize)]
 pub enum EntrySource {
     #[serde(rename = "name")]
@@ -109,14 +106,12 @@ pub enum EntrySource {
     Fingerprint(FingerprintTarget),
 }
 
-/// One address source within a scalar ref or reflist.
 #[derive(Debug, Clone)]
 pub enum RefTarget {
     Path(String),
     Address(u64),
 }
 
-/// Scalar ref or fixed-capacity list of refs.
 #[derive(Debug, Clone)]
 pub enum RefSource {
     Scalar(RefTarget),
@@ -226,7 +221,6 @@ impl<'de> Deserialize<'de> for FingerprintTarget {
     }
 }
 
-/// Single bitmap field within a bitmap entry.
 #[derive(Debug)]
 pub struct BitmapField {
     pub bits: usize,
@@ -307,7 +301,6 @@ fn quoted_list(values: &[&str]) -> String {
         .join(", ")
 }
 
-/// Source for a bitmap field (no arrays allowed).
 #[derive(Debug, Deserialize)]
 pub enum BitmapFieldSource {
     #[serde(rename = "name")]
@@ -384,7 +377,6 @@ impl LeafEntry {
         }
     }
 
-    /// Validates const entry rules and returns the resolved const value.
     pub(crate) fn validate_const<'a>(
         &self,
         name: &str,
@@ -421,7 +413,6 @@ impl LeafEntry {
         Ok(value)
     }
 
-    /// Validates ref entry rules.
     pub fn validate_ref(&self, source: &RefSource) -> Result<(), LayoutError> {
         if self.scalar_type.fixed_point().is_some() {
             return Err(fixed_point_unsupported_error("Ref", self.scalar_type));
@@ -484,7 +475,6 @@ impl LeafEntry {
         Ok(())
     }
 
-    /// Validates checksum entry rules.
     pub(crate) fn validate_checksum_storage(&self) -> Result<(), LayoutError> {
         if self.scalar_type.fixed_point().is_some() {
             return Err(fixed_point_unsupported_error("Checksum", self.scalar_type));
@@ -520,7 +510,6 @@ impl LeafEntry {
         Ok(())
     }
 
-    /// Validates bitmap entry rules.
     pub(crate) fn validate_bitmap(
         &self,
         fields: &[BitmapField],
@@ -568,7 +557,6 @@ impl LeafEntry {
         Ok(())
     }
 
-    /// Emits bytes for a bitmap entry. Validation must be called first.
     fn emit_bitmap(
         &self,
         fields: &[BitmapField],

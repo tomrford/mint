@@ -1,6 +1,3 @@
-# TriCore-only fixture: `group` is a byte-only aggregate larger than one
-# octet, so the EABI raises its alignment to 2 and pads its tail; `solo`
-# stays a single-octet aggregate with 1-octet alignment at an odd offset.
 [mint]
 abi = "tricore-eabi-le"
 [bytes.header]

@@ -13,9 +13,6 @@ pub struct DataArgs {
     )]
     pub xlsx: Option<String>,
 
-    // `requires = "xlsx"` alone does not fire here (clap resolves the bare
-    // field id oddly once the arg belongs to a group), hence the explicit id
-    // plus datasource-and-not-json pairing.
     #[arg(
         long,
         value_name = "NAME",
