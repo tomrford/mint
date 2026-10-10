@@ -72,7 +72,6 @@ fn header_includes_default_replace_and_suppress_without_changing_layout() {
                 .collect::<Vec<_>>(),
             expected
         );
-        // All declarations, assertions and fingerprint constants stay identical.
         assert_eq!(
             header.split_once("#define BLOCK_START_ADDRESS").unwrap().1,
             default_header

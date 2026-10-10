@@ -125,7 +125,6 @@ pub(crate) fn render(
         }
     }
 
-    // Use bin_file to format standard octet-addressed output.
     let mut bf = BinFile::new();
     let mut max_end = 0u64;
 
@@ -196,7 +195,7 @@ mod tests {
     fn bytestream_exceeds_block_length_errors() {
         let header = sample_header(4);
 
-        let bytestream = vec![1u8; 8]; // 8 bytes > 4 byte block
+        let bytestream = vec![1u8; 8];
         let result = bytestream_to_datarange(bytestream, &header, Abi::GenericLe);
         assert!(result.is_err());
     }

@@ -6,7 +6,6 @@ use crate::layout::error::LayoutError;
 /// A block's deterministic 64-bit ABI fingerprint.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BlockFingerprint {
-    /// Block name from the layout.
     pub block: String,
     /// Numeric fingerprint written to fingerprint fields.
     pub value: u64,

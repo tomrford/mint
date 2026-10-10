@@ -1,7 +1,6 @@
 use mint_core::output::error::OutputError;
 use std::path::{Path, PathBuf};
 
-/// Validate the complete set of destinations before writing any file.
 pub fn write_files(inputs: &[&Path], outputs: &[(&Path, &str)]) -> Result<(), OutputError> {
     let destinations = outputs
         .iter()
@@ -40,7 +39,6 @@ fn destination(path: &Path) -> Result<PathBuf, OutputError> {
         }
         match path.canonicalize() {
             Ok(path) => Ok(path),
-            // Reject dangling symlinks; only a genuinely new filename uses the parent fallback.
             Err(error)
                 if error.kind() == std::io::ErrorKind::NotFound
                     && path.symlink_metadata().is_err() =>

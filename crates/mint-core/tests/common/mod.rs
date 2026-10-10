@@ -33,7 +33,6 @@ pub fn unique_out_path(stem: &str, ext: &str) -> PathBuf {
     test_out_dir().join(format!("{stem}-{unique_id}.{ext}"))
 }
 
-/// Build a block's bytestream.
 pub fn build_block(
     layout_path: impl AsRef<Path>,
     block_name: &str,
@@ -56,7 +55,6 @@ pub fn build_block(
     Ok(bytestream)
 }
 
-/// Build a block's bytestream and collect exported values.
 pub fn build_block_with_values(
     layout_path: impl AsRef<Path>,
     block_name: &str,
@@ -79,7 +77,6 @@ pub fn build_block_with_values(
     Ok((bytestream, values))
 }
 
-/// Renders an error and its full source chain as a single string.
 pub fn error_chain(err: &dyn std::error::Error) -> String {
     let mut message = err.to_string();
     let mut source = err.source();

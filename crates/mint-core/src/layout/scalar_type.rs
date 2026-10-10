@@ -6,7 +6,7 @@ use serde::Deserializer;
 
 use super::error::LayoutError;
 
-/// Scalar type enum derived from 'type' string in leaf entries.
+/// Scalar types accepted by a layout field's `type` setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScalarType {
     U8,
@@ -58,7 +58,6 @@ impl FixedPointType {
 }
 
 impl ScalarType {
-    /// Returns the size of the scalar type in bytes.
     pub fn size_bytes(&self) -> usize {
         match self {
             ScalarType::U8 | ScalarType::I8 => 1,
@@ -69,7 +68,7 @@ impl ScalarType {
         }
     }
 
-    /// Returns true if this is an integer storage type supported for bitmaps.
+    /// Whether this type supports bitmap storage; excludes fixed-point types.
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
@@ -84,7 +83,7 @@ impl ScalarType {
         )
     }
 
-    /// Returns true if this is a signed type.
+    /// Whether this is a signed integer; excludes floats and fixed-point types.
     pub fn is_signed(&self) -> bool {
         matches!(
             self,
@@ -99,7 +98,6 @@ impl ScalarType {
         }
     }
 
-    /// Returns the type name as a string.
     pub fn name(&self) -> String {
         self.to_string()
     }

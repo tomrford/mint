@@ -17,7 +17,6 @@ padding = 0xFF
 "#
     )
 }
-/// Helper to create a minimal layout with given data content.
 fn ref_layout(start_address: u32, data_content: &str) -> String {
     layout(start_address, "generic-le", data_content)
 }
@@ -89,7 +88,6 @@ target = { value = 0xFF, type = "u32" }
     );
 
     let bytes = load_and_build("ref_u64", &toml);
-    // ptr: 8 bytes at offset 0, target: at offset 8, root tail padding to 16
     assert_eq!(bytes.len(), 16);
     let expected_addr: u64 = 0x2000 + 8;
     assert_eq!(&bytes[0..8], &expected_addr.to_le_bytes());

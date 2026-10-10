@@ -8,17 +8,14 @@ pub fn calculate_crc(data: &[u8], crc_settings: &ChecksumConfig) -> u32 {
     let ref_in = crc_settings.ref_in;
     let ref_out = crc_settings.ref_out;
 
-    // Initialize CRC based on ref_in
     let mut crc = if ref_in { start.reverse_bits() } else { start };
 
-    // Prepare polynomial
     let poly = if ref_in {
         polynomial.reverse_bits()
     } else {
         polynomial
     };
 
-    // Process each byte
     for &byte in data {
         let idx = if ref_in {
             (crc ^ (byte as u32)) & 0xFF
@@ -26,7 +23,6 @@ pub fn calculate_crc(data: &[u8], crc_settings: &ChecksumConfig) -> u32 {
             ((crc >> 24) ^ (byte as u32)) & 0xFF
         };
 
-        // Perform 8 rounds of bitwise CRC calculation
         let mut step = if ref_in { idx } else { idx << 24 };
         if ref_in {
             for _ in 0..8 {
@@ -45,7 +41,6 @@ pub fn calculate_crc(data: &[u8], crc_settings: &ChecksumConfig) -> u32 {
         };
     }
 
-    // Finalize
     if ref_in ^ ref_out {
         crc = crc.reverse_bits();
     }
@@ -67,7 +62,6 @@ mod tests {
             ref_out: false,
         };
 
-        // CRC-32/MPEG-2 parameters (non-reflected) over "123456789" should produce 0x0376E6E7
         let test_str = b"123456789";
         let result = calculate_crc(test_str, &crc_settings);
         assert_eq!(

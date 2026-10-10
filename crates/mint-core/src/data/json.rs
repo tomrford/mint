@@ -6,8 +6,7 @@ use super::DataSource;
 use super::error::DataError;
 use crate::layout::value::{DataValue, ValueSource};
 
-/// Shared JSON-based data source that reads variant data from JSON objects.
-/// Result: `Vec<HashMap<String, Value>>` in variant priority order.
+/// JSON variant values, searched in the supplied variant order; null values are skipped.
 pub struct JsonDataSource {
     variant_columns: Vec<HashMap<String, Value>>,
 }
@@ -17,8 +16,7 @@ impl JsonDataSource {
         JsonDataSource { variant_columns }
     }
 
-    /// Creates a JSON data source from a JSON object.
-    /// Expected format: `{ "VariantName": { "key1": value1, "key2": value2, ... }, ... }`
+    /// Input format: `{ "VariantName": { "key1": value1, "key2": value2, ... }, ... }`
     pub fn from_value(data: Value, variants: &[String]) -> Result<Self, DataError> {
         let data: HashMap<String, HashMap<String, Value>> = serde_json::from_value(data)
             .map_err(|e| DataError::FileError(format!("failed to parse JSON: {}", e)))?;
@@ -26,7 +24,6 @@ impl JsonDataSource {
         Self::from_variant_map(data, variants)
     }
 
-    /// Creates a JSON data source from JSON text.
     pub fn from_str(json_content: &str, variants: &[String]) -> Result<Self, DataError> {
         let data: HashMap<String, HashMap<String, Value>> = serde_json::from_str(json_content)
             .map_err(|e| DataError::FileError(format!("failed to parse JSON: {}", e)))?;
@@ -34,7 +31,6 @@ impl JsonDataSource {
         Self::from_variant_map(data, variants)
     }
 
-    /// Creates a JSON data source from a JSON file path.
     pub fn from_path(path: impl AsRef<Path>, variants: &[String]) -> Result<Self, DataError> {
         let path = path.as_ref();
         let json_content = std::fs::read_to_string(path).map_err(|_| {

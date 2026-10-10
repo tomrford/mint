@@ -156,7 +156,6 @@ impl Block {
                         &field_path,
                     ),
                     EntrySource::Checksum(config_name) => {
-                        // Every checksum covers only preceding fields, already emitted in order.
                         let crc = checksum::calculate_crc(
                             &buffer[..coordinates.offset], settings.checksum_config(config_name)?,
                         );

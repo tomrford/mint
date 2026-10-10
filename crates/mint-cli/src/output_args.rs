@@ -11,10 +11,8 @@ pub fn parse_output_format(value: &str) -> Result<OutputFormat, String> {
     }
 }
 
-/// Output configuration for the build command.
 #[derive(Args, Debug, Clone)]
 pub struct OutputArgs {
-    /// Output file path (e.g., "out/firmware.hex").
     #[arg(
         short = 'o',
         long,
@@ -24,7 +22,6 @@ pub struct OutputArgs {
     )]
     pub out: PathBuf,
 
-    /// Number of bytes per HEX data record.
     #[arg(
         long,
         value_name = "N",
@@ -34,7 +31,6 @@ pub struct OutputArgs {
     )]
     pub record_width: u16,
 
-    /// Output format: hex or mot.
     #[arg(
         long,
         value_parser = parse_output_format,
@@ -43,15 +39,12 @@ pub struct OutputArgs {
     )]
     pub format: OutputFormat,
 
-    /// Export used values as a JSON report.
     #[arg(long, value_name = "FILE", help = "Export used values as JSON")]
     pub export_json: Option<PathBuf>,
 
-    /// Show detailed build statistics.
     #[arg(long, help = "Show detailed build statistics")]
     pub stats: bool,
 
-    /// Suppress all output except errors.
     #[arg(long, help = "Suppress all output except errors")]
     pub quiet: bool,
 }

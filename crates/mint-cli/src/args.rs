@@ -13,8 +13,6 @@ pub const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
 #[derive(Parser, Debug)]
 #[command(
     name = "mint",
-    // Pin the usage-line name so help output is identical on Windows,
-    // where argv[0] is mint.exe.
     bin_name = "mint",
     author,
     version,
@@ -60,8 +58,6 @@ pub enum AbiCommand {
     },
 }
 
-/// Enumerates `Abi::ALL` so help output and shell completion list the
-/// profile names without a clap dependency in mint-core.
 fn abi_value_parser() -> impl TypedValueParser<Value = Abi> {
     PossibleValuesParser::new(Abi::ALL.map(Abi::name)).try_map(|name| name.parse::<Abi>())
 }

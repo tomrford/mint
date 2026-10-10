@@ -1,19 +1,7 @@
 #!/usr/bin/env sh
-# Validate the tricore-eabi-le ABI profile against a real TriCore compiler.
-#
-# The TriCore toolchains are proprietary and license-managed, so this check
-# cannot run in CI alongside the nix-based ABI checks. Run it manually from
-# an environment that provides the compiler and its license:
-#
-#   TRICORE_GCC=/path/to/tricore-gcc tests/abi/check-tricore.sh
-#
-# TRICORE_GCC defaults to `tricore-gcc` on PATH. Pass extra flags such as a
-# core selection (e.g. -mtc162) via TRICORE_FLAGS.
-#
-# The script compiles the same generated headers as the Nix ABI probe
-# (doc/examples/block.toml and tests/abi/pack.toml) plus the byte-only
-# aggregate fixture tests/abi/bytes.toml, which proves the EABI minimum
-# two-octet aggregate alignment.
+# Run manually with a licensed TriCore compiler; this check is outside Nix CI.
+# TRICORE_GCC selects the compiler (default: tricore-gcc on PATH).
+# TRICORE_FLAGS supplies extra flags, for example -mtc162.
 set -eu
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -39,7 +27,7 @@ cargo run --quiet --release --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
 cargo run --quiet --release --manifest-path "$repo/Cargo.toml" -p mint-cli -- \
   header "$repo/tests/abi/bytes.toml" -o "$workdir/mint_bytes.h"
 
-# shellcheck disable=SC2086 # TRICORE_FLAGS is intentionally word-split
+# shellcheck disable=SC2086
 "$tricore_gcc" -std=c11 -ffreestanding -Wall -Wextra -Werror -pedantic \
   ${TRICORE_FLAGS:-} -DMINT_TRICORE \
   -I"$workdir" -c "$repo/tests/abi/compiler-probe.c" -o "$workdir/probe.o"

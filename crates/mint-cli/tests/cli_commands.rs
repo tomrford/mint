@@ -260,11 +260,25 @@ fn missing_command_reports_top_level_usage() {
 fn explicit_build_invocation_writes_excel_values() {
     let out = common::unique_out_path("build", "hex");
 
+    for source_args in [vec![], vec!["--json", "{}", "--variants", "Default"]] {
+        let rejected = mint_command()
+            .args(["build", "../mint-core/tests/data/blocks.toml#block"])
+            .args(source_args)
+            .args(["--main-sheet", "Main", "--out"])
+            .arg(&out)
+            .output()
+            .expect("mint build should run");
+        assert!(!rejected.status.success());
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("--main-sheet"));
+        assert!(!out.exists());
+    }
+
     let output = mint_command()
         .arg("build")
         .arg("../mint-core/tests/data/blocks.toml#block")
         .arg("--xlsx")
         .arg("../mint-core/tests/data/data.xlsx")
+        .args(["--main-sheet", "Main"])
         .arg("--variants")
         .arg("Default")
         .arg("--out")
@@ -283,7 +297,6 @@ fn explicit_build_invocation_writes_excel_values() {
         .lines()
         .find(|record| record.get(7..9) == Some("00"))
         .expect("Intel HEX data record");
-    // The first two little-endian u32 fields are literal 0x1234 and Default's Value 2 = 1.
     assert_eq!(first_data_record.get(9..25), Some("3412000001000000"));
 }
 

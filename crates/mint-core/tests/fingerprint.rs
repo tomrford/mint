@@ -200,7 +200,6 @@ config_schema = { fingerprint = "config", type = "u64" }
 manifest_schema = { fingerprint = true, type = "u64" }
 "#;
     let config = layout::parse_toml_layout(source).expect("layout parses");
-    // V2 golden values for independently encoded {u64, u16} and {u64, u64} ABI shapes.
     let config_fingerprint = 0xA5833E1FC2507C0Eu64;
     let manifest_fingerprint = 0x06EB269D7E8A1153u64;
 
