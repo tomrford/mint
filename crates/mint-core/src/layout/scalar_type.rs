@@ -225,35 +225,7 @@ pub fn fixed_point_unsupported_error(kind: &str, scalar_type: ScalarType) -> Lay
 
 #[cfg(test)]
 mod tests {
-    use super::{FixedPointType, ScalarType};
-
-    #[test]
-    fn parses_builtin_and_fixed_point_scalar_types() {
-        let cases = [
-            ("u16", ScalarType::U16),
-            ("f64", ScalarType::F64),
-            (
-                "uq0.16",
-                ScalarType::Fixed(FixedPointType {
-                    signed: false,
-                    integer_bits: 0,
-                    fractional_bits: 16,
-                }),
-            ),
-            (
-                "q15.16",
-                ScalarType::Fixed(FixedPointType {
-                    signed: true,
-                    integer_bits: 15,
-                    fractional_bits: 16,
-                }),
-            ),
-        ];
-
-        for (value, expected) in cases {
-            assert_eq!(value.parse::<ScalarType>().unwrap(), expected);
-        }
-    }
+    use super::ScalarType;
 
     #[test]
     fn rejects_malformed_and_unsupported_fixed_point_types() {

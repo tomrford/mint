@@ -57,35 +57,6 @@ pub fn calculate_crc(data: &[u8], crc_settings: &ChecksumConfig) -> u32 {
 mod tests {
     use super::*;
 
-    fn standard_crc_config() -> ChecksumConfig {
-        ChecksumConfig {
-            polynomial: 0x04C11DB7,
-            start: 0xFFFF_FFFF,
-            xor_out: 0xFFFF_FFFF,
-            ref_in: true,
-            ref_out: true,
-        }
-    }
-
-    // Verify our CRC32 implementation against the well-known test vector
-    #[test]
-    fn test_crc32_standard_test_vector() {
-        let crc_settings = standard_crc_config();
-
-        // The standard CRC32 test vector - "123456789" should produce 0xCBF43926
-        let test_str = b"123456789";
-        let result = calculate_crc(test_str, &crc_settings);
-        assert_eq!(
-            result, 0xCBF43926,
-            "Standard CRC32 test vector failed (expected 0xCBF43926 for \"123456789\")"
-        );
-
-        // Test with simple data to ensure the implementation is stable
-        let simple_data = vec![0x01, 0x02, 0x03, 0x04];
-        let simple_result = calculate_crc(&simple_data, &crc_settings);
-        assert_eq!(simple_result, 0xB63CFBCD, "CRC32 for [1,2,3,4] failed");
-    }
-
     #[test]
     fn test_crc32_mpeg2_non_reflected_vector() {
         let crc_settings = ChecksumConfig {

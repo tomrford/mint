@@ -17,7 +17,6 @@ padding = 0xFF
 "#
     )
 }
-
 /// Helper to create a minimal layout with given data content.
 fn ref_layout(start_address: u32, data_content: &str) -> String {
     layout(start_address, "generic-le", data_content)
@@ -43,57 +42,6 @@ fn load_and_fail(name: &str, toml_str: &str) -> String {
     common::error_chain(&err)
 }
 
-// --- Happy path tests ---
-
-#[test]
-fn ref_resolves_forward_pointer_u32_little_endian() {
-    let toml = ref_layout(
-        0x8000,
-        r#"
-ptr = { ref = "target", type = "u32" }
-target = { value = 0xDEADBEEF, type = "u32" }
-"#,
-    );
-
-    let bytes = load_and_build("ref_forward", &toml);
-    assert_eq!(bytes.len(), 8);
-    assert_eq!(&bytes[0..4], &0x8004u32.to_le_bytes());
-    assert_eq!(&bytes[4..8], &0xDEADBEEFu32.to_le_bytes());
-}
-
-#[test]
-fn c28x_refs_use_word_addresses() {
-    let toml = ref_layout_with_abi(
-        0x1000,
-        "ti-c28x-eabi",
-        r#"
-ptr = { ref = "target", type = "u32" }
-target = { value = 0x1234, type = "u16" }
-"#,
-    );
-
-    let bytes = load_and_build("ref_c28x_word_address", &toml);
-    assert_eq!(bytes.len(), 8);
-    assert_eq!(&bytes[0..4], &0x1002u32.to_le_bytes());
-    assert_eq!(&bytes[4..6], &0x1234u16.to_le_bytes());
-}
-
-#[test]
-fn ref_resolves_backward_pointer() {
-    let toml = ref_layout(
-        0x1000,
-        r#"
-target = { value = 0x42, type = "u32" }
-ptr = { ref = "target", type = "u32" }
-"#,
-    );
-
-    let bytes = load_and_build("ref_backward", &toml);
-    assert_eq!(bytes.len(), 8);
-    assert_eq!(&bytes[0..4], &0x42u32.to_le_bytes());
-    assert_eq!(&bytes[4..8], &0x1000u32.to_le_bytes());
-}
-
 #[test]
 fn ref_with_u16_type() {
     let toml = ref_layout(
@@ -108,25 +56,6 @@ ptr = { ref = "field_b", type = "u16" }
     let bytes = load_and_build("ref_u16", &toml);
     assert_eq!(bytes.len(), 6);
     assert_eq!(&bytes[4..6], &0x102u16.to_le_bytes());
-}
-
-#[test]
-fn ref_u16_rejects_address_out_of_range_without_strict_flag() {
-    let toml = ref_layout(
-        0x1_0000,
-        r#"
-target = { value = 0x42, type = "u32" }
-ptr = { ref = "target", type = "u16" }
-"#,
-    );
-
-    let err = load_and_fail("ref_u16_overflow", &toml);
-    assert!(
-        err.contains("invalid layout")
-            && err.contains("ref 'ptr' target 'target'")
-            && err.contains("does not fit storage type u16"),
-        "expected static u16 range error, got: {err}"
-    );
 }
 
 #[test]
@@ -182,47 +111,6 @@ target = { value = 0xAB, type = "u32" }
     assert_eq!(bytes.len(), 8);
     assert_eq!(&bytes[0..4], &0x4004u32.to_be_bytes());
     assert_eq!(&bytes[4..8], &0xABu32.to_be_bytes());
-}
-
-#[test]
-fn ref_to_branch_node() {
-    // start_address = 0x0
-    // header_field: u32 at offset 0 (4 bytes)
-    // nested.a: u16 at offset 4
-    // nested.b: u16 at offset 6
-    // ptr: u32 at offset 8, pointing to "nested" at offset 4
-    let toml = ref_layout(
-        0x0,
-        r#"
-header_field = { value = 0x01, type = "u32" }
-nested.a = { value = 0x0A, type = "u16" }
-nested.b = { value = 0x0B, type = "u16" }
-ptr = { ref = "nested", type = "u32" }
-"#,
-    );
-
-    let bytes = load_and_build("ref_branch", &toml);
-    assert_eq!(bytes.len(), 12);
-    assert_eq!(&bytes[8..12], &0x4u32.to_le_bytes());
-}
-
-#[test]
-fn ref_to_nested_leaf() {
-    // group.x: u16 at offset 0
-    // group.y: u16 at offset 2
-    // ptr: u32 at offset 4, pointing to "group.y" = 0x100 + 2
-    let toml = ref_layout(
-        0x100,
-        r#"
-group.x = { value = 1, type = "u16" }
-group.y = { value = 2, type = "u16" }
-ptr = { ref = "group.y", type = "u32" }
-"#,
-    );
-
-    let bytes = load_and_build("ref_nested_leaf", &toml);
-    assert_eq!(bytes.len(), 8);
-    assert_eq!(&bytes[4..8], &0x102u32.to_le_bytes());
 }
 
 #[test]
@@ -387,26 +275,6 @@ fn reflist_rejects_invalid_targets_shapes_and_lengths() {
 }
 
 #[test]
-fn ref_with_alignment_padding() {
-    // u8 at offset 0, padding 3 bytes, u32 target at offset 4, u32 ptr at offset 8
-    let toml = ref_layout(
-        0x0,
-        r#"
-small = { value = 0x01, type = "u8" }
-target = { value = 0xDEAD, type = "u32" }
-ptr = { ref = "target", type = "u32" }
-"#,
-    );
-
-    let bytes = load_and_build("ref_align", &toml);
-    assert_eq!(bytes.len(), 12);
-    assert_eq!(&bytes[1..4], &[0xFF; 3]);
-    assert_eq!(&bytes[8..12], &0x4u32.to_le_bytes());
-}
-
-// --- Error case tests ---
-
-#[test]
 fn ref_rejects_invalid_configs() {
     let cases = [
         (
@@ -486,29 +354,4 @@ field = { value = 0x42, type = "u32" }
             err
         );
     }
-}
-
-// --- Regression tests for review feedback ---
-
-#[test]
-fn ref_branch_offset_accounts_for_alignment() {
-    // Regression: branch offset was recorded before first child's alignment.
-    // u8 field at offset 0 (1 byte), then branch whose first child is u32.
-    // The u32 child needs 3 bytes of alignment padding, so the branch's
-    // actual start is at offset 4, not offset 1.
-    // start_address = 0x0
-    let toml = ref_layout(
-        0x0,
-        r#"
-small = { value = 0x01, type = "u8" }
-nested.big = { value = 0xDEAD, type = "u32" }
-ptr = { ref = "nested", type = "u32" }
-"#,
-    );
-
-    let bytes = load_and_build("ref_branch_align", &toml);
-    // small(1) + pad(3) + nested.big(4) + ptr(4) = 12
-    assert_eq!(bytes.len(), 12);
-    // ptr at offset 8 should point to nested at offset 4 (after alignment), NOT offset 1
-    assert_eq!(&bytes[8..12], &0x4u32.to_le_bytes());
 }

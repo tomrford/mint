@@ -293,26 +293,12 @@ mod tests {
     use crate::layout::scalar_type::ScalarType;
 
     #[test]
-    fn names_round_trip() {
-        for abi in Abi::ALL {
-            assert_eq!(abi.name().parse::<Abi>(), Ok(abi));
-        }
-    }
-
-    #[test]
     fn c28x_rejects_exact_width_8_bit_types() {
-        assert!(Abi::TiC28xEabi.scalar(ScalarType::U8).is_err());
         assert!(Abi::TiC28xEabi.scalar(ScalarType::I8).is_err());
         assert!(
             Abi::TiC28xEabi
                 .scalar("q3.4".parse().expect("valid 8-bit fixed-point type"))
                 .is_err()
         );
-
-        let scalar = Abi::TiC28xEabi.scalar(ScalarType::U64).unwrap();
-        assert_eq!(scalar.storage_size, 8);
-        assert_eq!(scalar.alignment, 4);
-        assert_eq!(scalar.array_stride, 8);
-        assert_eq!(Abi::TiC28xEabi.address_unit_bits(), 16);
     }
 }

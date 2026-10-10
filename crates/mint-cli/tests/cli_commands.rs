@@ -257,7 +257,7 @@ fn missing_command_reports_top_level_usage() {
 }
 
 #[test]
-fn explicit_build_invocation_writes_output() {
+fn explicit_build_invocation_writes_excel_values() {
     let out = common::unique_out_path("build", "hex");
 
     let output = mint_command()
@@ -278,7 +278,13 @@ fn explicit_build_invocation_writes_output() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(out.exists(), "expected output file: {}", out.display());
+    let artifact = std::fs::read_to_string(&out).expect("output artifact is readable");
+    let first_data_record = artifact
+        .lines()
+        .find(|record| record.get(7..9) == Some("00"))
+        .expect("Intel HEX data record");
+    // The first two little-endian u32 fields are literal 0x1234 and Default's Value 2 = 1.
+    assert_eq!(first_data_record.get(9..25), Some("3412000001000000"));
 }
 
 #[test]
