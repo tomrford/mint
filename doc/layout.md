@@ -53,12 +53,12 @@ The required `abi` setting selects the layout rules used for every block in the 
 
 | ABI | Byte order | Address unit | Verification |
 | --- | --- | --- | --- |
-| `generic-le` | little-endian | 8 bits | Representative continuous check with GCC 15.2.0 (`arm-none-eabi`) in little-endian mode on Linux/Nix |
-| `generic-be` | big-endian | 8 bits | Representative continuous check with GCC 15.2.0 (`arm-none-eabi`) in big-endian mode on Linux/Nix |
-| `arm-aapcs32-le` | little-endian | 8 bits | Continuously checked with GCC 15.2.0 (`arm-none-eabi`), AAPCS soft-float Cortex-M3, on Linux/Nix |
+| `generic-le` | little-endian | 8 bits | Representative continuous check with GCC (`arm-none-eabi`) in little-endian mode on Linux/Nix |
+| `generic-be` | big-endian | 8 bits | Representative continuous check with GCC (`arm-none-eabi`) in big-endian mode on Linux/Nix |
+| `arm-aapcs32-le` | little-endian | 8 bits | Continuously checked with GCC (`arm-none-eabi`), AAPCS soft-float Cortex-M3, on Linux/Nix |
 | `tricore-eabi-le` | little-endian | 8 bits | Manually validated with HighTec TriCore GCC 4.9.4 (HDP-v4.9.4.1), default core and `-mtc162` |
-| `riscv-ilp32-le` | little-endian | 8 bits | Continuously checked with GCC 15.2.0 (`riscv32-none-elf`), RV32IMAC ILP32, on Linux/Nix |
-| `ti-c28x-eabi` | little-endian | 16 bits | Continuously checked with TI C2000 CGT 25.11.0.LTS EABI on Linux/Nix |
+| `riscv-ilp32-le` | little-endian | 8 bits | Continuously checked with GCC (`riscv32-none-elf`), RV32IMAC ILP32, on Linux/Nix |
+| `ti-c28x-eabi` | little-endian | 16 bits | Continuously checked with TI C2000 CGT EABI on Linux/Nix |
 
 “Continuously checked” means CI compiles generated headers for the example layout and `tests/abi/pack.toml` and checks scalar storage and alignment, array stride, nested aggregates (including `u32` then nested `u64` packing), field offsets, final size, byte order and `CHAR_BIT`. A manual compiler result must be labelled “Manually validated” with its compiler version and flags; it is not a recurring CI result. TriCore compilers are proprietary and license-managed, so `tests/abi/check-tricore.sh` reproduces that same probe locally with a licensed compiler supplied through `TRICORE_GCC` and `TRICORE_FLAGS`. The recorded HighTec result uses those two layouts plus `tests/abi/bytes.toml`, whose byte-only aggregate proves the EABI minimum two-octet aggregate alignment; re-run the script and update the table when the toolchain changes.
 
