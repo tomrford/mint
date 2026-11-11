@@ -123,8 +123,6 @@ target_compile_definitions(
 
 You can specify exactly one supported data source (`-x`/`--xlsx` or `-j`/`--json`) along with variants (`--variants`).
 
-If your data currently comes from another system, fetch or transform it first and then pass the resulting JSON via `--json`.
-
 ### `-x, --xlsx <FILE>`
 
 Path to Excel workbook containing variant data.
@@ -145,35 +143,12 @@ mint build layout.toml --xlsx data.xlsx --main-sheet Config --variants Default -
 
 Use raw JSON as the data source. Accepts a JSON file path or inline JSON string.
 
-The JSON format is an object with variant names as top-level keys. Each variant contains an object with name:value pairs.
-
 ```bash
 # Using a JSON file
 mint build layout.toml --json data.json --variants Debug/Default -o output.hex
 
 # Using inline JSON
 mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' --variants Debug/Default -o output.hex
-```
-
-**Example JSON format:**
-
-```json
-{
-  "Default": {
-    "DeviceName": "MyDevice",
-    "Version": 1,
-    "Counter": 1000,
-    "Coefficients": [1.0, 2.5, 3.7, 4.2],
-    "Matrix": [
-      [10, 20],
-      [30, 40]
-    ]
-  },
-  "Debug": {
-    "DeviceName": "DebugDevice",
-    "Version": 2
-  }
-}
 ```
 
 See [Data Sources](sources.md#json---json) for format details.
@@ -220,19 +195,11 @@ Output file format.
 | `hex` | Intel HEX (default) | `.hex`    |
 | `mot` | Motorola S-Record   | `.mot`    |
 
-```bash
-# Intel HEX (default)
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --format hex
-
-# Motorola S-Record
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.mot --format mot
-```
-
 Mint warns when a recognised file extension conflicts with the selected format. It keeps the output path unchanged. Custom and extensionless file names remain valid.
 
 ### `--record-width <N>`
 
-Bytes per data record in output file. Range: 1-128.
+Bytes per data record in output file. Range: 1-128. C28x layouts require an even width.
 
 **Default:** `32`
 
@@ -326,64 +293,10 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --quiet
 
 ---
 
-## Help & Version
+## Agent skill
 
-### `-h, --help`
-
-Print help information.
-
-```bash
-mint --help
-```
-
-### `-V, --version`
-
-Print version information.
-
-```bash
-mint --version
-```
-
-### `skill`
-
-Print the bundled Mint skill text.
+`mint skill` prints the bundled Mint guide for coding agents.
 
 ```bash
 mint skill
 ```
-
----
-
-## Complete Examples
-
-### Basic build with Excel data
-
-```bash
-mint build layout.toml --xlsx data.xlsx --variants Default -o firmware.hex
-```
-
-### Production build with all options
-
-```bash
-mint build \
-  layout.toml#config \
-  layout.toml#data \
-  --xlsx data.xlsx \
-  --variants Default \
-  -o release/FW_v1.2.3.mot \
-  --format mot \
-  --record-width 32 \
-  --strict \
-  --stats
-```
-
-### Build with JSON data source
-
-```bash
-mint build layout.toml \
-  --json data.json \
-  --variants Debug/Default \
-  -o firmware.hex
-```
-
-See [Data Sources](sources.md#json---json) for format details.
