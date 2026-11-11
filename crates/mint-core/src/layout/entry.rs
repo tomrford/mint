@@ -813,15 +813,11 @@ impl<'a> Slot<'a> {
         self.bytes.copy_from_slice(value.as_bytes());
     }
 
-    /// Writes array element `index`; the stride gap after it keeps its padding.
+    /// Writes array element `index` over its resolved storage size; the stride
+    /// gap after it keeps its padding.
     pub(crate) fn write_element(&mut self, index: usize, value: EncodedScalar) {
-        let value = value.as_bytes();
-        debug_assert!(
-            value.len() == self.abi.storage_size && self.abi.array_stride >= value.len(),
-            "encoded scalar width must match its ABI storage size and fit the array stride"
-        );
         let start = index * self.abi.array_stride;
-        self.bytes[start..start + value.len()].copy_from_slice(value);
+        self.bytes[start..start + self.abi.storage_size].copy_from_slice(value.as_bytes());
     }
 }
 
