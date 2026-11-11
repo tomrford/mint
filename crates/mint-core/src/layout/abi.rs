@@ -33,18 +33,35 @@ pub enum Endianness {
     Big,
 }
 
+/// One scalar in target byte order, held inline because no scalar exceeds 8 octets.
+#[derive(Clone, Copy)]
+pub(crate) struct EncodedScalar {
+    bytes: [u8; 8],
+    len: usize,
+}
+
+impl EncodedScalar {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+}
+
 pub(crate) trait EndianBytes {
-    fn to_endian_bytes(self, endianness: Endianness) -> Vec<u8>;
+    fn to_endian_bytes(self, endianness: Endianness) -> EncodedScalar;
 }
 
 macro_rules! impl_endian_bytes {
     ($($type:ty),* $(,)?) => {$(
+        const _: () = assert!(size_of::<$type>() <= 8);
         impl EndianBytes for $type {
-            fn to_endian_bytes(self, endianness: Endianness) -> Vec<u8> {
-                match endianness {
-                    Endianness::Little => self.to_le_bytes().to_vec(),
-                    Endianness::Big => self.to_be_bytes().to_vec(),
-                }
+            fn to_endian_bytes(self, endianness: Endianness) -> EncodedScalar {
+                let raw = match endianness {
+                    Endianness::Little => self.to_le_bytes(),
+                    Endianness::Big => self.to_be_bytes(),
+                };
+                let mut bytes = [0; 8];
+                bytes[..raw.len()].copy_from_slice(&raw);
+                EncodedScalar { bytes, len: raw.len() }
             }
         }
     )*};

@@ -259,17 +259,22 @@ impl Block {
                 })?;
 
                 for address in &addresses {
-                    let encoded = DataValue::U64(*address).to_bytes(
+                    let encoded = DataValue::U64(*address).encode(
                         leaf.scalar_type,
                         config.abi.endianness(),
                         true,
                     )?;
-                    append_array_element(&mut bytes, &encoded, scalar_abi, config.padding);
+                    append_array_element(
+                        &mut bytes,
+                        encoded.as_bytes(),
+                        scalar_abi,
+                        config.padding,
+                    );
                 }
                 let zero =
-                    DataValue::U64(0).to_bytes(leaf.scalar_type, config.abi.endianness(), true)?;
+                    DataValue::U64(0).encode(leaf.scalar_type, config.abi.endianness(), true)?;
                 for _ in addresses.len()..capacity {
-                    append_array_element(&mut bytes, &zero, scalar_abi, config.padding);
+                    append_array_element(&mut bytes, zero.as_bytes(), scalar_abi, config.padding);
                 }
 
                 value_sink.record_value(field_path, || Ok(addresses.into()))?;

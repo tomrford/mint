@@ -1,4 +1,4 @@
-use super::abi::{Endianness, ScalarAbi};
+use super::abi::{EncodedScalar, Endianness, ScalarAbi};
 use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
@@ -744,11 +744,9 @@ impl LeafEntry {
                 for value in values {
                     append_array_element(
                         &mut out,
-                        &value.to_bytes(
-                            self.scalar_type,
-                            config.abi.endianness(),
-                            config.strict,
-                        )?,
+                        value
+                            .encode(self.scalar_type, config.abi.endianness(), config.strict)?
+                            .as_bytes(),
                         scalar_abi,
                         config.padding,
                     );
@@ -763,7 +761,7 @@ impl LeafEntry {
                 }
                 append_string(
                     &mut out,
-                    value.string_to_bytes(self.scalar_type, config.abi.endianness())?,
+                    value.string_elements(self.scalar_type, config.abi.endianness())?,
                     scalar_abi,
                     config.padding,
                 );
@@ -840,7 +838,8 @@ impl LeafEntry {
             for v in row {
                 append_array_element(
                     &mut out,
-                    &v.to_bytes(self.scalar_type, config.abi.endianness(), config.strict)?,
+                    v.encode(self.scalar_type, config.abi.endianness(), config.strict)?
+                        .as_bytes(),
                     scalar_abi,
                     config.padding,
                 );
@@ -860,10 +859,14 @@ struct ArrayEncoding {
     scalar_abi: ScalarAbi,
 }
 
-fn append_string(output: &mut Vec<u8>, bytes: Vec<u8>, scalar_abi: ScalarAbi, padding: u8) {
-    debug_assert!(bytes.len().is_multiple_of(scalar_abi.storage_size));
-    for element in bytes.chunks_exact(scalar_abi.storage_size) {
-        append_array_element(output, element, scalar_abi, padding);
+fn append_string(
+    output: &mut Vec<u8>,
+    elements: impl Iterator<Item = EncodedScalar>,
+    scalar_abi: ScalarAbi,
+    padding: u8,
+) {
+    for element in elements {
+        append_array_element(output, element.as_bytes(), scalar_abi, padding);
     }
 }
 
