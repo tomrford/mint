@@ -1,15 +1,9 @@
-use std::process::Command;
-
 #[path = "common/mod.rs"]
 mod common;
 
-const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
+use common::mint_command;
 
-fn mint_command() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mint"));
-    command.current_dir(env!("CARGO_MANIFEST_DIR"));
-    command
-}
+const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
 
 #[test]
 fn skill_prints_bundled_skill_text() {
