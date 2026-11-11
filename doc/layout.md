@@ -121,7 +121,7 @@ Generated headers include C11 `_Static_assert` checks for every field offset and
 
 Each block emits `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH` macros. Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
 
-The layout parser guarantees valid block and field names. Header generation runs the build's static validation for selected blocks, including resolved shape, literal and const shape, checksum, ref and address-range rules. It also rejects block-prefix and generated macro collisions after conversion to upper snake case. It renders the complete header before writing the output file.
+The layout parser guarantees valid block and field names. Header generation runs the build's static validation for selected blocks, including resolved shape, literal and const shape, checksum, ref and address-range rules. It also rejects block-prefix and generated macro collisions after conversion to upper snake case, and layouts whose ABI profiles differ in layout family, byte order or addressable-unit width. It renders the complete header before writing the output file.
 
 ### Field Attributes
 

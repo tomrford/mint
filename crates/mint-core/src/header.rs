@@ -28,6 +28,7 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let mut names = NameRegistry::default();
     let mut guard_parts = Vec::with_capacity(resolved.len());
     let mut includes: Option<(PathBuf, &[String])> = None;
+    let mut abi: Option<(PathBuf, Abi)> = None;
 
     for selected in resolved {
         let layout = layouts.get(&selected.layout).ok_or_else(|| {
@@ -36,6 +37,21 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
                 selected.layout.display()
             ))
         })?;
+        let layout_abi = layout.mint.abi;
+        if let Some((first_path, first_abi)) = &abi {
+            if !same_layout_rules(*first_abi, layout_abi) {
+                return Err(header_error(format!(
+                    "[mint].abi layout rules must match across selected layouts: '{}' uses '{}' and '{}' uses '{}', which differ in layout family, byte order or addressable-unit width; generate a separate header per ABI",
+                    first_path.display(),
+                    first_abi.name(),
+                    selected.layout.display(),
+                    layout_abi.name()
+                ))
+                .into());
+            }
+        } else {
+            abi = Some((selected.layout.clone(), layout_abi));
+        }
         let configured_includes = &layout.mint.header.includes;
         if let Some((first_path, first_includes)) = &includes {
             if *first_includes != configured_includes.as_slice() {
@@ -129,6 +145,13 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
 
     output.push_str(&format!("\n#endif /* {guard} */\n"));
     Ok(output)
+}
+
+/// Profile names are ignored, as they are by fingerprints.
+fn same_layout_rules(first: Abi, second: Abi) -> bool {
+    first.family() == second.family()
+        && first.endianness() == second.endianness()
+        && first.address_unit_bits() == second.address_unit_bits()
 }
 
 fn validate_include(include: &str) -> Result<(), String> {

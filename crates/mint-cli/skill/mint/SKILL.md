@@ -449,7 +449,7 @@ Run `mint --help` for the full argument list.
 
 **Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
 
-**Generated C header**: Run `mint header layout.toml -o layout.h`. Each block emits `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH` macros. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects statically invalid selected layouts and generated-name collisions.
+**Generated C header**: Run `mint header layout.toml -o layout.h`. Each block emits `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH` macros. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects statically invalid selected layouts, generated-name collisions and combined layouts whose ABIs differ in layout family, byte order or addressable-unit width.
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
 

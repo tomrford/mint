@@ -181,6 +181,51 @@ fn combined_layouts_require_identical_effective_include_lists() {
     }
 }
 
+/// One header is checked by one compiler, so its layouts must share layout
+/// rules; profile names alone do not matter.
+#[test]
+fn combined_layouts_require_equivalent_abi_layout_rules() {
+    let layout = |block: &str, abi: &str| {
+        format!(
+            r#"
+[mint]
+abi = "{abi}"
+[{block}.header]
+start_address = 0
+length = 16
+[{block}.data]
+value = {{ value = 42, type = "u16" }}
+"#
+        )
+    };
+    for (first, second, compatible) in [
+        ("generic-le", "arm-aapcs32-le", true),
+        ("generic-le", "riscv-ilp32-le", true),
+        ("generic-le", "generic-be", false),
+        ("generic-le", "tricore-eabi-le", false),
+        ("tricore-eabi-le", "ti-c28x-eabi", false),
+    ] {
+        let first_path = common::write_layout_file("first-abi", &layout("first", first));
+        let second_path = common::write_layout_file("second-abi", &layout("second", second));
+        let result = mint_core::header::generate(&[
+            BlockSelector::all(&first_path),
+            BlockSelector::all(&second_path),
+        ]);
+        if compatible {
+            let header = result.unwrap_or_else(|error| panic!("{first} + {second}: {error}"));
+            assert!(header.contains("} first_t;") && header.contains("} second_t;"));
+        } else {
+            let message = common::error_chain(&result.expect_err(&format!("{first} + {second}")));
+            assert!(
+                message.contains("[mint].abi layout rules must match"),
+                "{message}"
+            );
+            assert!(message.contains(&first_path), "{message}");
+            assert!(message.contains(&second_path), "{message}");
+        }
+    }
+}
+
 #[test]
 fn maps_all_scalar_fixed_point_and_storage_types() {
     let header = generate(
