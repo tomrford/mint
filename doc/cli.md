@@ -11,8 +11,6 @@ mint abi show ABI
 mint skill
 ```
 
-`mint build` is the build command.
-
 ## Positional Arguments
 
 ### `[FILE[#BLOCK] | FILE]...`
