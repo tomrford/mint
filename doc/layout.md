@@ -229,7 +229,7 @@ coefficients = { name = "Coefficients", type = "f32", size = 4 }
 matrix = { name = "Matrix", type = "i16", size = [2, 2] }
 
 # Strict size (error if data source has fewer elements)
-matrix = { name = "Matrix", type = "i16", SIZE = [2, 2] }
+strict_matrix = { name = "Matrix", type = "i16", SIZE = [2, 2] }
 ```
 
 ### Bitmaps
@@ -246,7 +246,7 @@ flags = { type = "u16", bitmap = [
 ] }
 ```
 
-Bitmap fields are packed LSB-first into the specified type. signedness of fields match the type. Negative values are represented as two's complement. The sum of the bits in the bitmap must match the type size.
+Bitmap fields are packed LSB-first into the specified type. The signedness of each field matches the type. Negative values are represented as two's complement. The sum of the bits in the bitmap must match the type size.
 
 Fixed-point types are not valid with `bitmap`.
 
@@ -377,7 +377,7 @@ ref_out = true
 
 [config.header]
 start_address = 0x8000
-length = 0x1000
+length = 0x100
 
 [config.data]
 version = { value = 1, type = "u16" }
