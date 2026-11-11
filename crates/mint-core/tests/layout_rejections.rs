@@ -1,14 +1,6 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use std::fs;
-
-fn write_layout(file_stem: &str, ext: &str, contents: &str) -> String {
-    let path = common::unique_out_path(file_stem, ext);
-    fs::write(&path, contents).expect("write layout file");
-    path.to_string_lossy().into_owned()
-}
-
 fn layout_error(file_stem: &str, block_name: &str, data: &str) -> String {
     let layout = format!(
         r#"
@@ -23,7 +15,7 @@ length = 0x20
 {data}
 "#
     );
-    let path = write_layout(file_stem, "toml", &layout);
+    let path = common::write_layout_file(file_stem, &layout);
     mint_core::layout::load_layout(&path)
         .expect_err("layout should be rejected")
         .to_string()
@@ -46,9 +38,8 @@ fn toml_rejects_unknown_mint_keys() {
     ];
 
     for (name, config, key) in cases {
-        let path = write_layout(
+        let path = common::write_layout_file(
             name,
-            "toml",
             &format!(
                 r#"
 [mint]
@@ -76,9 +67,8 @@ value = {{ value = 1, type = "u16" }}
 
 #[test]
 fn toml_requires_a_supported_abi() {
-    let missing = write_layout(
+    let missing = common::write_layout_file(
         "missing-abi",
-        "toml",
         r#"
 [mint]
 
@@ -98,9 +88,8 @@ value = { value = 1, type = "u16" }
         "{error}"
     );
 
-    let unknown = write_layout(
+    let unknown = common::write_layout_file(
         "unknown-abi",
-        "toml",
         r#"
 [mint]
 abi = "unknown"
@@ -124,9 +113,8 @@ value = { value = 1, type = "u16" }
 
 #[test]
 fn toml_rejects_unknown_block_key() {
-    let path = write_layout(
+    let path = common::write_layout_file(
         "unknown-block-key",
-        "toml",
         r#"
 [mint]
 abi = "generic-le"
