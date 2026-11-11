@@ -127,17 +127,17 @@ bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
 }
 
 #[test]
-fn non_finite_inputs_are_rejected_by_encoding_without_json_reporting() {
-    use mint_core::layout::{abi::Endianness, scalar_type::ScalarType, value::DataValue};
-    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        for scalar in [ScalarType::U8, ScalarType::F32, ScalarType::F64] {
+fn non_finite_inputs_are_rejected_with_or_without_strict() {
+    for value in ["nan", "inf", "-inf"] {
+        for scalar in ["u8", "f32", "f64", "uq8.8"] {
             for strict in [false, true] {
-                let error = DataValue::F64(value)
-                    .to_bytes(scalar, Endianness::Little, strict)
-                    .unwrap_err();
+                let entry = format!(r#"bad = {{ value = {value}, type = "{scalar}" }}"#);
+                let error = build_inline(&entry, strict, None)
+                    .expect_err("non-finite input should be rejected");
+                let message = common::error_chain(&error);
                 assert!(
-                    error.to_string().contains("cannot encode non-finite"),
-                    "{error}"
+                    message.contains("cannot encode non-finite"),
+                    "{entry} strict={strict}: {message}"
                 );
             }
         }

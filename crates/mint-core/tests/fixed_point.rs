@@ -168,29 +168,6 @@ signed_limit = { value = 9223372036854775808.0, type = "q63.0" }
 }
 
 #[test]
-fn fixed_point_rejects_non_finite_input() {
-    let layout = r#"
-[mint]
-abi = "generic-le"
-
-[block.header]
-start_address = 0x80000
-length = 0x100
-padding = 0x00
-
-[block.data]
-gain = { value = inf, type = "uq8.8" }
-"#;
-
-    let path = common::write_layout_file("fixed-point-non-finite", layout);
-    let err = common::build_block(&path, "block", false, None).expect_err("build should fail");
-    assert!(
-        common::error_chain(&err).contains("cannot encode non-finite"),
-        "unexpected error: {err}"
-    );
-}
-
-#[test]
 fn fixed_point_export_json_reports_resolved_numbers() {
     let layout = r#"
 [mint]
