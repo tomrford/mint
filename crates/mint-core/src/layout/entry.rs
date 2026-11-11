@@ -336,7 +336,7 @@ impl LeafEntry {
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<(), LayoutError> {
         if let EntrySource::Bitmap(fields) = &self.source {
             return self.emit_bitmap(slot, fields, data_source, config, value_sink, field_path);
@@ -596,7 +596,7 @@ impl LeafEntry {
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<(), LayoutError> {
         let signed = self.scalar_type.is_signed();
         let mut accumulator: u128 = 0;
@@ -609,9 +609,11 @@ impl LeafEntry {
             let pattern = (clamped as u128) & mask;
             accumulator |= pattern << offset;
 
-            let mut bitmap_path = field_path.to_vec();
-            bitmap_path.push(bitmap_field_key(field, offset));
-            value_sink.record_value(&bitmap_path, || i128_to_json(clamped))?;
+            value_sink.record_member_value(
+                field_path,
+                || bitmap_field_key(field, offset),
+                || i128_to_json(clamped),
+            )?;
 
             offset += field.bits;
         }
@@ -633,7 +635,7 @@ impl LeafEntry {
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<(), LayoutError> {
         match &self.source {
             EntrySource::Name(name) => {
@@ -675,7 +677,7 @@ impl LeafEntry {
         size: usize,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<(), LayoutError> {
         let retrieved;
         let value = match &self.source {
@@ -741,7 +743,7 @@ impl LeafEntry {
         size: [usize; 2],
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<(), LayoutError> {
         let EntrySource::Name(name) = &self.source else {
             unreachable!("2D source validated before block emission")
