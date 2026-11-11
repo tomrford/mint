@@ -1,4 +1,4 @@
-use crate::data_args::DataArgs;
+use crate::data_args::{DataArgs, is_inline_json};
 use mint_core::data::DataSource;
 use mint_core::data::error::DataError;
 use mint_core::data::{ExcelDataSource, ExcelDataSourceOptions, JsonDataSource};
@@ -13,7 +13,7 @@ pub fn create_data_source(args: &DataArgs) -> Result<Option<Box<dyn DataSource>>
             }
             Ok(Some(Box::new(ExcelDataSource::from_path(path, options)?)))
         }
-        (_, Some(input)) if !input.trim_start().starts_with('{') => {
+        (_, Some(input)) if !is_inline_json(input) => {
             Ok(Some(Box::new(JsonDataSource::from_path(input, &variants)?)))
         }
         (_, Some(input)) => Ok(Some(Box::new(JsonDataSource::from_str(input, &variants)?))),

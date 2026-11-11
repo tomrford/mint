@@ -509,11 +509,7 @@ fn render_layout_assertions(
     let mut path = Vec::new();
     render_node_assertions(block_name, typedef_name, root, &mut path, &mut output);
 
-    let root_size = match root {
-        ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
-            coordinates.size
-        }
-    };
+    let root_size = root.coordinates().size;
     output.push_str(&format!(
         "_Static_assert(sizeof({typedef_name}) * CHAR_BIT == {root_size}u * 8u, \"Mint ABI size mismatch for {typedef_name}\");\n"
     ));
@@ -533,11 +529,7 @@ fn render_node_assertions(
 
     for (name, child) in children {
         path.push(name.clone());
-        let offset = match child {
-            ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
-                coordinates.offset
-            }
-        };
+        let offset = child.coordinates().offset;
         let member = path.join(".");
         output.push_str(&format!(
             "_Static_assert(offsetof({typedef_name}, {member}) * CHAR_BIT == {offset}u * 8u, \"Mint ABI offset mismatch for {block_name}.{member}\");\n"

@@ -47,6 +47,28 @@ value = { value = 1, type = "u64" }
 }
 
 #[test]
+fn c28x_rejects_odd_octet_lengths() {
+    let layout = common::write_layout_file(
+        "c28x_odd_length",
+        r#"
+[mint]
+abi = "ti-c28x-eabi"
+
+[block.header]
+start_address = 0
+length = 3
+
+[block.data]
+value = { value = 0, type = "u16" }
+"#,
+    );
+
+    let error = common::build_block(&layout, "block", false, None)
+        .expect_err("odd C28x block length should fail");
+    assert!(common::error_chain(&error).contains("not divisible"));
+}
+
+#[test]
 fn materialized_block_limit_fails_before_allocation() {
     let size = mint_core::layout::MAX_RESOLVED_BLOCK_SIZE + 1;
     let layout = common::write_layout_file(
