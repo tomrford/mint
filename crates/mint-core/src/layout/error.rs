@@ -27,6 +27,14 @@ pub enum LayoutError {
     #[error("missing datasheet: {0}")]
     MissingDataSheet(String),
 
+    /// Names the block a static layout error is about; its message includes
+    /// the full cause so callers without a chain printer still see it.
+    #[error("in block '{block}': {}", full_message(error))]
+    InBlock {
+        block: String,
+        error: Box<LayoutError>,
+    },
+
     #[error("in field '{field}'")]
     InField {
         field: String,
@@ -47,6 +55,17 @@ pub enum LayoutError {
 
     #[error(transparent)]
     Data(#[from] crate::data::error::DataError),
+}
+
+fn full_message(error: &LayoutError) -> String {
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }
 
 pub(crate) fn in_field_path(path: &str, error: LayoutError) -> LayoutError {

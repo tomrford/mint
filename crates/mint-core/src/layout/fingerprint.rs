@@ -1,79 +1,12 @@
 use super::abi::Endianness;
-use super::block::Config;
 use super::entry::{EntrySource, RefSource, RefTarget, SizeSource};
 use super::error::LayoutError;
 use super::resolved::{ResolvedLayout, ResolvedNode, TargetKind};
 use super::scalar_type::ScalarType;
-use indexmap::IndexMap;
-use std::collections::{HashMap, HashSet};
 
 const HASH_CONTEXT: &str = "mint block ABI fingerprint v2";
 
-pub(crate) struct ResolvedBlocks<'a> {
-    pub(crate) blocks: HashMap<String, ResolvedLayout<'a>>,
-    pub(crate) fingerprints: IndexMap<String, u64>,
-}
-
-pub(crate) fn calculate_scoped<'a, 'b>(
-    config: &'a Config,
-    roots: impl IntoIterator<Item = &'b str>,
-    hash_roots: bool,
-) -> Result<ResolvedBlocks<'a>, LayoutError> {
-    let available = || config.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
-    let mut resolved_roots = HashMap::new();
-    let mut root_names = HashSet::new();
-    let mut hash_names = HashSet::new();
-
-    for root_name in roots {
-        if !root_names.insert(root_name.to_owned()) {
-            continue;
-        }
-        let block = config.blocks.get(root_name).ok_or_else(|| {
-            LayoutError::BlockNotFound(format!("'{root_name}'. Available blocks: {}", available()))
-        })?;
-        let resolved = ResolvedLayout::new(&block.data, config.mint.abi)?;
-        for (_, _, _, leaf) in resolved.emission_leaves() {
-            let EntrySource::Fingerprint(target) = &leaf.source else {
-                continue;
-            };
-            let target_name = target.block_name(root_name);
-            if !config.blocks.contains_key(target_name) {
-                return Err(LayoutError::BlockNotFound(format!(
-                    "fingerprint target '{target_name}' from block '{root_name}'. Available blocks: {}",
-                    available()
-                )));
-            }
-            hash_names.insert(target_name.to_owned());
-        }
-        resolved_roots.insert(root_name.to_owned(), resolved);
-    }
-
-    if hash_roots {
-        hash_names.extend(root_names);
-    }
-
-    let mut fingerprints = IndexMap::with_capacity(hash_names.len());
-    for (name, block) in &config.blocks {
-        if !hash_names.contains(name) {
-            continue;
-        }
-        let target;
-        let resolved = match resolved_roots.get(name) {
-            Some(resolved) => resolved,
-            None => {
-                target = ResolvedLayout::new(&block.data, config.mint.abi)?;
-                &target
-            }
-        };
-        fingerprints.insert(name.clone(), fingerprint(resolved)?);
-    }
-    Ok(ResolvedBlocks {
-        blocks: resolved_roots,
-        fingerprints,
-    })
-}
-
-fn fingerprint(resolved: &ResolvedLayout<'_>) -> Result<u64, LayoutError> {
+pub(crate) fn fingerprint(resolved: &ResolvedLayout<'_>) -> Result<u64, LayoutError> {
     let mut hasher = blake3::Hasher::new_derive_key(HASH_CONTEXT);
     let abi = resolved.abi();
     hasher.update(&[match abi.endianness() {
