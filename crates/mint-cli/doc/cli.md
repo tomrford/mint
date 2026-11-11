@@ -1,265 +1,25 @@
-# Command Line Interface
+# Command line
 
-mint builds flash blocks from layout files and data sources, and generates matching C headers and ABI fingerprints from layouts.
+`mint --help` and `mint <command> --help` list every option. This page covers what the help text cannot show.
 
-```
-mint build [OPTIONS] [FILE[#BLOCK] | FILE]...
-mint header [FILE[#BLOCK] | FILE]... -o FILE
-mint fingerprint FILE[#BLOCK]
-mint abi list
-mint abi show ABI
-mint skill
-```
+## Selecting blocks
 
-## Positional Arguments
-
-### `[FILE[#BLOCK] | FILE]...`
-
-Specifies which blocks to build. Two formats are supported:
-
-| Format              | Description                             |
-| ------------------- | --------------------------------------- |
-| `layout.toml#block` | Build specific block from layout file   |
-| `layout.toml`       | Build all blocks defined in layout file |
-
-**Examples:**
+`build`, `header` and `fingerprint` take layout selectors. `layout.toml` selects every block in declaration order and `layout.toml#config` selects one. `build` and `header` accept several selectors, which may mix both forms and several files; a block selected twice is processed once, and paths that name the same file count as one layout.
 
 ```bash
-# Build single block
-mint build layout.toml#config --xlsx data.xlsx --variants Default -o config.hex
-
-# Build multiple specific blocks
 mint build layout.toml#config layout.toml#data --xlsx data.xlsx --variants Default -o firmware.hex
-
-# Build all blocks from a file
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex
-
-# Mix both styles
-mint build layout.toml#config layout.toml --xlsx data.xlsx --variants Default -o combined.hex
-```
-
----
-
-## C header generation
-
-`mint header` uses the same file and block selectors as `mint build`, but requires no data source:
-
-```bash
-# Generate every block in layout order
 mint header layout.toml -o layout.h
-
-# Generate selected blocks in argument order
-mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
-The command renders and validates the complete header before writing it. See [C header generation](layout.md#c-header-generation) for the generated output and validation rules.
+## Build output
 
----
+`mint build` writes every selected block into one file and rejects blocks whose address ranges overlap. It refuses to write the output over an input file, and warns when the output extension suggests the other format. Data-source options are described in [sources.md](sources.md) (`mint skill sources`).
 
-## ABI discovery
+`--export-json` writes the values each block used, nested by layout file, block and field path. Bitmaps appear as objects of their sub-fields, with literal sub-fields named `reserved_<bit offset>_<bits>`.
 
-Every layout selects a named ABI profile in `[mint]`. List the accepted names without parsing a layout:
-
-```bash
-mint abi list
-```
-
-Inspect one profile's byte order, target addressable unit, output-address convention, scalar storage/alignment/stride table and aggregate rules:
-
-```bash
-mint abi show generic-le
-```
-
-See [ABI profiles](layout.md#abi-profiles) for how the profiles differ and how C28x word addresses map to output addresses.
-
----
-
-## ABI fingerprints
-
-`mint fingerprint` calculates fingerprints without a data source or block build. Selecting one block prints exactly that block's 16-character lowercase hexadecimal value:
-
-```bash
-mint fingerprint layout.toml#config
-```
+`--stats` prints a summary and one row per block; for `doc/examples/block.toml` with `doc/examples/data.xlsx`:
 
 ```text
-206a2310660bb1cf
-```
-
-Selecting a file prints every block in declaration order as `<block> <fingerprint>`:
-
-```bash
-mint fingerprint layout.toml
-```
-
-```text
-config 206a2310660bb1cf
-data c1c13126ea0f1e6b
-```
-
-Stdout contains only these values. Diagnostics use stderr and failures return a non-zero exit code, so the command is suitable for build-system extraction. The fingerprint is also available as a macro when `mint header` encounters a `fingerprint` field. See [ABI fingerprints](layout.md#abi-fingerprints) for which blocks each selector validates and what the fingerprint covers.
-
-For configure-time CMake integration, track the layout as a configure dependency and pass the bare selected-block value into firmware compilation:
-
-```cmake
-set(LAYOUT "${CMAKE_CURRENT_SOURCE_DIR}/layout.toml")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LAYOUT}")
-
-execute_process(
-  COMMAND mint fingerprint "${LAYOUT}#config"
-  OUTPUT_VARIABLE CONFIG_FINGERPRINT
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  COMMAND_ERROR_IS_FATAL ANY
-)
-
-target_compile_definitions(
-  firmware PRIVATE "CONFIG_SCHEMA_FINGERPRINT=0x${CONFIG_FINGERPRINT}ULL"
-)
-```
-
----
-
-## Data Source Options
-
-You can specify exactly one supported data source (`-x`/`--xlsx` or `-j`/`--json`) along with variants (`--variants`).
-
-### `-x, --xlsx <FILE>`
-
-Path to Excel workbook containing variant data.
-
-```bash
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex
-```
-
-### `--main-sheet <NAME>`
-
-Override the default main sheet name (`Main`) for the excel data source.
-
-```bash
-mint build layout.toml --xlsx data.xlsx --main-sheet Config --variants Default -o output.hex
-```
-
-### `-j, --json <PATH or JSON>`
-
-Use raw JSON as the data source. Accepts a JSON file path or inline JSON string.
-
-```bash
-# Using a JSON file
-mint build layout.toml --json data.json --variants Debug/Default -o output.hex
-
-# Using inline JSON
-mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' --variants Debug/Default -o output.hex
-```
-
-See [Data Sources](sources.md#json--j---json) for format details.
-
-### `-v, --variants <NAME[/NAME...]>`
-
-Variants to query, in priority order. JSON skips missing and `null` values. Excel skips empty and whitespace-only cells.
-
-```bash
-# Single variant
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex
-
-# Fallback chain: try Debug first, then Default
-mint build layout.toml --xlsx data.xlsx --variants Debug/Default -o output.hex
-
-# Three-level fallback
-mint build layout.toml --xlsx data.xlsx --variants Production/Debug/Default -o output.hex
-```
-
----
-
-## Output Options
-
-### `-o, --out <FILE>`
-
-Output file path. Parent directories are created if they don't exist.
-
-**Default:** `out.hex`
-
-```bash
-# Output to specific file
-mint build layout.toml --xlsx data.xlsx --variants Default -o build/firmware.hex
-
-# Output with .mot extension for Motorola S-Record
-mint build layout.toml --xlsx data.xlsx --variants Default -o build/firmware.mot --format mot
-```
-
-### `--format <FORMAT>`
-
-Output file format.
-
-| Value | Description         | Extension |
-| ----- | ------------------- | --------- |
-| `hex` | Intel HEX (default) | `.hex`    |
-| `mot` | Motorola S-Record   | `.mot`    |
-
-Mint warns when a recognised file extension conflicts with the selected format. It keeps the output path unchanged. Custom and extensionless file names remain valid.
-
-### `--record-width <N>`
-
-Bytes per data record in output file. Range: 1-128. C28x layouts require an even width.
-
-**Default:** `32`
-
-```bash
-# 16 bytes per record (shorter lines)
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --record-width 16
-
-# 64 bytes per record (longer lines)
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --record-width 64
-```
-
-### `--export-json <FILE>`
-
-Export used `block.data` values as JSON. Report is nested by layout file, then block name.
-
-```bash
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --export-json build/report.json
-```
-
----
-
-## Build Options
-
-### `--strict`
-
-Enable strict type conversions. Errors on lossy casts instead of saturating/truncating/clamping.
-
-```bash
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --strict
-```
-
-**Without `--strict`:**
-
-- Float `1.5` → `u8` becomes `1` (truncated)
-- Value `300` → `u8` becomes `255` (saturated)
-- Fixed-point `300.5` → `uq8.8` becomes `65535` after scaling, ties-to-even rounding, and clamping
-
-**With `--strict`:**
-
-- Float `1.5` → `u8` produces an error
-- Value `300` → `u8` produces an error
-- Fixed-point `300.5` → `uq8.8` produces an error after scaling and ties-to-even rounding
-
-For fixed-point `qI.F` / `uqI.F` types, mint always scales by `2^F` and rounds to nearest with ties to even before checking the storage range. Non-finite inputs are rejected for every numeric type, with or without `--strict`.
-
----
-
-## Display Options
-
-### `--stats`
-
-Show detailed build statistics after completion.
-
-```bash
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --stats
-```
-
-**Example output** (for `doc/examples/block.toml` with `doc/examples/data.xlsx`):
-
-```
 +------------------+-----------+
 | Build Summary    |           |
 +==============================+
@@ -283,20 +43,24 @@ mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --stats
 +-------------------+------------------------------+----------------------------+----------------+----------------+
 ```
 
-### `--quiet`
+## Fingerprints in a build system
 
-Suppress all output except errors.
+`mint fingerprint layout.toml#config` prints one 16-character lowercase hexadecimal value; `mint fingerprint layout.toml` prints `<block> <fingerprint>` lines. Stdout holds only those values, diagnostics go to stderr and failures exit non-zero, so the output can be captured directly. In CMake, re-run configuration when the layout changes and pass the value to the firmware:
 
-```bash
-mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --quiet
+```cmake
+set(LAYOUT "${CMAKE_CURRENT_SOURCE_DIR}/layout.toml")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LAYOUT}")
+
+execute_process(
+  COMMAND mint fingerprint "${LAYOUT}#config"
+  OUTPUT_VARIABLE CONFIG_FINGERPRINT
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY
+)
+
+target_compile_definitions(
+  firmware PRIVATE "CONFIG_SCHEMA_FINGERPRINT=0x${CONFIG_FINGERPRINT}ULL"
+)
 ```
 
----
-
-## Agent skill
-
-`mint skill` prints the bundled Mint guide for coding agents.
-
-```bash
-mint skill
-```
+A layout fingerprint field also appears in the generated header as `<BLOCK>_<FIELD>_FINGERPRINT`, which is often simpler when the firmware already includes that header.

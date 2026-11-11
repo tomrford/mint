@@ -1,94 +1,61 @@
-# Data Sources
+# Data sources
 
-mint supports two data source types: Excel workbooks and raw JSON. A source is not strictly necessary; if a layout contains only values it will build without one. You cannot use more than one source in a single build.
+`name` fields and bitmap sub-fields with a `name` read their values from one data source, given with `--xlsx` or `--json` together with `--variants`. A layout without `name` lookups builds without a source.
 
-## Excel (`-x, --xlsx`)
+## Variants
+
+`--variants Debug/Default` looks each name up in `Debug` first and falls back to `Default`. Every listed variant must exist in the source. In Excel, empty and whitespace-only cells fall through; in JSON, missing keys and `null` values fall through. A name with no value in any listed variant is an error. Names match exactly and are case-sensitive.
+
+## Excel
 
 ```bash
-mint build layout.toml --xlsx data.xlsx --variants Default
+mint build layout.toml --xlsx data.xlsx --variants Debug/Default
 ```
 
-### Main Sheet Structure
+The main sheet, `Main` unless `--main-sheet` names another, has a header row with a `Name` column and one column per variant. Names and variant headers must be unique.
 
-The `Main` sheet (or one specified via `--main-sheet`) contains variant data:
-
-| Name         | Default              | Debug              |
-| ------------ | -------------------- | ------------------ |
-| DeviceName   | MyDevice             | DebugDevice        |
-| Version      | 1                    | 2                  |
-| Counter      | 1000                 | 0                  |
-| EnableDebug  | 0                    | 1                  |
-| RegionCode   | 5                    | 12                 |
-| Coefficients | #DefaultCoefficients | #DebugCoefficients |
-| Matrix       | #CalibrationMatrix   | #CalibrationMatrix |
-
-- **Name column**: lookup key used by layout files
-- **Variant columns**: values for each variant (e.g., `Default`, `Debug`)
-- **Precedence**: follows `--variants`; empty and whitespace-only cells fall through
-- **Sheet references**: cells starting with `#` reference array sheets (e.g., `#DefaultCoefficients`)
-
-### Array Sheets
-
-For 1D/2D arrays, reference a sheet by name with `#` prefix:
-
-| C1  | C2  | C3  |
+| Name | Default | Debug |
 | --- | --- | --- |
-| 1   | 2   | 3   |
-| 4   | 5   | 6   |
-| 7   | 8   | 9   |
+| DeviceName | MyDevice | DebugDevice |
+| Version | 1 | 2 |
+| EnableDebug | 0 | 1 |
+| Coefficients | #DefaultCoefficients | #DebugCoefficients |
+| Matrix | #CalibrationMatrix | |
 
-- First row ignored as headers (and defines width for 2D arrays)
-- Values read row-by-row until an empty cell is encountered
-- Strings and undersized arrays are padded by default; use `SIZE` (uppercase) in layout to enforce strict length
+Scalar fields need numeric or boolean cells and string fields need text cells. An array field's cell holds `#` followed by the name of a sheet with the values below a header row:
 
----
+- a one-dimensional array reads the first column down to the first empty cell;
+- a two-dimensional array takes its width from the non-empty header cells and reads rows until one is entirely empty; a partly empty row is an error.
 
-## JSON (`-j, --json`)
+| C1 | C2 |
+| --- | --- |
+| 10 | 20 |
+| 30 | 40 |
+
+## JSON
 
 ```bash
 mint build layout.toml --json data.json --variants Debug/Default
-# or inline:
-mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' --variants Debug/Default
+mint build layout.toml --json '{"Default":{"Version":1}}' --variants Default
 ```
 
-### Format
-
-The JSON data source expects an object where:
-
-- **Top-level keys** are variant names (e.g., `"Default"`, `"Debug"`, `"Production"`)
-- **Each variant's value** is an object containing name:value pairs
+`--json` takes a file path, or inline JSON when the trimmed value starts with `{`. The top-level object is keyed by variant, and each variant is an object of names and values: numbers or booleans for scalars, strings, arrays for one-dimensional fields and arrays of arrays for two-dimensional ones.
 
 ```json
 {
   "Default": {
     "DeviceName": "MyDevice",
     "Version": 1,
-    "Counter": 1000,
     "EnableDebug": 0,
-    "RegionCode": 5,
     "Coefficients": [1.0, 2.5, 3.7, 4.2],
-    "Matrix": [
-      [10, 20],
-      [30, 40]
-    ]
+    "Matrix": [[10, 20], [30, 40]]
   },
   "Debug": {
     "DeviceName": "DebugDevice",
     "Version": 2,
-    "Counter": 0,
     "EnableDebug": 1
   }
 }
 ```
 
-Use this when your build pipeline already fetches or transforms data before invoking mint. Generate the variant-object JSON in your script, then pass it to mint as a file or inline string.
-
-### Value Types
-
-- **Scalars**: numbers, booleans, strings
-- **1D Arrays**: native JSON arrays (e.g., `[1, 2, 3]`)
-- **2D Arrays**: arrays of arrays (native JSON only)
-
-### Variant Priority
-
-Values follow `--variants`; missing keys and `null` values fall through.
+JSON suits pipelines that fetch or transform data before calling mint.
