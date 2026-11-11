@@ -18,12 +18,12 @@ pub fn parse_block_arg(block: &str) -> Result<BlockSelector, LayoutError> {
 
 #[derive(Args, Debug)]
 pub struct LayoutArgs {
-    #[arg(value_name = "FILE[#BLOCK] | FILE", required = true, num_args = 1.., value_parser = parse_block_arg, help = "One or more layout selectors as file[#block] or a layout file (typically .toml) to build all blocks")]
+    #[arg(value_name = "FILE[#BLOCK] | FILE", required = true, num_args = 1.., value_parser = parse_block_arg, help = "Layout files (every block) or FILE#BLOCK selectors; a block selected twice is built once")]
     pub blocks: Vec<BlockSelector>,
 
     #[arg(
         long,
-        help = "Enable strict type conversions; disallow lossy casts during bytestream assembly",
+        help = "Fail on lossy value conversions instead of truncating, saturating or clamping",
         default_value_t = false
     )]
     pub strict: bool,

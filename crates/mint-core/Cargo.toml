@@ -2,7 +2,7 @@
 name = "mint-core"
 version.workspace = true
 edition = "2024"
-description = "Core library for building hex files from data and layout definitions."
+description = "Library for building flash blocks from TOML layouts and Excel or JSON data sources."
 license = "MIT"
 readme = "../../README.md"
 repository = "https://github.com/tomrford/mint"
