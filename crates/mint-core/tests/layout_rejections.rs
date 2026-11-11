@@ -167,6 +167,28 @@ fn leaf_errors_preserve_the_field_and_location() {
 }
 
 #[test]
+fn leaf_rejects_malformed_and_unsupported_fixed_point_types() {
+    for (scalar_type, expected) in [
+        ("q8", "invalid fixed-point type"),
+        ("q8.8.8", "invalid fixed-point type"),
+        ("q16.-1", "invalid fixed-point type"),
+        ("uq", "invalid fixed-point type"),
+        ("uq8.", "invalid fixed-point type"),
+        ("q3.10", "unsupported fixed-point width"),
+    ] {
+        let error = layout_error(
+            "invalid-fixed-point",
+            "block",
+            &format!(r#"field = {{ value = 1, type = "{scalar_type}" }}"#),
+        );
+        assert!(
+            error.contains(expected) && error.contains(scalar_type),
+            "expected '{expected}' for {scalar_type}, got: {error}"
+        );
+    }
+}
+
+#[test]
 fn leaf_rejects_unknown_missing_and_multiple_keys() {
     let unknown = layout_error(
         "unknown-leaf-key",
