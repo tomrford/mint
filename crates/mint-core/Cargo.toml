@@ -1,6 +1,7 @@
 [package]
 name = "mint-core"
 version.workspace = true
+rust-version.workspace = true
 edition = "2024"
 description = "Core library for building hex files from data and layout definitions."
 license = "MIT"

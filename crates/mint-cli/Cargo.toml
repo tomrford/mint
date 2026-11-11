@@ -1,6 +1,7 @@
 [package]
 name = "mint-cli"
 version.workspace = true
+rust-version.workspace = true
 edition = "2024"
 description = "Build static binary flash blocks from TOML layouts and Excel or JSON data sources."
 license = "MIT"
