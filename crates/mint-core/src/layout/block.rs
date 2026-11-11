@@ -205,26 +205,9 @@ impl Block {
                     )),
                 ));
             }
-            let end = coordinates
-                .offset
-                .checked_add(coordinates.size)
-                .ok_or_else(|| {
-                    in_field_path(
-                        path,
-                        LayoutError::DataValueExportFailed(
-                            "resolved leaf range overflow during emission".to_owned(),
-                        ),
-                    )
-                })?;
-            let slot = buffer.get_mut(coordinates.offset..end).ok_or_else(|| {
-                in_field_path(
-                    path,
-                    LayoutError::DataValueExportFailed(
-                        "resolved leaf range exceeds output buffer".to_owned(),
-                    ),
-                )
-            })?;
-            slot.copy_from_slice(&bytes);
+            // Resolution places every leaf inside the `total_size` buffer.
+            buffer[coordinates.offset..coordinates.offset + coordinates.size]
+                .copy_from_slice(&bytes);
         }
 
         Ok(BuildOutput {

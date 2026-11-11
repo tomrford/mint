@@ -133,10 +133,6 @@ impl<'a> ResolvedLayout<'a> {
         })
     }
 
-    pub(crate) fn coordinates(&self, path: &str) -> Option<ResolvedCoordinates> {
-        self.nodes.get(path).map(|target| target.coordinates)
-    }
-
     pub(crate) fn total_size(&self) -> usize {
         self.total_size
     }
@@ -170,12 +166,14 @@ impl<'a> ResolvedLayout<'a> {
         match target {
             RefTarget::Address(address) => Ok(*address),
             RefTarget::Path(path) => {
-                let target = self.coordinates(path).ok_or_else(|| {
+                let target = self.target(path).ok_or_else(|| {
                     LayoutError::InvalidLayout(format!(
                         "ref target '{path}' disappeared after resolution"
                     ))
                 })?;
-                let target_offset = self.abi.offset_to_address_units(target.offset)?;
+                let target_offset = self
+                    .abi
+                    .offset_to_address_units(target.coordinates.offset)?;
                 u64::from(start_address)
                     .checked_add(target_offset)
                     .ok_or_else(|| {
@@ -201,7 +199,7 @@ pub(crate) enum ResolvedNode<'a> {
 }
 
 impl ResolvedNode<'_> {
-    fn coordinates(&self) -> ResolvedCoordinates {
+    pub(crate) fn coordinates(&self) -> ResolvedCoordinates {
         match self {
             Self::Branch { coordinates, .. } | Self::Leaf { coordinates, .. } => *coordinates,
         }
