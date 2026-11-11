@@ -22,6 +22,7 @@ use std::process::ExitCode;
 
 use args::{Args, Cli, Command, SKILL_TEXT};
 use clap::Parser;
+use mint_core::build::Selection;
 use mint_core::error::MintError;
 
 fn main() -> ExitCode {
@@ -56,6 +57,9 @@ fn run_command(command: impl FnOnce() -> Result<(), MintError>) -> ExitCode {
 }
 
 fn run_build(args: &Args) -> Result<(), MintError> {
+    let selection = Selection::load(&args.layout.blocks)?;
+    let plan = selection.preflight()?;
+
     if !args.output.quiet
         && let Some(warning) = args.output.extension_warning()
     {
@@ -64,7 +68,7 @@ fn run_build(args: &Args) -> Result<(), MintError> {
 
     let data_source = data::create_data_source(&args.data)?;
 
-    let stats = commands::build(args, data_source.as_deref())?;
+    let stats = commands::build(args, &plan, data_source.as_deref())?;
 
     if !args.output.quiet {
         if args.output.stats {

@@ -341,6 +341,47 @@ value = { value = 1, type = "u16" }
     assert!(!report.exists(), "render failure wrote used values");
 }
 
+/// The selected blocks are checked before the data source is read, so a
+/// layout mistake is reported even when the data source is also unusable.
+#[test]
+fn build_rejects_invalid_selected_blocks_before_reading_the_data_source() {
+    let layout = common::write_layout_file(
+        "preflight-before-data",
+        r#"
+[mint]
+abi = "generic-le"
+
+[block.header]
+start_address = 0
+length = 4
+
+[block.data]
+value = { name = "Value", type = "u64" }
+"#,
+    );
+    let out = common::unique_out_path("preflight-before-data", "hex");
+    let missing_data = common::unique_out_path("preflight-before-data", "json");
+
+    let output = mint_command()
+        .args(["build", &format!("{layout}#block"), "--json"])
+        .arg(&missing_data)
+        .args(["--variants", "Default", "--out"])
+        .arg(&out)
+        .output()
+        .expect("mint build should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("while building block 'block'")
+            && stderr.contains(
+                "resolved layout size (8 octets) exceeds configured block length (4 octets)"
+            ),
+        "stderr: {stderr}"
+    );
+    assert!(!out.exists(), "preflight failure wrote output");
+}
+
 #[test]
 fn equivalent_output_and_report_paths_are_rejected_without_writing() {
     let raw_path = common::unique_out_path("output-report-collision", "hex");
