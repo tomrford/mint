@@ -2,4 +2,4 @@ target
 .DS_Store
 .direnv
 out
-examples/~$*.xlsx
+doc/examples/~$*.xlsx
