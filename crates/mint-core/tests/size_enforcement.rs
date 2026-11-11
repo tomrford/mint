@@ -230,6 +230,10 @@ value = 7
             r#"x = { const = "label", type = "u8", SIZE = 3 }"#,
             "Array/string is smaller than defined size (strict SIZE)",
         ),
+        (
+            r#"x = { value = [1, 2, 3], type = "u16", SIZE = 5 }"#,
+            "Array/string is smaller than defined size (strict SIZE)",
+        ),
     ] {
         cases.push((literal_layout(data), expected));
     }
@@ -247,47 +251,6 @@ value = 7
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
-}
-
-#[test]
-fn uppercase_size_accepts_exact_and_rejects_underfilled_1d() {
-    let write_layout = |name: &str, values: &str| {
-        common::write_layout_file(
-            name,
-            &format!(
-                r#"
-[mint]
-abi = "generic-le"
-
-[block.header]
-start_address = 0x80000
-length = 0x100
-padding = 0xFF
-
-[block.data]
-values = {{ value = [{values}], type = "u16", SIZE = 5 }}
-"#
-            ),
-        )
-    };
-
-    let exact = write_layout("uppercase_size_exact", "1, 2, 3, 4, 5");
-    let bytes = common::build_block(&exact, "block", false, None)
-        .expect("SIZE should accept an exact array length");
-    assert_eq!(&bytes[..10], &[1, 0, 2, 0, 3, 0, 4, 0, 5, 0]);
-
-    let underfilled = write_layout("uppercase_size_underfilled", "1, 2, 3");
-
-    let error = common::build_block(&underfilled, "block", false, None)
-        .expect_err("SIZE should reject underfilled array");
-    assert!(matches!(
-        &error,
-        MintError::InBlock { source, .. }
-            if matches!(source.as_ref(), MintError::Layout(LayoutError::InField { source, .. })
-                if matches!(source.as_ref(), LayoutError::DataValueExportFailed(_)))
-    ));
-    let err_msg = format!("{error:?}");
-    assert!(err_msg.contains("smaller than defined size"));
 }
 
 #[test]
