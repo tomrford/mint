@@ -1,7 +1,7 @@
 mod formatters;
 
 use comfy_table::{Attribute, Cell, ContentArrangement, Table};
-use formatters::{format_address_range, format_bytes, format_duration, format_space_reserved};
+use formatters::{format_address_range, format_bytes, format_space_reserved};
 use mint_core::build::BuildStats;
 
 pub fn print_summary(stats: &BuildStats) {
@@ -11,10 +11,9 @@ pub fn print_summary(stats: &BuildStats) {
         "blocks"
     };
     println!(
-        "✓ Built {} {} in {} ({:.1}% space reserved)",
+        "✓ Built {} {} ({:.1}% space reserved)",
         stats.blocks_processed,
         block_label,
-        format_duration(stats.total_duration),
         stats.space_reserved_pct()
     );
 }
@@ -30,7 +29,6 @@ pub fn print_detailed(stats: &BuildStats) {
             Cell::new(""),
         ]);
 
-    summary_table.add_row(vec!["Build Time", &format_duration(stats.total_duration)]);
     summary_table.add_row(vec![
         "Blocks Processed",
         &format!("{}", stats.blocks_processed),

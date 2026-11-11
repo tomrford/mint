@@ -23,8 +23,6 @@ mint header layout.toml -o layout.h
 +------------------+-----------+
 | Build Summary    |           |
 +==============================+
-| Build Time       | 852us     |
-|------------------+-----------|
 | Blocks Processed | 2         |
 |------------------+-----------|
 | Total Allocated  | 512 bytes |

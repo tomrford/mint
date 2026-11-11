@@ -12,7 +12,6 @@ use crate::output::{DataRange, OutputFormat};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct BlockStat {
@@ -51,7 +50,6 @@ pub struct BuildStats {
     pub blocks_processed: usize,
     pub total_allocated: u64,
     pub total_reserved: u64,
-    pub total_duration: Duration,
     pub block_stats: Vec<BlockStat>,
 }
 
@@ -314,7 +312,6 @@ impl BuildPlan<'_> {
         strict: bool,
         capture_values: bool,
     ) -> Result<BuildArtifact, MintError> {
-        let start_time = Instant::now();
         let mut results = self
             .blocks
             .par_iter()
@@ -327,8 +324,7 @@ impl BuildPlan<'_> {
             None
         };
 
-        let (ranges, mut stats) = collect_results(results)?;
-        stats.total_duration = start_time.elapsed();
+        let (ranges, stats) = collect_results(results)?;
 
         Ok(BuildArtifact {
             ranges,
@@ -345,29 +341,19 @@ struct BlockBuildResult {
 }
 
 pub fn build(request: BuildRequest<'_>) -> Result<BuildArtifact, MintError> {
-    let start_time = Instant::now();
-    let selection = Selection::load(&request.blocks)?;
-    let mut artifact = selection.preflight()?.build(
+    Selection::load(&request.blocks)?.preflight()?.build(
         request.data_source,
         request.strict,
         request.capture_values,
-    )?;
-    artifact.stats.total_duration = start_time.elapsed();
-    Ok(artifact)
+    )
 }
 
 pub fn build_from_layouts(
     request: BuildFromLayoutsRequest<'_>,
 ) -> Result<BuildArtifact, MintError> {
-    let start_time = Instant::now();
-    let selection = Selection::from_layouts(request.layouts, &request.blocks)?;
-    let mut artifact = selection.preflight()?.build(
-        request.data_source,
-        request.strict,
-        request.capture_values,
-    )?;
-    artifact.stats.total_duration = start_time.elapsed();
-    Ok(artifact)
+    Selection::from_layouts(request.layouts, &request.blocks)?
+        .preflight()?
+        .build(request.data_source, request.strict, request.capture_values)
 }
 
 fn build_single_bytestream(
