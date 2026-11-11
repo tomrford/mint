@@ -78,13 +78,7 @@ Block names and every `[myblock.data]` path segment must be valid, non-keyword C
 
 Multiple blocks can live in one file. Build specific blocks with `layout.toml#blockname`. The layout remains the source of truth for nested structs, storage types, arrays, and bitmap macros.
 
-### Dotted paths mirror C struct nesting
-
-The key `device.info.version.major` maps to `block.device.info.version.major` in the output — the same hierarchy as nested C structs. This is how mint knows field ordering and grouping.
-
 ## Layout schema
-
-Every accepted key in a mint layout file, with types, defaults, and constraints.
 
 ### `[mint]` — global configuration (required)
 
@@ -331,8 +325,6 @@ mint applies the selected ABI profile's **natural C aggregate alignment**. The g
 
 **This means mint does not support packed structs.** If the target C code uses `__attribute__((packed))`, `#pragma pack(1)`, or similar, the TOML layout will produce different offsets than the firmware expects. There is no way to disable alignment in mint. If the firmware uses packed structs, this is a fundamental incompatibility — raise it with the user immediately.
 
-Similarly, mint writes fields in declaration order and cannot reorder them. If the compiler performs struct field reordering (some do for optimization), the layout must match the compiler's actual output, not the source declaration order. When in doubt, check the compiled output or a map file.
-
 ## Data sources
 
 A data source is optional — layouts with only `value` fields build without one. You cannot combine multiple data sources in a single build.
@@ -447,24 +439,14 @@ Run `mint --help` for the full argument list.
 
 ## Common patterns
 
-**Multiple blocks, one file**: Define several `[blockname.header]` / `[blockname.data]` sections. Build all with `mint build layout.toml` or select with `layout.toml#blockname`.
-
 **Generated C header**: Run `mint header layout.toml -o layout.h`. Each block emits `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH` macros. Dotted paths become nested structs, arrays use generated extent macros, named bitmap regions receive shift and mask macros, and fingerprint fields receive expected-value macros. Layout parsing guarantees valid block and field names; header generation rejects statically invalid selected layouts, generated-name collisions and combined layouts whose ABIs differ in layout family, byte order or addressable-unit width.
 
 **Multiple CRC configs**: Define `[mint.checksum.crc32]` and `[mint.checksum.crc32c]` (or any names). Reference by name in checksum fields.
-
-**Constants + data source in one block**: Mix `value` and `name` fields freely. Fields with `value` don't need a data source.
 
 **CI integration**: `mint build` reads files and writes a hex file. Wire it into any build system as a custom command that depends on the layout and data files and produces the hex output.
 
 ## Gotchas
 
-- **Bitmap bit sum**: The total bits in a bitmap must exactly equal the type width. A `u16` bitmap needs exactly 16 bits across all sub-fields.
-- **2D arrays must come from data source**: You cannot inline a 2D array literal in TOML. Use a `name` reference instead.
-- **Checksum type**: Must be `u32`. No other widths are supported.
-- **Ref type**: Must be unsigned (`u16`, `u32`, `u64`).
-- **Fingerprint type**: Must be `u64`; targets are `true` or another block in the same layout.
-- **`size`/`SIZE` cannot combine with scalar `ref`, `checksum`, `fingerprint`, or `bitmap`.** Reflists require one-dimensional `size`/`SIZE`.
 - **Strict mode**: Without `--strict`, out-of-range integer values saturate and float-to-int casts truncate (e.g., 300 into `u8` becomes 255, 1.5 into `u8` becomes 1). Fixed-point values scale by `2^F`, round ties-to-even, then clamp. With `--strict`, mint errors instead.
 
 ## Further reference
