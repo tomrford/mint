@@ -1,4 +1,4 @@
-use super::abi::{EndianBytes, Endianness};
+use super::abi::{EncodedScalar, EndianBytes, Endianness};
 use super::error::LayoutError;
 use super::scalar_type::{FixedPointType, ScalarType};
 use super::value::DataValue;
@@ -329,7 +329,7 @@ fn encode_fixed_point_bytes(
     fixed: FixedPointType,
     endianness: Endianness,
     strict: bool,
-) -> Result<Vec<u8>, LayoutError> {
+) -> Result<EncodedScalar, LayoutError> {
     let encoded = encode_fixed_point_value(value, fixed, strict)?;
     encode_integer_bytes(encoded, fixed, endianness)
 }
@@ -434,7 +434,7 @@ fn encode_integer_bytes(
     encoded: i128,
     fixed: FixedPointType,
     endianness: Endianness,
-) -> Result<Vec<u8>, LayoutError> {
+) -> Result<EncodedScalar, LayoutError> {
     match (fixed.signed, fixed.total_bits()) {
         (false, 8) => Ok((encoded as u8).to_endian_bytes(endianness)),
         (false, 16) => Ok((encoded as u16).to_endian_bytes(endianness)),
@@ -465,12 +465,12 @@ fn encode_integer_bytes(
     }
 }
 
-pub fn convert_value_to_bytes(
+pub(crate) fn encode_scalar(
     value: &DataValue,
     scalar_type: ScalarType,
     endianness: Endianness,
     strict: bool,
-) -> Result<Vec<u8>, LayoutError> {
+) -> Result<EncodedScalar, LayoutError> {
     require_finite(value)?;
     macro_rules! to_bytes {
         ($t:ty) => {{
