@@ -401,11 +401,15 @@ fn build_single_bytestream(
             &mut collector,
         )?;
 
-        let data_range = output::bytestream_to_datarange(
-            build_output.bytestream,
-            &block.header,
-            layout.mint.abi,
-        )?;
+        // `emit` validated the block length, address-unit divisibility and
+        // 32-bit output range, and the bytestream is the resolved layout size.
+        let data_range = DataRange {
+            start_address: block.header.start_address,
+            address_unit_bits: layout.mint.abi.address_unit_bits(),
+            reserved_size: build_output.bytestream.len() as u32,
+            bytestream: build_output.bytestream,
+            allocated_size: block.header.length,
+        };
 
         let stat = BlockStat {
             layout: resolved.layout.clone(),
@@ -449,8 +453,6 @@ fn collect_results(
     Ok((ranges, stats))
 }
 
-const ADDRESS_SPACE_SIZE: u64 = u32::MAX as u64 + 1;
-
 fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError> {
     if let Some((_, first)) = named_ranges.first()
         && named_ranges
@@ -463,11 +465,19 @@ fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError>
         .into());
     }
 
-    let mut ranges = Vec::with_capacity(named_ranges.len());
-    for (name, range) in named_ranges {
-        let (start, end) = checked_range_bounds(name, range)?;
-        ranges.push((name.as_str(), start, end));
-    }
+    // Block validation already bounded every built range to the 32-bit octet
+    // address space.
+    let ranges = named_ranges
+        .iter()
+        .map(|(name, range)| {
+            let start = u64::from(range.start_address) * (range.address_unit_bits / 8) as u64;
+            (
+                name.as_str(),
+                start,
+                start + u64::from(range.allocated_size),
+            )
+        })
+        .collect::<Vec<_>>();
 
     for i in 0..ranges.len() {
         for j in (i + 1)..ranges.len() {
@@ -496,21 +506,6 @@ fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError>
         }
     }
     Ok(())
-}
-
-fn checked_range_bounds(name: &str, range: &DataRange) -> Result<(u64, u64), MintError> {
-    let start = u64::from(range.output_start_address()?);
-    let end = start + u64::from(range.allocated_size);
-    if end > ADDRESS_SPACE_SIZE {
-        return Err(OutputError::AddressRangeError(format!(
-            "Block '{}' range 0x{:08X}-0x{:08X} exceeds the 32-bit address space",
-            name,
-            start,
-            end.saturating_sub(1)
-        ))
-        .into());
-    }
-    Ok((start, end))
 }
 
 fn take_used_values_report(

@@ -2,8 +2,6 @@ pub mod checksum;
 pub mod error;
 pub mod report;
 
-use crate::layout::abi::Abi;
-use crate::layout::header::Header;
 use error::OutputError;
 
 use bin_file::{BinFile, IHexFormat};
@@ -55,46 +53,6 @@ impl DataRange {
             ))
         })
     }
-}
-
-pub fn bytestream_to_datarange(
-    bytestream: Vec<u8>,
-    header: &Header,
-    abi: Abi,
-) -> Result<DataRange, OutputError> {
-    if bytestream.len() > header.length as usize {
-        return Err(OutputError::HexOutputError(
-            "Bytestream length exceeds block length.".to_owned(),
-        ));
-    }
-
-    let unit_octets = abi.address_unit_octets();
-    if !(header.length as usize).is_multiple_of(unit_octets) {
-        return Err(OutputError::AddressRangeError(format!(
-            "block length {} octets is not divisible by the {}-octet addressable unit of ABI '{}'",
-            header.length,
-            unit_octets,
-            abi.name()
-        )));
-    }
-    if !bytestream.len().is_multiple_of(unit_octets) {
-        return Err(OutputError::AddressRangeError(format!(
-            "bytestream length {} octets is not divisible by the {}-octet addressable unit of ABI '{}'",
-            bytestream.len(),
-            unit_octets,
-            abi.name()
-        )));
-    }
-
-    let range = DataRange {
-        start_address: header.start_address,
-        address_unit_bits: abi.address_unit_bits(),
-        reserved_size: bytestream.len() as u32,
-        bytestream,
-        allocated_size: header.length,
-    };
-    range.output_start_address()?;
-    Ok(range)
 }
 
 pub(crate) fn render(
@@ -175,40 +133,5 @@ pub(crate) fn render(
             })?;
             Ok(lines.join("\n"))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::layout::header::Header;
-
-    fn sample_header(len: u32) -> Header {
-        Header {
-            start_address: 0,
-            length: len,
-            padding: 0xFF,
-        }
-    }
-
-    #[test]
-    fn bytestream_exceeds_block_length_errors() {
-        let header = sample_header(4);
-
-        let bytestream = vec![1u8; 8];
-        let result = bytestream_to_datarange(bytestream, &header, Abi::GenericLe);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn c28x_rejects_odd_octet_lengths() {
-        let header = Header {
-            start_address: 0,
-            length: 3,
-            padding: 0xFF,
-        };
-        let error = bytestream_to_datarange(vec![0, 0], &header, Abi::TiC28xEabi)
-            .expect_err("odd C28x block length should fail");
-        assert!(error.to_string().contains("not divisible"));
     }
 }

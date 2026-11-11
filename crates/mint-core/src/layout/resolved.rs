@@ -49,11 +49,7 @@ impl<'a> ResolvedLayout<'a> {
             )));
         }
 
-        let output_start = u64::from(block.header.start_address)
-            .checked_mul(unit_octets as u64)
-            .ok_or_else(|| {
-                LayoutError::InvalidLayout("block output start address overflow".to_owned())
-            })?;
+        let output_start = u64::from(block.header.start_address) * unit_octets as u64;
         let output_end = output_start + u64::from(block.header.length);
         if output_end > u64::from(u32::MAX) + 1 {
             return Err(LayoutError::InvalidLayout(format!(
