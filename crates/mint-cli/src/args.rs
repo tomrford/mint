@@ -3,12 +3,12 @@ use crate::layout_args::{LayoutArgs, parse_block_arg};
 use crate::output_args::OutputArgs;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
-use clap::{Args as ClapArgs, Parser, Subcommand};
+use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use mint_core::build::BlockSelector;
 use mint_core::layout::abi::Abi;
 use std::path::PathBuf;
 
-pub const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
+pub const GUIDE_TEXT: &str = include_str!("../skill/mint/SKILL.md");
 
 #[derive(Parser, Debug)]
 #[command(
@@ -37,8 +37,34 @@ pub enum Command {
     Fingerprint(FingerprintArgs),
     #[command(about = "List and inspect supported ABIs")]
     Abi(AbiArgs),
-    #[command(about = "Print the bundled Mint skill text")]
-    Skill,
+    #[command(about = "Print the agent guide, or one reference topic")]
+    Skill(SkillArgs),
+}
+
+#[derive(ClapArgs, Debug)]
+pub struct SkillArgs {
+    #[arg(value_enum, help = "Reference topic to print instead of the guide")]
+    pub topic: Option<SkillTopic>,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum SkillTopic {
+    /// Layout syntax, ABI rules, validation, C headers and fingerprints
+    Layout,
+    /// Excel and JSON data sources
+    Sources,
+    /// Block selectors, outputs and build-system integration
+    Cli,
+}
+
+impl SkillTopic {
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::Layout => include_str!("../doc/layout.md"),
+            Self::Sources => include_str!("../doc/sources.md"),
+            Self::Cli => include_str!("../doc/cli.md"),
+        }
+    }
 }
 
 #[derive(ClapArgs, Debug)]

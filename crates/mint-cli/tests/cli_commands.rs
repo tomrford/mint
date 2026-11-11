@@ -3,21 +3,64 @@ mod common;
 
 use common::mint_command;
 
-const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
-
+/// An agent with only the binary starts at `mint skill` and must be able to
+/// reach every reference topic from it.
 #[test]
-fn skill_prints_bundled_skill_text() {
-    let output = mint_command()
-        .arg("skill")
+fn skill_guide_names_every_topic_and_each_topic_prints_its_own_page() {
+    let unknown = mint_command()
+        .args(["skill", "no-such-topic"])
         .output()
         .expect("mint skill should run");
+    assert!(!unknown.status.success());
+    assert!(unknown.stdout.is_empty());
+    let stderr = String::from_utf8(unknown.stderr).expect("stderr is utf8");
+    let topics = stderr
+        .split_once("[possible values: ")
+        .and_then(|(_, rest)| rest.split_once(']'))
+        .map(|(list, _)| list.split(", ").collect::<Vec<_>>())
+        .unwrap_or_else(|| panic!("unknown topic error lists no valid topics: {stderr}"));
 
-    assert!(output.status.success());
+    let print = |args: &[&str]| {
+        let output = mint_command()
+            .args(args)
+            .output()
+            .expect("mint skill should run");
+        assert!(
+            output.status.success(),
+            "{args:?} stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty(), "{args:?} wrote to stderr");
+        String::from_utf8(output.stdout).expect("stdout is utf8")
+    };
+
+    let guide = print(&["skill"]);
+    let named = guide
+        .split("mint skill ")
+        .skip(1)
+        .filter_map(|rest| {
+            let topic = rest
+                .split(|character: char| !character.is_ascii_alphanumeric() && character != '-')
+                .next()?;
+            (!topic.is_empty()).then_some(topic)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(
-        String::from_utf8(output.stdout).expect("stdout is utf8"),
-        SKILL_TEXT
+        named,
+        topics.iter().copied().collect(),
+        "the guide must name exactly the topics `mint skill` accepts"
     );
-    assert!(output.stderr.is_empty());
+
+    let mut pages = vec![guide];
+    for topic in topics {
+        let page = print(&["skill", topic]);
+        assert!(!page.trim().is_empty(), "topic {topic} printed nothing");
+        assert!(
+            !pages.contains(&page),
+            "topic {topic} repeats the guide or another topic"
+        );
+        pages.push(page);
+    }
 }
 
 #[test]

@@ -20,7 +20,7 @@ mod visuals;
 use std::error::Error;
 use std::process::ExitCode;
 
-use args::{Args, Cli, Command, SKILL_TEXT};
+use args::{Args, Cli, Command, GUIDE_TEXT};
 use clap::Parser;
 use mint_core::build::Selection;
 use mint_core::error::MintError;
@@ -34,8 +34,8 @@ fn main() -> ExitCode {
             commands::abi(&args);
             ExitCode::SUCCESS
         }
-        Command::Skill => {
-            print!("{SKILL_TEXT}");
+        Command::Skill(args) => {
+            print!("{}", args.topic.map_or(GUIDE_TEXT, |topic| topic.text()));
             ExitCode::SUCCESS
         }
     }
