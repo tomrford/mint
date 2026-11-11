@@ -301,7 +301,8 @@ fn missing_command_reports_top_level_usage() {
     let stderr = String::from_utf8(output.stderr).expect("stderr is utf8");
 
     assert!(stderr.contains("Usage: mint <COMMAND>"));
-    assert!(stderr.contains("Run `mint <COMMAND> --help` for command options."));
+    assert!(stderr.contains("Run `mint <COMMAND> --help` for command options"));
+    assert!(stderr.contains("`mint skill`"), "{stderr}");
 }
 
 #[test]
