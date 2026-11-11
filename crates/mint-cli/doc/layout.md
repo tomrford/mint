@@ -1,300 +1,193 @@
-# Layout Files
+# Layout files
 
-Layout files define memory blocks and their data fields. Layouts are written in TOML. The data in the layout file helps mint understand the structure of the data and how you want to represent it in the output. Each block represents a contiguous region of memory, typically a single struct stored at a known flash address. The canonical example layout is [`doc/examples/block.toml`](examples/block.toml); `mint header` generates [`doc/examples/blocks.h`](examples/blocks.h) from it.
+A layout is a TOML file describing one or more blocks. Each block is a contiguous memory region, normally one C struct stored at a known flash address. The canonical example is [`doc/examples/block.toml`](../../../doc/examples/block.toml); `mint header` generates [`doc/examples/blocks.h`](../../../doc/examples/blocks.h) from it.
 
-## Structure
-
-```toml
-[mint]              # Global configuration (required)
-# ...
-
-[blockname.header]  # Block header (required per block)
-# ...
-
-[blockname.data]    # Block data fields (required per block)
-# ...
-```
-
----
-
-## Mint Configuration
-
-Global configuration applies to all blocks. The `[mint.checksum]` section defines named checksum configurations that can be referenced by inline checksum fields in block data.
+## File structure
 
 ```toml
-[mint]
+[mint]                      # required: settings for every block in the file
 abi = "generic-le"
 
-[mint.checksum.crc32]      # Named checksum config (can define multiple)
-polynomial = 0x04C11DB7    # CRC polynomial
-start = 0xFFFFFFFF         # Initial CRC value
-xor_out = 0xFFFFFFFF       # XOR applied to final CRC
-ref_in = true              # Reflect input bytes
-ref_out = true             # Reflect output CRC
-```
+[mint.const]                # optional reusable literals
+[mint.checksum.crc32]       # optional named CRC configurations
+[mint.header]               # optional C header settings
 
-Reusable constants are defined in `[mint.const]`. Const values use the same literal shapes as field `value`: scalar values, strings, booleans, and one-dimensional arrays. The const table is flat; quote names that contain dots.
-
-```toml
-[mint.const]
-default_voltage = 3.3
-fw_name = "BootloaderV2"
-ip_octets = [192, 168, 1, 10]
-"app.length" = 0x4000
-```
-
-Each block also exposes `<block_name>.start_address` and `<block_name>.length` as consts. These promoted values use the block header values.
-
-### ABI profiles
-
-The required `abi` setting selects the layout rules used for every block in the file. The currently supported profiles are:
-
-| ABI | Byte order | Address unit | Verification |
-| --- | --- | --- | --- |
-| `generic-le` | little-endian | 8 bits | Representative continuous check with GCC (`arm-none-eabi`) in little-endian mode on Linux/Nix |
-| `generic-be` | big-endian | 8 bits | Representative continuous check with GCC (`arm-none-eabi`) in big-endian mode on Linux/Nix |
-| `arm-aapcs32-le` | little-endian | 8 bits | Continuously checked with GCC (`arm-none-eabi`), AAPCS soft-float Cortex-M3, on Linux/Nix |
-| `tricore-eabi-le` | little-endian | 8 bits | Manually validated with HighTec TriCore GCC 4.9.4 (HDP-v4.9.4.1), default core and `-mtc162` |
-| `riscv-ilp32-le` | little-endian | 8 bits | Continuously checked with GCC (`riscv32-none-elf`), RV32IMAC ILP32, on Linux/Nix |
-| `ti-c28x-eabi` | little-endian | 16 bits | Continuously checked with TI C2000 CGT EABI on Linux/Nix |
-
-“Continuously checked” means CI compiles generated headers for the example layout and `tests/abi/pack.toml` and checks scalar storage and alignment, array stride, nested aggregates (including `u32` then nested `u64` packing), field offsets, final size, byte order and `CHAR_BIT`. A manual compiler result must be labelled “Manually validated” with its compiler version and flags; it is not a recurring CI result. TriCore compilers are proprietary and license-managed, so `tests/abi/check-tricore.sh` reproduces that same probe locally with a licensed compiler supplied through `TRICORE_GCC` and `TRICORE_FLAGS`. The recorded HighTec result uses those two layouts plus `tests/abi/bytes.toml`, whose byte-only aggregate proves the EABI minimum two-octet aggregate alignment; re-run the script and update the table when the toolchain changes.
-
-`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride, and raise the alignment of aggregates larger than one octet to at least 2 octets; a single-octet aggregate keeps 1-octet alignment. C28x rejects `u8`, `i8` and 8-bit fixed-point fields because its C library has 16-bit `char` and no exact-width 8-bit integer types. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
-
-The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices. Both use standard octet-addressed Intel HEX or Motorola S-record addresses. For C28x, Mint multiplies each target word address by two at the output boundary and requires an even output record width. This deliberately matches byte-addressed image tools and bootloaders; Mint does not currently emit TI's native word-addressed HEX dialect.
-
----
-
-## Block Header
-
-Each block requires a header section defining the memory region.
-
-```toml
-[blockname.header]
-start_address = 0x8B000    # Start address in target address units (required)
-length = 0x1000            # Block size in octets
-padding = 0xFF             # Padding byte value (default: 0xFF)
-```
-
-The resolved data aggregate must fit within `length` and cannot exceed 256 MiB. Mint materializes block payloads in memory and rejects larger layouts before allocation. For profiles with addressable units wider than one octet, `length` and every resolved block size must be divisible by the address-unit width.
-
----
-
-## Block Data
-
-Data fields are key-value pairs where the key is a dotted path (matching C struct hierarchy) and the value defines the field.
-
-Every block name and data field path segment must be a valid C identifier matching `[_a-zA-Z][_a-zA-Z0-9]*`, must not be a C11 keyword and must not use an implementation-reserved underscore form. Block names cannot start with `_`; field names cannot start with `__` or an underscore followed by an uppercase letter. Quote other strings only where the layout treats them as values, such as data-source names, bitmap region names, ref targets, const names and checksum config names. Quoted dotted data keys such as `"device.id"` are rejected because they create one flat key; use an unquoted dotted key or nested table instead.
-
-### Aggregate alignment
-
-Each ABI family lays out dotted paths as naturally aligned C aggregates. Every leaf gets its storage size, alignment and array stride from the selected profile. The generic, ARM and RISC-V profiles align exact-width integers to their width, `f32` to 4 octets and `f64` to 8 octets. Each branch aligns to the maximum alignment of its children; the TriCore and C28x family raises this to at least 2 octets for branches larger than one octet. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
-
-All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Use `mint abi show` to inspect the selected profile before matching a generated header to a compiler target.
-
-### C header generation
-
-Generate C11 typedefs directly from the layout:
-
-```bash
-mint header layout.toml -o layout.h
-mint header layout.toml#config layout.toml#data -o blocks.h
-```
-
-Each selected block becomes a `<block>_t` typedef, and dotted paths become inline nested structs. Integer and floating-point fields use `<stdint.h>` storage types, while fixed-point fields use the matching signed or unsigned integer storage type with the Mint type in a comment. Bitmap, checksum, ref and fingerprint fields remain integer members. Ref members represent serialized target addresses, not C pointer objects.
-
-Headers include `<limits.h>`, `<stddef.h>` and `<stdint.h>` by default. Set `[mint.header].includes` to replace the complete list, in order:
-
-```toml
-[mint.header]
-includes = ['"platform/types.h"', '<project/extra.h>']
-```
-
-Each entry must include its C double quotes or angle brackets and contain a non-empty header name, without control characters, backslashes or nested delimiters. Mint prefixes each entry with `#include `. Include paths are passed to the C compiler unchanged; Mint does not resolve them relative to the TOML file. Omitting `includes` retains the defaults; `includes = []` emits no includes. To add headers, list the defaults alongside the additions. All layout files contributing blocks to one header must have identical effective include lists, including order.
-
-This setting changes only the include directives. Your compilation environment must still provide the emitted types (such as `uint32_t`), `CHAR_BIT`, `offsetof` and any integer constant macros used (such as `UINT64_C`). Binary output and ABI fingerprints are unaffected.
-
-Generated headers include C11 `_Static_assert` checks for every field offset and final structure size. The checks compare `sizeof` and `offsetof` through `CHAR_BIT`, so Mint's octet offsets remain valid on targets whose C addressable unit is wider than 8 bits. Compiling the header with the target compiler tests that compiler and flag combination; see the ABI table for the combinations that CI checks.
-
-Each block emits `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH` macros. Array dimensions become reusable macros prefixed by the block and full field path. One-dimensional arrays use `_LEN`; two-dimensional arrays use `_ROWS` and `_COLS`. Named bitmap regions use `_SHIFT` and `_MASK` macros; literal reserved regions do not generate macros. Fingerprint fields emit an expected-value `<BLOCK>_<FIELD>_FINGERPRINT` macro.
-
-The layout parser guarantees valid block and field names. Header generation runs the build's static validation for selected blocks, including resolved shape, literal and const shape, checksum, ref and address-range rules. It also rejects block-prefix and generated macro collisions after conversion to upper snake case, and layouts whose ABI profiles differ in layout family, byte order or addressable-unit width. It renders the complete header before writing the output file.
-
-### Field Attributes
-
-| Attribute     | Description                                                                           |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `type`        | Data type (required)                                                                  |
-| `value`       | Literal value (mutually exclusive with other sources)                             |
-| `name`        | Data source lookup key (mutually exclusive with other sources)                    |
-| `const`       | Const lookup key from `[mint.const]` or an auto-promoted block header const            |
-| `bitmap`      | Bitmap field definitions (see below)                                                  |
-| `ref`         | Target address from a same-block path or unsigned integer literal (see below)          |
-| `checksum`    | Inline checksum referencing a named config (see below)                                |
-| `fingerprint` | `true` for this block or another block name in the same file (see below)              |
-| `size`/`SIZE` | Array size (minimum 1 per dimension); `size` pads if data is shorter, `SIZE` errors if data is shorter. |
-
----
-
-## Field Examples
-
-### Scalar Values
-
-```toml
-[block.data]
-# Literal numeric
-device.id = { value = 0x1234, type = "u32" }
-
-# From data source
-version = { name = "Version", type = "u16" }
-
-# Unsigned Q-format fixed-point
-gain = { value = 1.5, type = "uq8.8" }
-
-# Signed Q-format fixed-point
-offset = { value = -1.25, type = "q7.8" }
-
-# Larger scalar from data source
-counter = { name = "Counter", type = "u64" }
-```
-
-mint also supports binary Q-format fixed-point storage directly in `type`:
-
-- `qI.F` = signed fixed-point, total width `1 + I + F`
-- `uqI.F` = unsigned fixed-point, total width `I + F`
-- total width must be exactly 8, 16, 32, or 64 bits
-- alignment and byte order follow the implied storage width
-
-Examples:
-
-- `q0.15` = signed 16-bit fixed-point
-- `uq0.16` = unsigned 16-bit pure-fraction format
-- `q15.16` = signed 32-bit fixed-point
-- `uq8.8` = unsigned 16-bit fixed-point
-
-mint encodes fixed-point as `round_ties_even(input * 2^fractional_bits)`. In strict mode, overflow is an error. Without `--strict`, the rounded encoded value is clamped to the storage range.
-
-### Const Values
-
-```toml
-[mint.const]
-default_voltage = 3.3
-fw_name = "BootloaderV2"
-ip_octets = [192, 168, 1, 10]
-
-[app.header]
+[config.header]             # one header and one data table per block
 start_address = 0x8000
 length = 0x100
 
-[app.data]
+[config.data]
+version = { name = "Version", type = "u16" }
+```
+
+Layout files must use the `.toml` extension. Unknown keys are rejected everywhere. Blocks keep their declaration order, which is the order a whole-file selector builds, generates and fingerprints them.
+
+Block names and every field path segment must be C identifiers matching `[_a-zA-Z][_a-zA-Z0-9]*` that are not C11 keywords or reserved underscore forms: block names cannot start with `_`, and field names cannot start with `__` or `_` followed by an uppercase letter. Quoted dotted data keys such as `"device.id"` are rejected because they would create one flat field; use unquoted dotted keys or nested tables. Other strings, such as data-source names, ref targets, const names and checksum names, are values and are quoted.
+
+## ABI profiles
+
+The required `abi` selects the layout rules for every block in the file. `mint abi list` prints the accepted names and `mint abi show ABI` prints a profile's scalar storage sizes, alignments, array strides and C types.
+
+| ABI | Byte order | Address unit | Verification |
+| --- | --- | --- | --- |
+| `generic-le` | little-endian | 8 bits | Continuously checked with GCC (`arm-none-eabi`), little-endian |
+| `generic-be` | big-endian | 8 bits | Continuously checked with GCC (`arm-none-eabi`), big-endian |
+| `arm-aapcs32-le` | little-endian | 8 bits | Continuously checked with GCC (`arm-none-eabi`), AAPCS soft-float Cortex-M3 |
+| `tricore-eabi-le` | little-endian | 8 bits | Manually validated with HighTec TriCore GCC 4.9.4 (HDP-v4.9.4.1), default core and `-mtc162` |
+| `riscv-ilp32-le` | little-endian | 8 bits | Continuously checked with GCC (`riscv32-none-elf`), RV32IMAC ILP32 |
+| `ti-c28x-eabi` | little-endian | 16 bits | Continuously checked with TI C2000 CGT EABI |
+
+"Continuously checked" means CI compiles headers generated for representative layouts with that compiler and checks scalar storage and alignment, array stride, nested aggregates, field offsets, final size, byte order and `CHAR_BIT`. "Manually validated" records a one-off result for the stated compiler version and flags.
+
+### Aggregate layout
+
+Every leaf takes its storage size, alignment and array stride from the profile. The generic, ARM and RISC-V profiles align exact-width integers and fixed-point types to their width, `f32` to 4 octets and `f64` to 8. TriCore and C28x align 64-bit scalars to 4 octets while keeping 8-octet storage and stride. C28x has a 16-bit `char` and rejects `u8`, `i8` and 8-bit fixed-point types.
+
+Dotted paths form nested aggregates. Fields are placed in declaration order, and a branch sits where its first field appears, with its children in their own declaration order. Each branch aligns to the largest alignment of its children (TriCore and C28x raise any aggregate larger than one octet to at least 2 octets) and is tail-padded to a multiple of its alignment before the next sibling. The root `<block>.data` aggregate is tail-padded the same way, so the reserved size equals `sizeof` of the equivalent C struct. Alignment gaps and tail padding use the block's `padding` byte. Packed structs are not supported.
+
+### Addresses and output
+
+`start_address`, ref targets and literal ref addresses are in the ABI's address units; sizes, offsets and `length` are in octets. The ABI does not choose the output container: `--format hex` and `--format mot` both write standard octet-addressed records. For C28x, mint writes each target word address multiplied by two and requires an even `--record-width`, matching byte-addressed image tools and bootloaders; it does not emit TI's word-addressed HEX dialect.
+
+## Block header
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `start_address` | `u32` | required | Block address in target address units |
+| `length` | `u32` | required | Allocated octets |
+| `padding` | `u8` | `0xFF` | Fill for alignment gaps, tail padding, unused array and string elements, and the allocated space after the data |
+
+The resolved data must fit in `length` and in mint's 256 MiB in-memory limit. On profiles with address units wider than one octet, `length` and the resolved data size must be multiples of the unit width. The block's octet-addressed output range must fit the 32-bit address space.
+
+## Constants
+
+`[mint.const]` holds reusable literals with the same shapes as a field `value`: scalars, booleans, strings and one-dimensional arrays. The table is flat; quote names that contain dots.
+
+```toml
+[mint.const]
+default_voltage = 3.3
+fw_name = "BootloaderV2"
+ip_octets = [192, 168, 1, 10]
+```
+
+Every block also exposes `<block>.start_address` and `<block>.length` as consts with its header values. A `[mint.const]` key with one of those names is rejected.
+
+## Fields
+
+Each key in `[<block>.data]` is a field path and each value is an inline table with a `type`, exactly one source key, and `size` or `SIZE` where the source allows it.
+
+| Key | Meaning |
+| --- | --- |
+| `type` | Required storage type |
+| `value` | Literal scalar, boolean, string or one-dimensional array |
+| `const` | Name of a const |
+| `name` | Data-source lookup key, matched exactly and case-sensitively |
+| `bitmap` | Bit fields packed into one integer |
+| `ref` | Address of a field in the same block, or a literal address; an array makes a reflist |
+| `checksum` | Name of a `[mint.checksum.<name>]` configuration |
+| `fingerprint` | `true` for this block's ABI fingerprint, or the name of another block in the file |
+| `size` / `SIZE` | Array or string dimensions: `N` or `[rows, cols]`, each at least 1. Shorter data is padded with `size` and rejected with `SIZE`; longer data is always rejected |
+
+### Types
+
+- Integers: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64` (signed values are two's complement).
+- Floats: `f32`, `f64` (IEEE 754).
+- Binary fixed point: `qI.F` is signed with total width `1 + I + F`; `uqI.F` is unsigned with total width `I + F`. The width must be 8, 16, 32 or 64 bits and the field is stored, aligned and byte-ordered like the integer of that width. For example `q0.15` and `uq8.8` are 16-bit and `q15.16` is 32-bit.
+
+Booleans are stored in integer types as 1 or 0.
+
+### Value conversion
+
+Values from every source are converted to the field type when the block is built. A fixed-point value is encoded as `round_ties_even(value * 2^F)`. Non-finite floats are always rejected.
+
+Without `--strict`, conversions are lenient: floats truncate toward zero, out-of-range integers saturate to the type's range, out-of-range fixed-point values clamp to the storage range, and bitmap values saturate to their bit width. With `--strict`, any conversion that changes the value is an error, including inexact integer-to-float and `f64`-to-`f32` conversions.
+
+| Value and type | Default | `--strict` |
+| --- | --- | --- |
+| `1.5` into `u8` | `1` | error |
+| `300` into `u8` | `255` | error |
+| `-1` into `u8` | `0` | error |
+| `300.5` into `uq8.8` | `0xFFFF` | error |
+| `3.3` into `f32` | nearest `f32` | error |
+
+### Values, consts and data-source lookups
+
+| Source | Shape | `size` / `SIZE` |
+| --- | --- | --- |
+| `value`, `const` | scalar or boolean | not allowed |
+| `value`, `const` | string | required, one dimension, type `u8` or `u16` |
+| `value`, `const` | array | required, one dimension |
+| `name` | scalar | not allowed |
+| `name` | string or one-dimensional array | required, `N` |
+| `name` | two-dimensional array | required, `[rows, cols]` |
+
+Two-dimensional arrays come only from a data source. A two-dimensional source must have exactly `cols` columns in every row; `size` pads missing rows and `SIZE` rejects them.
+
+Strings are stored as their UTF-8 bytes, one byte per element, zero-extended to the element width in ABI byte order; `size` counts elements, not characters. mint adds no terminator: unused elements take the `padding` byte. On C28x use `type = "u16"`, which stores one byte per 16-bit word.
+
+```toml
+[block.data]
+device.id = { value = 0x1234, type = "u32" }
+gain = { value = 1.5, type = "uq8.8" }
 voltage = { const = "default_voltage", type = "f32" }
-label = { const = "fw_name", type = "u8", size = 16 }
-ip = { const = "ip_octets", type = "u8", size = 4 }
-base = { const = "app.start_address", type = "u32" }
-len = { const = "app.length", type = "u32" }
-```
-
-`const` uses the same conversion and size rules as `value`. Scalar consts do not use `size`; string and array consts use a one-dimensional `size` or `SIZE`.
-
-### Strings
-
-Strings use `u8` or `u16` type with `size` for fixed-length fields. Mint encodes the UTF-8 bytes, not Unicode code points. Each byte occupies one scalar element and is zero-extended to the storage width in ABI byte order, so `size = N` reserves `N` elements. C28x strings use `type = "u16"`, with one UTF-8 byte per 16-bit word.
-
-```toml
-[block.data]
-# Literal string (padded to size)
+base = { const = "block.start_address", type = "u32" }
 message = { value = "Hello", type = "u8", size = 16 }
-
-# From data source
 device.name = { name = "DeviceName", type = "u8", size = 16 }
-
-# C28x string (one UTF-8 byte per 16-bit word)
-c28x_message = { value = "Hello", type = "u16", size = 16 }
-```
-
-### Arrays
-
-```toml
-[block.data]
-# 1D literal array
-ip = { value = [192, 168, 1, 1], type = "u8", size = 4 }
-
-# 1D from data source
 coefficients = { name = "Coefficients", type = "f32", size = 4 }
-
-# 2D array
-matrix = { name = "Matrix", type = "i16", size = [2, 2] }
-
-# Strict size (error if data source has fewer elements)
-strict_matrix = { name = "Matrix", type = "i16", SIZE = [2, 2] }
+matrix = { name = "Matrix", type = "i16", SIZE = [2, 2] }
 ```
 
 ### Bitmaps
 
-Pack multiple values into a single integer.
+A bitmap packs sub-fields into one integer field, least significant bit first. Each element has `bits` (at least 1) and exactly one of `name` or `value`. The `bits` must add up to the type's width. The type must be an integer type, not fixed point, and cannot take `size`. Sub-field values use the signedness of the field type.
 
 ```toml
-[block.data]
 flags = { type = "u16", bitmap = [
-    { bits = 1, name = "EnableDebug" },   # 1 bit from data source
-    { bits = 3, value = 0 },              # 3 bits reserved
-    { bits = 4, name = "RegionCode" },    # 4 bits from data source
-    { bits = 8, value = 0 },              # 8 bits reserved
+    { bits = 1, name = "EnableDebug" },
+    { bits = 3, value = 0 },
+    { bits = 4, name = "RegionCode" },
+    { bits = 8, value = 0 },
 ] }
 ```
 
-Bitmap fields are packed LSB-first into the specified type. The signedness of each field matches the type. Negative values are represented as two's complement. The sum of the bits in the bitmap must match the type size.
+### Refs
 
-Fixed-point types are not valid with `bitmap`.
+A ref stores an absolute address in a `u16`, `u32` or `u64` field, and every address must fit that type.
 
-### Refs (addresses)
-
-A scalar `ref` stores one absolute target address. A string target is a dotted path rooted at `block.data` — for example, `device.info.version` refers to `[block.data] device.info.version`. Path refs can point to leaf fields or branch nodes (nested structs); a branch ref resolves to the branch's aligned aggregate start. An unsigned integer target is already an absolute address in the selected ABI's addressable units. It is stored without adding the block start or converting from octets. Use `0` for an intentional zero or null address.
+- A string target is a field path in the same block, rooted at `<block>.data`. It can name a leaf or a branch (the branch's aligned start) and can point forwards or backwards. It is stored as `start_address + offset_octets / address_unit_octets`. Cross-block paths are not supported.
+- An unsigned integer target is stored as written, already in target address units (on C28x a word address). Use `0` for a null address. mint cannot check, rebase or fingerprint what a nonzero literal points at.
+- A scalar ref takes one target and no `size`. A reflist takes an array mixing both kinds and a one-dimensional `size` or `SIZE`. Extra entries are rejected; `size` fills missing entries with zero addresses (not the padding byte) and `SIZE` rejects them.
+- `--strict` does not affect refs. The `--export-json` report lists a scalar ref's address and a reflist's supplied addresses, without zero fill.
 
 ```toml
-[block.data]
-# Table data at some offset
 table.entries = { name = "TableEntries", type = "u16", size = 32 }
 table.count = { name = "TableCount", type = "u16" }
-
-# Pointer to the table (resolves to absolute address of "table")
 table_ptr = { ref = "table", type = "u32" }
-
-# Pointer to a specific nested field
-count_ptr = { ref = "table.count", type = "u32" }
-
-# Intentional zero address and an external absolute target address
-none = { ref = 0, type = "u32" }
 peripheral = { ref = 0x40001000, type = "u32" }
-
-# Fixed-capacity list mixing resolved paths and absolute addresses
-# Missing slots from lowercase size are encoded as zero addresses.
-table_ptrs = { ref = ["table", 0, "table.count", 0x40001000], type = "u32", size = 8 }
-
-# Uppercase SIZE requires exactly four supplied entries.
-strict_ptrs = { ref = ["table", 0, "table.count", 0x40001000], type = "u32", SIZE = 4 }
+ptrs = { ref = ["table", 0, "table.count", 0x40001000], type = "u32", size = 8 }
 ```
 
-**Ref rules:**
+### Checksums
 
-- `ref` is mutually exclusive with every other source
-- `type` must be an unsigned integer type (`u16`, `u32`, `u64`)
-- fixed-point types are not valid with `ref`
-- A scalar ref accepts one non-empty path string or one unsigned integer literal and cannot use `size`/`SIZE`
-- A ref list accepts any mix of path strings and unsigned integer literals. It requires a one-dimensional `size` or `SIZE` with a minimum capacity of 1; two-dimensional reflists are not supported
-- Both size forms reject more entries than the declared capacity. Lowercase `size` encodes missing entries as zero addresses; uppercase `SIZE` rejects missing entries. Ref underfill does not use the block padding byte
-- A target path must exist within the same block — cross-block path refs are not supported. Path refs can reference fields defined before or after the ref
-- A resolved path address is `start_address + target_offset_octets / address_unit_octets`
-- An integer literal is already an absolute target address in the ABI's addressable units. On C28x, for example, a literal is a word address and is not divided by two
-- Nonzero literals support addresses outside the layout, such as memory-mapped peripherals or linker-owned objects, but Mint cannot validate their target, rebase them when the layout changes or include target shape in the fingerprint
-- Every resolved or literal address must fit the ref's `u16`, `u32` or `u64` storage type
-- Ref paths and list entries are validated from the resolved layout before field values are emitted. Global `--strict` does not change ref validation
-- Used-values export reports a scalar ref as its resolved numeric address and a reflist as the explicitly supplied addresses in source order. Synthesized zero underfill is omitted; explicit zeros remain present
+A checksum field stores a CRC-32 of every byte of the block's data before it, including alignment padding and earlier checksum fields. It must be `u32`, needs at least one byte before it and takes no `size`. Each configuration needs all five keys:
 
-### ABI fingerprints
+```toml
+[mint.checksum.crc32]
+polynomial = 0x04C11DB7
+start = 0xFFFFFFFF   # initial value
+xor_out = 0xFFFFFFFF # applied to the final value
+ref_in = true        # reflect each input byte
+ref_out = true       # reflect the final value before xor_out
 
-A `fingerprint` field stores a deterministic 64-bit identifier for a block's resolved ABI. Use `true` for the containing block or name another block in the same TOML file:
+[block.data]
+crc = { checksum = "crc32", type = "u32" }
+```
+
+Cross-block CRCs and other algorithms belong in a post-processing tool.
+
+### Fingerprint fields
+
+A fingerprint field stores a block's [ABI fingerprint](#abi-fingerprints). It must be `u64` and takes no `size`. `fingerprint = true` names the containing block; a string names another block in the same file, which needs no fingerprint field of its own.
 
 ```toml
 [config.data]
@@ -302,97 +195,37 @@ schema = { fingerprint = true, type = "u64" }
 
 [manifest.data]
 config_schema = { fingerprint = "config", type = "u64" }
-manifest_schema = { fingerprint = true, type = "u64" }
 ```
 
-Build and header generation fully validate selected blocks and calculate fingerprints only for the blocks referenced by their fingerprint fields. Fingerprint target blocks have their ABIs resolved and shape-checked, but are not otherwise fully validated unless they are also selected. A named `mint fingerprint layout.toml#block` selector fully validates and fingerprints that block, resolves the ABI shape of its fingerprint targets and does not resolve unrelated siblings. `mint fingerprint layout.toml` fully validates and fingerprints every block in declaration order. Referenced blocks do not need their own fingerprint field. Cross-file fingerprint references are not supported.
+## Validation
 
-The fingerprint covers the effective, nameless ABI: byte order, address-unit width, aggregate shape, offsets, scalar storage sizes, alignments, array strides, scalar and fixed-point types, array dimensions, bitmap widths and ref topology. Resolved path targets contribute their resolved address-unit offset and target kind rather than their name. Literal targets contribute only an opaque literal-address marker, not their value. Reflist capacity and the positions of resolved targets contribute; literal values, explicit literal count and synthesized zero underfill do not. The ABI profile name, block names, field names, values, `name`/`value`/`const` source choices, block addresses, allocated block length and padding byte value do not contribute.
+`mint build`, `mint header` and `mint fingerprint` resolve and validate every selected block before reading a data source or writing anything. This checks the source and size rules above, field shapes and literal and const values against their types and sizes, that the data fits `length` and the address-unit rules, the output address range, checksum placement and configuration names, and that ref targets exist and their addresses fit. It also calculates the fingerprints the block stores. A block named only as a fingerprint target is resolved for its shape but not otherwise validated.
 
-Fingerprint fields require `type = "u64"` and cannot use `size` or `SIZE`. The marker and referenced fingerprint value are not inputs to the containing block's own fingerprint; the field contributes as a normal `u64` at its resolved position. This keeps self-fingerprints non-recursive and prevents cross-block dependency cycles.
+`mint build` then checks values from the data source while building, and rejects blocks whose output ranges overlap.
 
-Calculate fingerprints without building data:
+## C header
 
-```bash
-mint fingerprint layout.toml#config  # one bare 16-character value
-mint fingerprint layout.toml         # "block fingerprint" lines
-```
+`mint header` writes C11 for the selected blocks without a data source:
 
-### Checksums
+- a `<block>_t` typedef per block, with dotted paths as inline nested structs. Integer and float fields use `<stdint.h>` types; fixed-point fields use the integer type of their width with the mint type in a comment. Bitmap, checksum, ref and fingerprint fields are integers; refs are address values, not C pointers;
+- `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH`; `<BLOCK>_<PATH>_LEN` for one-dimensional arrays and `_ROWS` and `_COLS` for two-dimensional ones; `<BLOCK>_<PATH>_<NAME>_SHIFT` and `_MASK` for each bitmap sub-field with a `name`; `<BLOCK>_<PATH>_FINGERPRINT` with the expected value of each fingerprint field;
+- `_Static_assert` checks of every field offset and each block struct's size through `sizeof`, `offsetof` and `CHAR_BIT`, so compiling the header with the target compiler checks that it agrees with mint.
 
-An inline `checksum` field computes a CRC over all preceding data in the block and places the result at the field's position. The checksum value references a named configuration from `[mint.checksum]`.
+Macro names are the block name and field path in upper snake case, so `flags` sub-field `EnableDebug` in block `config` becomes `CONFIG_FLAGS_ENABLE_DEBUG_SHIFT`.
+
+The header includes `<limits.h>`, `<stddef.h>` and `<stdint.h>` unless `[mint.header].includes` replaces the list:
 
 ```toml
-[mint.checksum.crc32]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-
-[block.data]
-device.id = { value = 0x1234, type = "u32" }
-device.name = { name = "DeviceName", type = "u8", size = 16 }
-version = { name = "Version", type = "u16" }
-checksum = { checksum = "crc32", type = "u32" }
+[mint.header]
+includes = ['"platform/types.h"', '<limits.h>', '<stddef.h>']
 ```
 
-The CRC covers all bytes from the start of the block data up to (but not including) the checksum field itself, including any alignment padding inserted between fields. Fields are emitted in order, so later checksums include the bytes of earlier checksum fields.
+Each entry keeps its quotes or angle brackets, names a non-empty header without control characters, backslashes or nested delimiters, and is passed to the compiler unchanged. `includes = []` emits none. The included headers must still provide the fixed-width types, `CHAR_BIT`, `offsetof` and integer constant macros such as `UINT64_C` that the header uses. Includes do not affect binary output or fingerprints.
 
-**Checksum rules:**
+Beyond [validation](#validation), header generation rejects block or macro names that collide once converted to upper snake case, fields that collide with a generated macro, and blocks from several layouts unless their ABIs share layout rules, byte order and address-unit width and their include lists are identical. Nothing is written unless the whole header renders.
 
-- `checksum` is mutually exclusive with every other source
-- `type` must be `u32` (matching CRC-32 output width)
-- fixed-point types are not valid with `checksum`
-- `size`/`SIZE` cannot be used with `checksum`
-- a checksum must follow at least one data byte
-- The referenced config name must exist in `[mint.checksum]`
-- For more complex checksum operations (cross-block CRC or non-CRC algorithms), use a dedicated hex post-processing tool
+## ABI fingerprints
 
----
+A fingerprint is a 64-bit value identifying a block's resolved ABI, so firmware can reject data built for a different struct shape. It covers byte order, address-unit width, aggregate shape, offsets, scalar storage sizes, alignments, array strides, scalar and fixed-point types, array dimensions, bitmap widths and ref topology: a path target contributes its address-unit offset, size, alignment and whether it is a branch or a leaf, while a literal target, and each unused reflist slot, contributes only an opaque marker. A fingerprint field contributes as an ordinary `u64`, not its target or value, so a block can store its own fingerprint and blocks can reference each other without cycles.
 
-## Multiple Blocks
-
-A single layout file can define multiple blocks, each with its own checksum configuration:
-
-```toml
-[mint]
-abi = "generic-le"
-
-[mint.checksum.crc32]
-polynomial = 0x04C11DB7
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-
-[mint.checksum.crc32c]
-polynomial = 0x1EDC6F41
-start = 0xFFFFFFFF
-xor_out = 0xFFFFFFFF
-ref_in = true
-ref_out = true
-
-[config.header]
-start_address = 0x8000
-length = 0x100
-
-[config.data]
-version = { value = 1, type = "u16" }
-checksum = { checksum = "crc32", type = "u32" }
-
-[data.header]
-start_address = 0x8100
-length = 0x100
-
-[data.data]
-counter = { name = "Counter", type = "u64" }
-message = { value = "Hello", type = "u8", size = 16 }
-checksum = { checksum = "crc32c", type = "u32" }
-```
-
-Build specific blocks with `file.toml#blockname` syntax:
-
-```bash
-mint build layout.toml#config --xlsx data.xlsx --variants Default
-```
+The ABI name, block and field names, values, the choice between `name`, `value` and `const`, block addresses, `length` and the padding byte do not contribute. Changing any of those keeps the fingerprint; changing the struct shape changes it.
