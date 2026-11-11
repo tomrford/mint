@@ -65,7 +65,11 @@ value = { value = 0, type = "u16" }
 
     let error = common::build_block(&layout, "block", false, None)
         .expect_err("odd C28x block length should fail");
-    assert!(common::error_chain(&error).contains("not divisible"));
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains("configured block length (3 octets) is not divisible by the 2-octet addressable unit of ABI 'ti-c28x-eabi'"),
+        "{chain}"
+    );
 }
 
 #[test]
