@@ -166,8 +166,9 @@ impl ExcelDataSource {
         variants: &[String],
     ) -> Result<Vec<Vec<Data>>, DataError> {
         let mut columns = Vec::new();
+        let mut seen = HashSet::new();
 
-        for v in variants {
+        for v in variants.iter().filter(|variant| seen.insert(*variant)) {
             let mut matches = headers
                 .iter()
                 .enumerate()
