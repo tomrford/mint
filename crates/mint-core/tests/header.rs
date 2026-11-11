@@ -397,24 +397,28 @@ value = { value = 3, type = "u8" }
 
 #[test]
 fn c28x_rejects_exact_width_8_bit_fields() {
-    let message = error(
-        "header-c28x-u8",
-        r#"
+    for scalar_type in ["u8", "i8", "q3.4", "uq4.4"] {
+        let message = error(
+            "header-c28x-8-bit",
+            &format!(
+                r#"
 [mint]
 abi = "ti-c28x-eabi"
 [block.header]
 start_address = 0
 length = 16
 [block.data]
-value = { value = 1, type = "u8" }
-"#,
-    );
+value = {{ value = 1, type = "{scalar_type}" }}
+"#
+            ),
+        );
 
-    assert!(
-        message.contains("does not support scalar type u8"),
-        "{message}"
-    );
-    assert!(message.contains("16-bit char"), "{message}");
+        assert!(
+            message.contains(&format!("does not support scalar type {scalar_type}")),
+            "{message}"
+        );
+        assert!(message.contains("16-bit char"), "{message}");
+    }
 }
 
 #[test]
