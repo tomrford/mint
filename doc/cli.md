@@ -151,7 +151,7 @@ mint build layout.toml --json data.json --variants Debug/Default -o output.hex
 mint build layout.toml --json '{"Default":{"DeviceName":"MyDevice","Version":1,"Counter":1000},"Debug":{"DeviceName":"DebugDevice","Version":2}}' --variants Debug/Default -o output.hex
 ```
 
-See [Data Sources](sources.md#json---json) for format details.
+See [Data Sources](sources.md#json--j---json) for format details.
 
 ### `-v, --variants <NAME[/NAME...]>`
 
