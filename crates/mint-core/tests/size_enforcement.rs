@@ -1,3 +1,4 @@
+use mint_core::build::BlockSelector;
 use mint_core::data::{ExcelDataSource, ExcelDataSourceOptions};
 use mint_core::error::MintError;
 use mint_core::layout::error::LayoutError;
@@ -100,30 +101,130 @@ values = { value = [], type = "u8", size = 0 }
     );
 }
 
-#[test]
-fn two_dimensional_literals_fail_during_block_build() {
-    let layout = common::write_layout_file(
-        "two_dimensional_literal",
+fn literal_layout(data: &str) -> String {
+    format!(
         r#"
+[mint]
+abi = "generic-le"
+
+[mint.const]
+magic = 0xDEADBEEF
+label = "AB"
+octets = [192, 168, 1, 10]
+
+[block.header]
+start_address = 0x1000
+length = 0x40
+
+[block.data]
+{data}
+"#
+    )
+}
+
+/// Literal (`value`) and `const` shapes are knowable from the layout alone, so
+/// `build`, `header` and `fingerprint` must accept and reject them alike.
+#[test]
+fn literal_shapes_are_validated_alike_by_build_header_and_fingerprint() {
+    let outcomes = |name: &str, layout: &str| {
+        let path = common::write_layout_file(name, layout);
+        [
+            common::build_block(&path, "block", false, None)
+                .map(drop)
+                .map_err(|error| common::error_chain(&error)),
+            mint_core::header::generate(&[BlockSelector::all(&path)])
+                .map(drop)
+                .map_err(|error| common::error_chain(&error)),
+            mint_core::fingerprint::load(&BlockSelector::all(&path))
+                .map(drop)
+                .map_err(|error| common::error_chain(&error)),
+        ]
+    };
+
+    let valid = literal_layout(
+        r#"
+scalar = { const = "magic", type = "u32" }
+text = { value = "AB", type = "u16", SIZE = 2 }
+named = { const = "label", type = "u8", size = 4 }
+octets = { const = "octets", type = "u8", SIZE = 4 }
+padded = { value = [1, 2], type = "u8", size = 4 }
+"#,
+    );
+    for outcome in outcomes("literal_shape_valid", &valid) {
+        outcome.expect("valid literal shapes pass every command");
+    }
+
+    let root_leaf = r#"
 [mint]
 abi = "generic-le"
 
 [block.header]
 start_address = 0x1000
-length = 0x20
+length = 0x40
 
 [block.data]
-matrix = { value = [1, 2, 3, 4], type = "u8", size = [2, 2] }
-"#,
-    );
+type = "u8"
+value = 7
+"#;
+    let mut cases = vec![(root_leaf.to_owned(), "block data must be a table of fields")];
+    for (data, expected) in [
+        (
+            r#"x = { value = [1, 2, 3, 4], type = "u8", size = [2, 2] }"#,
+            "2D arrays within the layout file are not supported",
+        ),
+        (
+            r#"x = { value = 5, type = "u8", size = 4 }"#,
+            "size/SIZE keys are forbidden with scalar value",
+        ),
+        (
+            r#"x = { value = [1, 2], type = "u8" }"#,
+            "Array value requires size or SIZE",
+        ),
+        (
+            r#"x = { value = "AB", type = "u8" }"#,
+            "String value requires size or SIZE",
+        ),
+        (
+            r#"x = { const = "octets", type = "u8" }"#,
+            "Array const requires size or SIZE",
+        ),
+        (
+            r#"x = { const = "label", type = "u8" }"#,
+            "String const requires size or SIZE",
+        ),
+        (
+            r#"x = { value = "AB", type = "u32", size = 4 }"#,
+            "Strings should have type u8 or u16",
+        ),
+        (
+            r#"x = { const = "label", type = "i16", size = 4 }"#,
+            "Strings should have type u8 or u16",
+        ),
+        (
+            r#"x = { value = [1, 2, 3], type = "u8", size = 2 }"#,
+            "Array/string is larger than defined size",
+        ),
+        (
+            r#"x = { const = "label", type = "u8", SIZE = 3 }"#,
+            "Array/string is smaller than defined size (strict SIZE)",
+        ),
+    ] {
+        cases.push((literal_layout(data), expected));
+    }
 
-    let error = common::build_block(&layout, "block", false, None)
-        .expect_err("two-dimensional literals are invalid layouts");
-    let chain = common::error_chain(&error);
-    assert!(
-        chain.contains("2D arrays within the layout file are not supported"),
-        "{chain}"
-    );
+    let mut mismatches = Vec::new();
+    for (layout, expected) in cases {
+        for (command, outcome) in ["build", "header", "fingerprint"]
+            .into_iter()
+            .zip(outcomes("literal_shape_invalid", &layout))
+        {
+            match outcome {
+                Err(message) if message.contains(expected) => {}
+                other => mismatches.push(format!("{command} for {expected:?}: {other:?}")),
+            }
+        }
+    }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
 #[test]
