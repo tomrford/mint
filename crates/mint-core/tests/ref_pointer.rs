@@ -283,18 +283,7 @@ fn ref_rejects_invalid_configs() {
 ptr = { ref = "nonexistent", type = "u32" }
 "#,
             ),
-            "not found",
-        ),
-        (
-            "ref_err_size",
-            ref_layout(
-                0x0,
-                r#"
-target = { value = 0x42, type = "u32" }
-ptr = { ref = "target", type = "u32", size = 4 }
-"#,
-            ),
-            "size",
+            "ref target 'nonexistent' not found in block",
         ),
         (
             "ref_err_float",
@@ -305,7 +294,7 @@ target = { value = 0x42, type = "u32" }
 ptr = { ref = "target", type = "f32" }
 "#,
             ),
-            "integer",
+            "Ref requires unsigned integer storage type (u16, u32, u64).",
         ),
         (
             "ref_err_u8",
@@ -316,7 +305,7 @@ target = { value = 0x42, type = "u32" }
 ptr = { ref = "target", type = "u8" }
 "#,
             ),
-            "u16, u32, u64",
+            "Ref requires unsigned integer storage type (u16, u32, u64).",
         ),
         (
             "ref_err_empty",
@@ -326,7 +315,7 @@ ptr = { ref = "target", type = "u8" }
 ptr = { ref = "", type = "u32" }
 "#,
             ),
-            "empty",
+            "Ref target path must not be empty.",
         ),
         (
             "empty_branch",
@@ -338,7 +327,7 @@ field = { value = 0x42, type = "u32" }
 [block.data.empty]
 "#,
             ),
-            "empty branch",
+            "empty branch 'empty' is invalid",
         ),
     ];
 

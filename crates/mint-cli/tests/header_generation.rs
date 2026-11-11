@@ -1,14 +1,9 @@
 use std::fs;
-use std::process::Command;
 
 #[path = "common/mod.rs"]
 mod common;
 
-fn mint_command() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mint"));
-    command.current_dir(env!("CARGO_MANIFEST_DIR"));
-    command
-}
+use common::mint_command;
 
 #[test]
 fn generated_example_header_is_checked_in() {

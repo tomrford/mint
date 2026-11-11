@@ -1,15 +1,9 @@
-use std::process::Command;
-
 #[path = "common/mod.rs"]
 mod common;
 
-const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
+use common::mint_command;
 
-fn mint_command() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mint"));
-    command.current_dir(env!("CARGO_MANIFEST_DIR"));
-    command
-}
+const SKILL_TEXT: &str = include_str!("../skill/mint/SKILL.md");
 
 #[test]
 fn skill_prints_bundled_skill_text() {
@@ -140,14 +134,17 @@ value = { value = [1, 2], type = "u16", size = 2 }
         "stderr: {}",
         String::from_utf8_lossy(&one.stderr)
     );
+    let is_lowercase_hex = |value: &str| {
+        value.len() == 16
+            && value
+                .chars()
+                .all(|character| matches!(character, '0'..='9' | 'a'..='f'))
+    };
     let one_stdout = String::from_utf8(one.stdout).expect("stdout is utf8");
-    let fingerprint = one_stdout.trim();
-    assert_eq!(fingerprint.len(), 16);
-    assert!(
-        fingerprint
-            .chars()
-            .all(|character| character.is_ascii_hexdigit())
-    );
+    let config_fingerprint = one_stdout
+        .strip_suffix('\n')
+        .expect("one newline-terminated value");
+    assert!(is_lowercase_hex(config_fingerprint), "{one_stdout:?}");
     assert!(one.stderr.is_empty());
 
     let all = mint_command()
@@ -161,18 +158,21 @@ value = { value = [1, 2], type = "u16", size = 2 }
         String::from_utf8_lossy(&all.stderr)
     );
     let stdout = String::from_utf8(all.stdout).expect("stdout is utf8");
-    let lines = stdout.lines().collect::<Vec<_>>();
-    assert_eq!(lines.len(), 2, "{stdout}");
-    for (line, block) in lines.into_iter().zip(["config", "data"]) {
-        let (name, fingerprint) = line.split_once(' ').expect("named fingerprint line");
-        assert_eq!(name, block);
-        assert_eq!(fingerprint.len(), 16);
-        assert!(
-            fingerprint
-                .chars()
-                .all(|character| character.is_ascii_hexdigit())
-        );
-    }
+    let lines = stdout
+        .lines()
+        .map(|line| line.split_once(' ').expect("named fingerprint line"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["config", "data"],
+        "{stdout}"
+    );
+    assert!(
+        lines.iter().all(|(_, value)| is_lowercase_hex(value)),
+        "{stdout}"
+    );
+    assert_eq!(lines[0].1, config_fingerprint, "{stdout}");
+    assert_ne!(lines[0].1, lines[1].1, "{stdout}");
     assert!(all.stderr.is_empty());
 }
 
@@ -231,6 +231,11 @@ value = { const = "missing", type = "u32" }
         .output()
         .expect("whole-file fingerprint command runs");
     assert!(!whole_file.status.success());
+    assert!(
+        String::from_utf8_lossy(&whole_file.stderr).contains("ref target 'missing' not found"),
+        "stderr: {}",
+        String::from_utf8_lossy(&whole_file.stderr)
+    );
 
     let dangling_const = mint_command()
         .arg("fingerprint")
