@@ -390,7 +390,17 @@ impl LeafEntry {
                     "size/SIZE keys are forbidden with scalar {kind}; remove size/SIZE or use an array or string {kind}."
                 )));
             }
-            (Some(SizeSource::OneD(_)), ValueSource::Array(values)) => values.len(),
+            (Some(SizeSource::OneD(_)), ValueSource::Array(values)) => {
+                if values
+                    .iter()
+                    .any(|value| matches!(value, DataValue::Str(_)))
+                {
+                    return Err(LayoutError::DataValueExportFailed(
+                        "Cannot convert string to scalar type.".to_owned(),
+                    ));
+                }
+                values.len()
+            }
         };
         let Some(SizeSource::OneD(size)) = self.size else {
             unreachable!("only one-dimensional literals reach the length check")

@@ -1,57 +1,41 @@
-use mint_core::data::{DataSource, ExcelDataSource, ExcelDataSourceOptions};
-use mint_core::layout::value::DataValue;
+#[path = "common/mod.rs"]
+mod common;
 
-fn build_source(version: &str) -> ExcelDataSource {
-    let variants = version
-        .split('/')
-        .map(|name| name.trim())
-        .filter(|name| !name.is_empty())
-        .map(str::to_owned)
-        .collect();
-    ExcelDataSource::from_path(
+use mint_core::data::{ExcelDataSource, ExcelDataSourceOptions};
+
+#[test]
+fn excel_values_follow_variant_priority_and_skip_empty_cells() {
+    let source = ExcelDataSource::from_path(
         "tests/data/data.xlsx",
-        ExcelDataSourceOptions::new(variants),
+        ExcelDataSourceOptions::new(vec!["VarA".into(), "Debug".into(), "Default".into()]),
     )
-    .expect("datasource load")
-}
+    .expect("datasource load");
+    let path = common::write_layout_file(
+        "excel-variants",
+        r#"
+[mint]
+abi = "generic-le"
 
-fn value_as_i64(value: DataValue) -> i64 {
-    match value {
-        DataValue::I64(v) => v,
-        DataValue::U64(v) => v as i64,
-        DataValue::F64(v) => v as i64,
-        DataValue::Bool(v) => i64::from(v),
-        DataValue::Str(s) => panic!("expected numeric value, got {}", s),
-    }
-}
+[block.header]
+start_address = 0x1000
+length = 0x40
+padding = 0xFF
 
-#[test]
-fn stacked_versions_respect_order() {
-    let ds = build_source("VarA/Debug/Default");
+[block.data]
+temperature = { name = "TemperatureMax", type = "u8" }
+value2 = { name = "Value 2", type = "u8" }
+flag = { name = "boolean", type = "u8" }
+name = { name = "DeviceName", type = "u8", size = 9 }
+"#,
+    );
 
-    let value = ds
-        .retrieve_single_value("TemperatureMax")
-        .expect("value present");
+    let bytes = common::build_block(&path, "block", true, Some(&source)).expect("block builds");
 
-    assert_eq!(value_as_i64(value), 55);
-}
-
-#[test]
-fn stacked_versions_fall_back_when_empty() {
-    let ds = build_source(" VarA / Debug / Default ");
-
-    let value = ds.retrieve_single_value("Value 2").expect("value present");
-
-    assert_eq!(value_as_i64(value), 2);
-}
-
-#[test]
-fn boolean_cell_retrieves_vara_false() {
-    let ds = build_source("VarA/Default");
-
-    let value = ds
-        .retrieve_single_value("boolean")
-        .expect("boolean present");
-
-    assert!(matches!(value, DataValue::Bool(false)));
+    let mut expected = vec![
+        55, // VarA wins over Debug (60) and Default (50)
+        2,  // VarA cell is empty, so Debug (2) wins over Default (1)
+        0,  // VarA false overrides Default true
+    ];
+    expected.extend(b"A Variant");
+    assert_eq!(bytes, expected);
 }

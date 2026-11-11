@@ -5,6 +5,7 @@ pub(crate) mod entry;
 pub mod error;
 pub(crate) mod fingerprint;
 pub mod header;
+pub(crate) mod plan;
 pub(crate) mod resolved;
 pub mod scalar_type;
 pub mod settings;

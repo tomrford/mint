@@ -151,41 +151,6 @@ label = {{ value = "Aé", type = "u16", size = 3 }}
 }
 
 #[test]
-fn strings_reject_non_byte_storage_types() {
-    let config = layout::parse_toml_layout(
-        r#"
-[mint]
-abi = "generic-le"
-
-[block.header]
-start_address = 0
-length = 2
-
-[block.data]
-label = { value = "A", type = "i16", size = 1 }
-"#,
-    )
-    .expect("layout string should parse");
-
-    let error = build::build_from_layouts(BuildFromLayoutsRequest {
-        layouts: vec![NamedLayout {
-            name: PathBuf::from("invalid-string.toml"),
-            config,
-        }],
-        blocks: vec![BlockSelector::named("invalid-string.toml", "block")],
-        data_source: None,
-        strict: false,
-        capture_values: false,
-    })
-    .expect_err("non-u8/u16 string storage should fail");
-
-    assert!(
-        common::error_chain(&error).contains("Strings should have type u8 or u16."),
-        "{error}"
-    );
-}
-
-#[test]
 fn c28x_rejects_scaled_output_address_overflow() {
     let config = layout::parse_toml_layout(
         r#"

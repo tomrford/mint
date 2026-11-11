@@ -1,43 +1,31 @@
-use crate::build::{BlockSelector, resolve_blocks};
+use crate::build::{BlockSelector, Selection};
 use crate::error::MintError;
 use crate::layout::abi::Abi;
-use crate::layout::block::{Block, Entry};
+use crate::layout::block::Entry;
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
-use crate::layout::fingerprint;
+use crate::layout::plan::PlannedBlock;
 use crate::layout::resolved::ResolvedNode;
-use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Generate a complete C11 header for the selected layout blocks.
 pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
-    let (resolved, layouts) = resolve_blocks(blocks)?;
-    let fingerprints = layouts
-        .iter()
-        .map(|(path, layout)| {
-            let roots = resolved
-                .iter()
-                .filter(|block| &block.layout == path)
-                .map(|block| block.name.as_str());
-            fingerprint::calculate_scoped(layout, roots, false).map(|values| (path.clone(), values))
-        })
-        .collect::<Result<HashMap<_, _>, LayoutError>>()?;
-    let mut rendered = Vec::with_capacity(resolved.len());
+    let selection = Selection::load(blocks)?;
+    let plan = selection.plan(|layout, block, error| MintError::InHeaderBlock {
+        block_name: block.to_owned(),
+        layout_file: layout.display().to_string(),
+        source: Box::new(error.into()),
+    })?;
+    let mut rendered = Vec::with_capacity(plan.blocks.len());
     let mut names = NameRegistry::default();
-    let mut guard_parts = Vec::with_capacity(resolved.len());
-    let mut includes: Option<(PathBuf, &[String])> = None;
-    let mut abi: Option<(PathBuf, Abi)> = None;
+    let mut guard_parts = Vec::with_capacity(plan.blocks.len());
+    let mut includes: Option<(&Path, &[String])> = None;
+    let mut abi: Option<(&Path, Abi)> = None;
 
-    for selected in resolved {
-        let layout = layouts.get(&selected.layout).ok_or_else(|| {
-            LayoutError::FileError(format!(
-                "resolved layout missing from header map: {}",
-                selected.layout.display()
-            ))
-        })?;
-        let layout_abi = layout.mint.abi;
+    for selected in &plan.blocks {
+        let layout_abi = selected.settings.abi;
         if let Some((first_path, first_abi)) = &abi {
             if !same_layout_rules(*first_abi, layout_abi) {
                 return Err(header_error(format!(
@@ -50,9 +38,9 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
                 .into());
             }
         } else {
-            abi = Some((selected.layout.clone(), layout_abi));
+            abi = Some((selected.layout, layout_abi));
         }
-        let configured_includes = &layout.mint.header.includes;
+        let configured_includes = &selected.settings.header.includes;
         if let Some((first_path, first_includes)) = &includes {
             if *first_includes != configured_includes.as_slice() {
                 return Err(header_error(format!(
@@ -68,31 +56,12 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
                     header_error(format!("{}: {message}", selected.layout.display()))
                 })?;
             }
-            includes = Some((selected.layout.clone(), configured_includes));
+            includes = Some((selected.layout, configured_includes));
         }
-        let block = layout.blocks.get(&selected.name).ok_or_else(|| {
-            LayoutError::BlockNotFound(format!(
-                "'{}' in '{}'",
-                selected.name,
-                selected.layout.display()
-            ))
-        })?;
-        let block_fingerprints = fingerprints.get(&selected.layout).ok_or_else(|| {
-            LayoutError::FileError(format!(
-                "resolved layout missing from fingerprint map: {}",
-                selected.layout.display()
-            ))
-        })?;
 
-        let result = render_block(
-            &selected.name,
-            block,
-            &layout.mint,
-            block_fingerprints,
-            &mut names,
-        );
+        let result = render_block(&selected.block, selected.settings.abi, &mut names);
         let block_output = result.map_err(|source| MintError::InHeaderBlock {
-            block_name: selected.name.clone(),
+            block_name: selected.block.name.to_owned(),
             layout_file: selected.layout.display().to_string(),
             source: Box::new(source.into()),
         })?;
@@ -220,18 +189,14 @@ impl NameRegistry {
 }
 
 fn render_block(
-    block_name: &str,
-    block: &Block,
-    settings: &MintConfig,
-    fingerprints: &fingerprint::ResolvedBlocks<'_>,
+    planned: &PlannedBlock<'_>,
+    abi: Abi,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
+    let (block_name, block) = (planned.name, planned.block);
     let typedef_name = format!("{block_name}_t");
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
-
-    let resolved = &fingerprints.blocks[block_name];
-    resolved.validate(block, settings)?;
 
     let Entry::Branch(source) = &block.data else {
         unreachable!("resolution rejects block data that is not a table")
@@ -260,25 +225,18 @@ fn render_block(
         source,
         block_name,
         &macro_prefix,
-        &fingerprints.fingerprints,
+        &planned.fingerprints,
         names,
         &mut path,
         &mut macros,
-        settings.abi,
+        abi,
     )?;
 
     let mut typedef = String::from("typedef struct {\n");
-    render_fields(
-        source,
-        1,
-        &macro_prefix,
-        &mut path,
-        &mut typedef,
-        settings.abi,
-    )?;
+    render_fields(source, 1, &macro_prefix, &mut path, &mut typedef, abi)?;
     typedef.push_str(&format!("}} {typedef_name};\n"));
 
-    let assertions = render_layout_assertions(block_name, &typedef_name, &resolved.root);
+    let assertions = render_layout_assertions(block_name, &typedef_name, &planned.resolved.root);
 
     Ok(RenderedBlock {
         macro_prefix,
@@ -293,7 +251,7 @@ fn collect_macros(
     fields: &IndexMap<String, Entry>,
     block_name: &str,
     block_prefix: &str,
-    fingerprints: &IndexMap<String, u64>,
+    fingerprints: &HashMap<&str, u64>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
     output: &mut Vec<MacroDefinition>,
@@ -336,7 +294,7 @@ fn collect_leaf_macros(
     leaf: &LeafEntry,
     block_name: &str,
     block_prefix: &str,
-    fingerprints: &IndexMap<String, u64>,
+    fingerprints: &HashMap<&str, u64>,
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,
@@ -414,13 +372,7 @@ fn collect_leaf_macros(
     }
 
     if let EntrySource::Fingerprint(target) = &leaf.source {
-        let target_name = target.block_name(block_name);
-        let value = fingerprints.get(target_name).ok_or_else(|| {
-            header_error(format!(
-                "fingerprint target '{target_name}' from '{}' does not exist",
-                path.join(".")
-            ))
-        })?;
+        let value = fingerprints[target.block_name(block_name)];
         add_macro(
             names,
             output,

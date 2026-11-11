@@ -46,57 +46,6 @@ structs.astruct_array = { name = "AStructs", type = "f32", size = [10, 2] }
 
 checksum = { checksum = "crc32", type = "u32" }
 
-[block2.header]
-start_address = 0x8C000
-length = 0x1000
-
-[block2.data]
-another.record.value = { name = "Array", type = "u16", size = [10, 2] }
-another.record.arr = { value = [2, 2], type = "u16", size = 2 }
-another.record.description = { name = "Block2Description", type = "u8", size = 32 }
-checksum = { checksum = "crc32", type = "u32" }
-
-[block3.header]
-start_address = 0x8D000
-length = 0x1000
-
-[block3.data]
-counters.boot_count = { name = "BootCount", type = "u64" }
-limits.temperature_min = { name = "TemperatureMin", type = "i16" }
-limits.temperature_max = { name = "TemperatureMax", type = "i16" }
-thresholds.voltage = { name = "VoltageThresholds", type = "f32", size = 4 }
-dlegal.notice = { name = "LegalNotice", type = "u8", size = 128 }
-checksum = { checksum = "crc32", type = "u32" }
-
-[block_bitmap.header]
-start_address = 0x8E000
-length = 0x100
-
-[block_bitmap.data]
-prefix.marker = { value = 0xBEEF, type = "u16" }
-prefix.count = { name = "BitmapTestCount", type = "u8" }
-
-config.flags = { type = "i16", bitmap = [
-    { bits = 1, name = "AllowDebug" },
-    { bits = 3, name = "ModeSelect" },
-    { bits = 1, value = true },
-    { bits = 4, name = "RegionCode" },
-    { bits = 7, value = 0 },
-] }
-
-hw.status = { type = "u32", bitmap = [
-    { bits = 1, name = "PowerGood" },
-    { bits = 1, name = "FanRunning" },
-    { bits = 6, value = 0 },
-    { bits = 8, name = "ErrorCode" },
-    { bits = 4, name = "HwRevision" },
-    { bits = 12, value = 0xABC },
-] }
-
-suffix.checkval = { name = "BitmapCheckVal", type = "u32" }
-suffix.trailer = { value = 0xCAFE, type = "u16" }
-checksum = { checksum = "crc32", type = "u32" }
-
 [simple_block.header]
 start_address = 0x8000
 length = 0x100
@@ -111,15 +60,4 @@ network.ip = { value = [192, 168, 1, 100], type = "u8", size = 4 }
 constants.pi = { value = 3.14159, type = "f32" }
 array.values = { value = [10, 20, 30, 40, 50], type = "u16", size = 5 }
 magic = { value = 0xDEADBEEF, type = "u32" }
-checksum = { checksum = "crc32", type = "u32" }
-
-[pg_block.header]
-start_address = 0x1000
-length = 0x100
-padding = 0xFF
-
-[pg_block.data]
-limits.temperature_max = { name = "TemperatureMax", type = "i16" }
-config.value2 = { name = "Value 2", type = "u32" }
-config.enabled = { name = "boolean", type = "u8" }
 checksum = { checksum = "crc32", type = "u32" }

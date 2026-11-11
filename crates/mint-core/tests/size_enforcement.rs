@@ -65,7 +65,11 @@ value = { value = 0, type = "u16" }
 
     let error = common::build_block(&layout, "block", false, None)
         .expect_err("odd C28x block length should fail");
-    assert!(common::error_chain(&error).contains("not divisible"));
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains("configured block length (3 octets) is not divisible by the 2-octet addressable unit of ABI 'ti-c28x-eabi'"),
+        "{chain}"
+    );
 }
 
 #[test]
@@ -145,7 +149,8 @@ length = 0x40
 }
 
 /// Literal (`value`) and `const` shapes are knowable from the layout alone, so
-/// `build`, `header` and `fingerprint` must accept and reject them alike.
+/// `build`, `header` and `fingerprint` must accept and reject them alike, and
+/// name the rejected block.
 #[test]
 fn literal_shapes_are_validated_alike_by_build_header_and_fingerprint() {
     let outcomes = |name: &str, layout: &str| {
@@ -230,6 +235,14 @@ value = 7
             r#"x = { const = "label", type = "u8", SIZE = 3 }"#,
             "Array/string is smaller than defined size (strict SIZE)",
         ),
+        (
+            r#"x = { value = [1, 2, 3], type = "u16", SIZE = 5 }"#,
+            "Array/string is smaller than defined size (strict SIZE)",
+        ),
+        (
+            r#"x = { value = [1, "A"], type = "u8", size = 2 }"#,
+            "Cannot convert string to scalar type",
+        ),
     ] {
         cases.push((literal_layout(data), expected));
     }
@@ -241,53 +254,13 @@ value = 7
             .zip(outcomes("literal_shape_invalid", &layout))
         {
             match outcome {
-                Err(message) if message.contains(expected) => {}
+                Err(message) if message.contains(expected) && message.contains("block 'block'") => {
+                }
                 other => mismatches.push(format!("{command} for {expected:?}: {other:?}")),
             }
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
-}
-
-#[test]
-fn uppercase_size_accepts_exact_and_rejects_underfilled_1d() {
-    let write_layout = |name: &str, values: &str| {
-        common::write_layout_file(
-            name,
-            &format!(
-                r#"
-[mint]
-abi = "generic-le"
-
-[block.header]
-start_address = 0x80000
-length = 0x100
-padding = 0xFF
-
-[block.data]
-values = {{ value = [{values}], type = "u16", SIZE = 5 }}
-"#
-            ),
-        )
-    };
-
-    let exact = write_layout("uppercase_size_exact", "1, 2, 3, 4, 5");
-    let bytes = common::build_block(&exact, "block", false, None)
-        .expect("SIZE should accept an exact array length");
-    assert_eq!(&bytes[..10], &[1, 0, 2, 0, 3, 0, 4, 0, 5, 0]);
-
-    let underfilled = write_layout("uppercase_size_underfilled", "1, 2, 3");
-
-    let error = common::build_block(&underfilled, "block", false, None)
-        .expect_err("SIZE should reject underfilled array");
-    assert!(matches!(
-        &error,
-        MintError::InBlock { source, .. }
-            if matches!(source.as_ref(), MintError::Layout(LayoutError::InField { source, .. })
-                if matches!(source.as_ref(), LayoutError::DataValueExportFailed(_)))
-    ));
-    let err_msg = format!("{error:?}");
-    assert!(err_msg.contains("smaller than defined size"));
 }
 
 #[test]
@@ -309,10 +282,15 @@ matrix = { name = "CalibrationMatrix", type = "i16", SIZE = [5, 3] }
 
     let ds = default_excel_source();
 
-    let res = common::build_block(&path, "block", false, Some(&ds));
-    assert!(res.is_err(), "SIZE should reject underfilled 2D array");
-    let err_msg = format!("{:?}", res.unwrap_err());
-    assert!(err_msg.contains("smaller than defined size"));
+    let error = common::build_block(&path, "block", false, Some(&ds))
+        .expect_err("SIZE should reject underfilled 2D array");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains(
+            "in field 'matrix': data value export failed: 2D array row count smaller than defined size (strict SIZE)"
+        ),
+        "{chain}"
+    );
 }
 
 #[test]

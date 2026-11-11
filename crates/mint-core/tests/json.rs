@@ -1,138 +1,109 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use mint_core::data::{DataSource, JsonDataSource};
-use mint_core::layout::value::{DataValue, ValueSource};
+use mint_core::data::JsonDataSource;
 
-fn build_json_source(variant: &str, json_data: &str) -> JsonDataSource {
-    let variants = variant.split('/').map(str::to_owned).collect::<Vec<_>>();
-    JsonDataSource::from_str(json_data, &variants).expect("datasource load")
+fn variants(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| (*name).to_owned()).collect()
+}
+
+fn layout(data: &str) -> String {
+    common::write_layout_file(
+        "json",
+        &format!(
+            r#"
+[mint]
+abi = "generic-le"
+
+[block.header]
+start_address = 0x1000
+length = 0x40
+padding = 0xFF
+
+[block.data]
+{data}
+"#
+        ),
+    )
 }
 
 #[test]
-fn json_retrieve_single_value_priority_order() {
-    let json_data = r#"{
-        "Default": {
-            "TemperatureMax": 50,
-            "Value 2": 2,
-            "boolean": true
-        },
-        "Debug": {
-            "TemperatureMax": 60,
-            "debugMode": true
-        },
-        "VarA": {
-            "TemperatureMax": 55,
-            "boolean": false
-        }
-    }"#;
+fn json_file_values_follow_variant_priority_and_skip_nulls() {
+    let data = common::unique_out_path("json-variants", "json");
+    std::fs::write(
+        &data,
+        r#"{
+            "Default": {
+                "TemperatureMax": 50,
+                "Value 2": 2,
+                "boolean": true,
+                "Label": "dflt",
+                "Samples": [1, 2, 3]
+            },
+            "Debug": {
+                "TemperatureMax": 60,
+                "Value 2": null,
+                "debugMode": true,
+                "Samples": [4, 5, 6]
+            },
+            "VarA": {
+                "TemperatureMax": 55,
+                "Value 2": null,
+                "boolean": false,
+                "Label": "varA"
+            }
+        }"#,
+    )
+    .expect("write JSON data");
+    let source = JsonDataSource::from_path(&data, &variants(&["VarA", "Debug", "Default"]))
+        .expect("JSON file loads");
 
-    let ds = build_json_source("VarA/Debug/Default/VarA", json_data);
+    let path = layout(
+        r#"
+temperature = { name = "TemperatureMax", type = "u8" }
+value2 = { name = "Value 2", type = "u8" }
+flag = { name = "boolean", type = "u8" }
+debug = { name = "debugMode", type = "u8" }
+label = { name = "Label", type = "u8", size = 6 }
+samples = { name = "Samples", type = "u8", size = 3 }
+"#,
+    );
+    let bytes = common::build_block(&path, "block", true, Some(&source)).expect("block builds");
 
-    let value = ds.retrieve_single_value("TemperatureMax").unwrap();
-    println!("TemperatureMax (VarA/Debug/Default): {:?}", value);
-    assert!(matches!(value, DataValue::U64(55)));
-
-    let value = ds.retrieve_single_value("boolean").unwrap();
-    println!("boolean (VarA/Debug/Default): {:?}", value);
-    assert!(matches!(value, DataValue::Bool(false)));
-
-    let value = ds.retrieve_single_value("debugMode").unwrap();
-    println!("debugMode (VarA/Debug/Default): {:?}", value);
-    assert!(matches!(value, DataValue::Bool(true)));
-
-    let value = ds.retrieve_single_value("Value 2").unwrap();
-    println!("Value 2 (VarA/Debug/Default): {:?}", value);
-    assert!(matches!(value, DataValue::U64(2)));
+    assert_eq!(
+        bytes,
+        [
+            55, // VarA wins over Debug and Default
+            2,  // null in VarA and Debug falls through to Default
+            0,  // VarA false overrides Default true
+            1,  // only Debug defines it
+            b'v', b'a', b'r', b'A', 0xFF, 0xFF, // VarA string, padded
+            4, 5, 6, // VarA has none, Debug array wins over Default
+        ]
+    );
 }
 
 #[test]
-fn json_retrieve_missing_key_errors() {
-    let json_data = r#"{
-        "Default": {
-            "TemperatureMax": 50
-        }
-    }"#;
+fn json_rejects_unknown_variants_and_missing_keys() {
+    let data = r#"{"Default": {"TemperatureMax": 50}}"#;
 
-    let ds = build_json_source("Default", json_data);
+    let error = JsonDataSource::from_str(data, &variants(&["Default", "Release"]))
+        .err()
+        .expect("unknown variant is rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("variant 'Release' not found in JSON data"),
+        "{error}"
+    );
 
-    let result = ds.retrieve_single_value("NonExistent");
-    assert!(result.is_err());
-    println!("Missing key error: {:?}", result.unwrap_err());
-}
-
-#[test]
-fn json_retrieve_missing_variant_errors() {
-    let json_data = r#"{
-        "Default": {
-            "TemperatureMax": 50
-        }
-    }"#;
-
-    let variants = vec!["NonExistent".to_owned()];
-    let result = JsonDataSource::from_str(json_data, &variants);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        println!("Missing variant error: {:?}", e);
-    }
-}
-
-#[test]
-fn json_retrieve_1d_literal_string() {
-    let json_data = r#"{
-        "Default": {
-            "literalString": "hello world"
-        }
-    }"#;
-
-    let ds = build_json_source("Default", json_data);
-
-    let value = ds.retrieve_1d_array_or_string("literalString").unwrap();
-    println!("literalString: {:?}", value);
-    let ValueSource::Single(DataValue::Str(s)) = value else {
-        panic!("expected single string");
-    };
-    assert_eq!(s, "hello world");
-}
-#[test]
-fn json_retrieve_1d_native_json_array() {
-    let json_data = r#"{
-        "Default": {
-            "nativeArray1d": [10, 20, 30]
-        }
-    }"#;
-
-    let ds = build_json_source("Default", json_data);
-
-    let value = ds.retrieve_1d_array_or_string("nativeArray1d").unwrap();
-    println!("nativeArray1d: {:?}", value);
-    let ValueSource::Array(arr) = value else {
-        panic!("expected array");
-    };
-    assert_eq!(arr.len(), 3);
-    assert!(matches!(arr[0], DataValue::U64(10)));
-    assert!(matches!(arr[1], DataValue::U64(20)));
-    assert!(matches!(arr[2], DataValue::U64(30)));
-}
-
-#[test]
-fn json_from_file() {
-    use std::fs;
-
-    let json_data = r#"{
-        "Default": {
-            "TemperatureMax": 50
-        }
-    }"#;
-
-    let test_file = common::unique_out_path("mint_test_json", "json");
-    fs::write(&test_file, json_data).expect("write test file");
-
-    let variants = vec!["Default".to_owned()];
-    let ds = JsonDataSource::from_path(&test_file, &variants).expect("datasource load");
-
-    let value = ds.retrieve_single_value("TemperatureMax").unwrap();
-    assert!(matches!(value, DataValue::U64(50)));
-
-    fs::remove_file(test_file).ok();
+    let source = JsonDataSource::from_str(data, &variants(&["Default"])).expect("JSON loads");
+    let path = layout(r#"missing = { name = "TemperatureMin", type = "u8" }"#);
+    let error = common::build_block(&path, "block", false, Some(&source))
+        .expect_err("missing key is rejected");
+    let message = common::error_chain(&error);
+    assert!(
+        message.contains("TemperatureMin") && message.contains("key not found in any variant"),
+        "{message}"
+    );
 }
