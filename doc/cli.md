@@ -11,8 +11,6 @@ mint abi show ABI
 mint skill
 ```
 
-`mint build` is the build command.
-
 ## Positional Arguments
 
 ### `[FILE[#BLOCK] | FILE]...`
@@ -300,30 +298,30 @@ Show detailed build statistics after completion.
 mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --stats
 ```
 
-**Example output:**
+**Example output** (for `doc/examples/block.toml` with `doc/examples/data.xlsx`):
 
 ```
 +------------------+-----------+
 | Build Summary    |           |
 +==============================+
-| Build Time       | 1.396ms   |
+| Build Time       | 852us     |
 |------------------+-----------|
 | Blocks Processed | 2         |
 |------------------+-----------|
 | Total Allocated  | 512 bytes |
 |------------------+-----------|
-| Total Reserved   | 84 bytes  |
+| Total Reserved   | 112 bytes |
 |------------------+-----------|
-| Space Reserved   | 16.4%     |
+| Space Reserved   | 21.9%     |
 +------------------+-----------+
 
-+--------+---------------+--------------------+------------+----------------+
-| Block  | Address Range | Reserved/Alloc     | Space Reserved | Checksum Value |
-+===========================================================================+
-| config | 0x8000-0x80FF | 52 bytes/256 bytes | 20.3%      | 0x89ECCA27     |
-|--------+---------------+--------------------+------------+----------------|
-| data   | 0x8100-0x81FF | 32 bytes/256 bytes | 12.5%      | 0x160D17D3     |
-+--------+---------------+--------------------+------------+----------------+
++-------------------+------------------------------+----------------------------+----------------+----------------+
+| Block             | Address Range (target units) | Reserved/Allocated (bytes) | Space Reserved | Checksum Value |
++=================================================================================================================+
+| block.toml#config | 0x8000-0x80FF                | 64 bytes/256 bytes         | 25.0%          | 0x20E90F51     |
+|-------------------+------------------------------+----------------------------+----------------+----------------|
+| block.toml#data   | 0x8100-0x81FF                | 48 bytes/256 bytes         | 18.8%          | 0xC51E4C95     |
++-------------------+------------------------------+----------------------------+----------------+----------------+
 ```
 
 ### `--quiet`

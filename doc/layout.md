@@ -60,7 +60,7 @@ The required `abi` setting selects the layout rules used for every block in the 
 | `riscv-ilp32-le` | little-endian | 8 bits | Continuously checked with GCC 15.2.0 (`riscv32-none-elf`), RV32IMAC ILP32, on Linux/Nix |
 | `ti-c28x-eabi` | little-endian | 16 bits | Continuously checked with TI C2000 CGT 25.11.0.LTS EABI on Linux/Nix |
 
-“Continuously checked” means CI compiles generated headers for the example layout and `tests/abi/pack.toml` and checks scalar storage and alignment, array stride, nested aggregates (including `u32` then nested `u64` packing), field offsets, final size, byte order and `CHAR_BIT`. “Unverified” means that Mint models the named ABI, but no compiler result is recorded yet. A manual compiler result must be labelled “Manually validated” with its compiler version and flags; it is not a recurring CI result. TriCore compilers are proprietary and license-managed, so `tests/abi/check-tricore.sh` reproduces that same probe locally with a licensed compiler supplied through `TRICORE_GCC` and `TRICORE_FLAGS`. The recorded HighTec result uses those two layouts plus `tests/abi/bytes.toml`, whose byte-only aggregate proves the EABI minimum two-octet aggregate alignment; re-run the script and update the table when the toolchain changes.
+“Continuously checked” means CI compiles generated headers for the example layout and `tests/abi/pack.toml` and checks scalar storage and alignment, array stride, nested aggregates (including `u32` then nested `u64` packing), field offsets, final size, byte order and `CHAR_BIT`. A manual compiler result must be labelled “Manually validated” with its compiler version and flags; it is not a recurring CI result. TriCore compilers are proprietary and license-managed, so `tests/abi/check-tricore.sh` reproduces that same probe locally with a licensed compiler supplied through `TRICORE_GCC` and `TRICORE_FLAGS`. The recorded HighTec result uses those two layouts plus `tests/abi/bytes.toml`, whose byte-only aggregate proves the EABI minimum two-octet aggregate alignment; re-run the script and update the table when the toolchain changes.
 
 `generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride, and raise the alignment of aggregates larger than one octet to at least 2 octets; a single-octet aggregate keeps 1-octet alignment. C28x rejects `u8`, `i8` and 8-bit fixed-point fields because its C library has 16-bit `char` and no exact-width 8-bit integer types. Strings can use `u8` or `u16` storage; C28x strings use `type = "u16"`, with one UTF-8 byte zero-extended into each 16-bit word. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
 
@@ -229,7 +229,7 @@ coefficients = { name = "Coefficients", type = "f32", size = 4 }
 matrix = { name = "Matrix", type = "i16", size = [2, 2] }
 
 # Strict size (error if data source has fewer elements)
-matrix = { name = "Matrix", type = "i16", SIZE = [2, 2] }
+strict_matrix = { name = "Matrix", type = "i16", SIZE = [2, 2] }
 ```
 
 ### Bitmaps
@@ -246,7 +246,7 @@ flags = { type = "u16", bitmap = [
 ] }
 ```
 
-Bitmap fields are packed LSB-first into the specified type. signedness of fields match the type. Negative values are represented as two's complement. The sum of the bits in the bitmap must match the type size.
+Bitmap fields are packed LSB-first into the specified type. The signedness of each field matches the type. Negative values are represented as two's complement. The sum of the bits in the bitmap must match the type size.
 
 Fixed-point types are not valid with `bitmap`.
 
@@ -377,7 +377,7 @@ ref_out = true
 
 [config.header]
 start_address = 0x8000
-length = 0x1000
+length = 0x100
 
 [config.data]
 version = { value = 1, type = "u16" }
@@ -398,20 +398,3 @@ Build specific blocks with `file.toml#blockname` syntax:
 ```bash
 mint build layout.toml#config --xlsx data.xlsx --variants Default
 ```
-
----
-
-## Format
-
-```toml
-[block.header]
-start_address = 0x8000
-length = 0x100
-
-[block.data]
-device.id = { value = 0x1234, type = "u32" }
-device.name = { name = "DeviceName", type = "u8", size = 16 }
-version = { name = "Version", type = "u16" }
-```
-
-Layouts are TOML only. JSON is reserved for data input.
