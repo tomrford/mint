@@ -62,16 +62,10 @@ impl<'a> ResolvedLayout<'a> {
             )));
         }
         for (path, coordinates, _, leaf) in self.emission_leaves() {
-            let size = leaf.size;
             let result = match &leaf.source {
-                EntrySource::Const(name) => leaf
-                    .validate_const(name, &settings.consts, size.as_ref())
-                    .map(|_| ()),
-                EntrySource::Value(_) if matches!(size, Some(SizeSource::TwoD(_))) => {
-                    Err(LayoutError::InvalidLayout(
-                        "2D arrays within the layout file are not supported.".to_owned(),
-                    ))
-                }
+                EntrySource::Const(name) => LeafEntry::const_value(name, &settings.consts)
+                    .and_then(|value| leaf.validate_literal("const", value)),
+                EntrySource::Value(value) => leaf.validate_literal("value", value),
                 EntrySource::Checksum(_) if coordinates.offset == 0 => {
                     Err(LayoutError::InvalidLayout(
                         "Checksum must follow at least one data byte.".to_owned(),
@@ -88,6 +82,11 @@ impl<'a> ResolvedLayout<'a> {
         Ok(())
     }
     pub(crate) fn new(entry: &'a Entry, abi: Abi) -> Result<Self, LayoutError> {
+        if matches!(entry, Entry::Leaf(_)) {
+            return Err(LayoutError::InvalidLayout(
+                "block data must be a table of fields; move the leaf under a field name, such as `value = { type = \"u8\", ... }`".to_owned(),
+            ));
+        }
         let mut root = collect_entry(entry, abi, &mut Vec::new())?;
         let mut cursor = 0usize;
         let mut leaves = Vec::new();

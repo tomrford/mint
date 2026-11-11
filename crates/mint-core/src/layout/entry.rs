@@ -377,11 +377,68 @@ impl LeafEntry {
         }
     }
 
-    pub(crate) fn validate_const<'a>(
+    /// Checks a `value` or `const` literal against this leaf's type and size.
+    /// Emission relies on these checks for layout-defined literals.
+    pub(crate) fn validate_literal(
         &self,
+        kind: &str,
+        value: &ValueSource,
+    ) -> Result<(), LayoutError> {
+        let length = match (self.size, value) {
+            (Some(SizeSource::TwoD(_)), _) => {
+                return Err(LayoutError::InvalidLayout(
+                    "2D arrays within the layout file are not supported.".to_owned(),
+                ));
+            }
+            (None, ValueSource::Single(DataValue::Str(_))) => {
+                return Err(LayoutError::InvalidLayout(format!(
+                    "String {kind} requires size or SIZE; add a size of at least its byte length."
+                )));
+            }
+            (None, ValueSource::Array(_)) => {
+                return Err(LayoutError::InvalidLayout(format!(
+                    "Array {kind} requires size or SIZE; add a size of at least its length."
+                )));
+            }
+            (None, ValueSource::Single(_)) => return Ok(()),
+            (Some(SizeSource::OneD(_)), ValueSource::Single(DataValue::Str(text))) => {
+                if !matches!(self.scalar_type, ScalarType::U8 | ScalarType::U16) {
+                    return Err(LayoutError::InvalidLayout(
+                        "Strings should have type u8 or u16.".to_owned(),
+                    ));
+                }
+                text.len()
+            }
+            (Some(SizeSource::OneD(_)), ValueSource::Single(_)) => {
+                return Err(LayoutError::InvalidLayout(format!(
+                    "size/SIZE keys are forbidden with scalar {kind}; remove size/SIZE or use an array or string {kind}."
+                )));
+            }
+            (Some(SizeSource::OneD(_)), ValueSource::Array(values)) => values.len(),
+        };
+        let Some(SizeSource::OneD(size)) = self.size else {
+            unreachable!("only one-dimensional literals reach the length check")
+        };
+        self.check_1d_length(length, size)
+    }
+
+    fn check_1d_length(&self, length: usize, size: usize) -> Result<(), LayoutError> {
+        if length > size {
+            return Err(LayoutError::DataValueExportFailed(
+                "Array/string is larger than defined size.".to_owned(),
+            ));
+        }
+        if self.strict_size && length < size {
+            return Err(LayoutError::DataValueExportFailed(
+                "Array/string is smaller than defined size (strict SIZE).".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn const_value<'a>(
         name: &str,
         consts: &'a HashMap<String, ValueSource>,
-        size: Option<&SizeSource>,
     ) -> Result<&'a ValueSource, LayoutError> {
         if name.is_empty() {
             return Err(LayoutError::DataValueExportFailed(
@@ -397,22 +454,19 @@ impl LeafEntry {
                 available.join(", ")
             ))
         })?;
-        match (size, value) {
-            (Some(SizeSource::TwoD(_)), _) => {
-                return Err(LayoutError::InvalidLayout(
-                    "2D arrays within the layout file are not supported.".to_owned(),
-                ));
-            }
-            (Some(SizeSource::OneD(_)), ValueSource::Single(DataValue::Str(_))) => {}
-            (Some(SizeSource::OneD(_)), ValueSource::Array(_)) => {}
-            (Some(SizeSource::OneD(_)), ValueSource::Single(_)) => {
-                return Err(LayoutError::InvalidLayout(
-                    "size/SIZE keys are forbidden with scalar const.".into(),
-                ));
-            }
-            (None, _) => {}
-        }
         Ok(value)
+    }
+
+    /// Returns a layout-defined literal; its shape was checked by static validation.
+    fn literal<'a>(
+        &'a self,
+        consts: &'a HashMap<String, ValueSource>,
+    ) -> Result<&'a ValueSource, LayoutError> {
+        match &self.source {
+            EntrySource::Value(value) => Ok(value),
+            EntrySource::Const(name) => Self::const_value(name, consts),
+            _ => unreachable!("only value and const sources are literals"),
+        }
     }
 
     pub fn validate_ref(&self, source: &RefSource) -> Result<(), LayoutError> {
@@ -616,25 +670,14 @@ impl LeafEntry {
                 value_sink.record_value(field_path, || data_value_to_json(&value))?;
                 Ok(bytes)
             }
-            EntrySource::Value(ValueSource::Single(v)) => {
+            EntrySource::Value(_) | EntrySource::Const(_) => {
+                let ValueSource::Single(v) = self.literal(config.consts)? else {
+                    unreachable!("unsized literal shape is validated before emission")
+                };
                 let bytes = v.to_bytes(self.scalar_type, config.abi.endianness(), config.strict)?;
                 value_sink.record_value(field_path, || data_value_to_json(v))?;
                 Ok(bytes)
             }
-            EntrySource::Value(_) => Err(LayoutError::DataValueExportFailed(
-                "Single value expected for scalar type.".to_owned(),
-            )),
-            EntrySource::Const(name) => match self.validate_const(name, config.consts, None)? {
-                ValueSource::Single(v) => {
-                    let bytes =
-                        v.to_bytes(self.scalar_type, config.abi.endianness(), config.strict)?;
-                    value_sink.record_value(field_path, || data_value_to_json(v))?;
-                    Ok(bytes)
-                }
-                ValueSource::Array(_) => Err(LayoutError::DataValueExportFailed(
-                    "Single value expected for scalar type.".to_owned(),
-                )),
-            },
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled by block emitter"),
             EntrySource::Checksum(_) => unreachable!("checksum handled by block emitter"),
@@ -672,10 +715,7 @@ impl LeafEntry {
                 retrieved = ds.retrieve_1d_array_or_string(name)?;
                 &retrieved
             }
-            EntrySource::Value(value) => value,
-            EntrySource::Const(name) => {
-                self.validate_const(name, config.consts, Some(&SizeSource::OneD(size)))?
-            }
+            EntrySource::Value(_) | EntrySource::Const(_) => self.literal(config.consts)?,
             EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_bytes"),
             EntrySource::Ref(_) => unreachable!("ref handled by block emitter"),
             EntrySource::Checksum(_) => unreachable!("checksum handled by block emitter"),
@@ -693,16 +733,7 @@ impl LeafEntry {
                 ));
             }
         };
-        if length > size {
-            return Err(LayoutError::DataValueExportFailed(
-                "Array/string is larger than defined size.".to_owned(),
-            ));
-        }
-        if encoding.strict_len && length < size {
-            return Err(LayoutError::DataValueExportFailed(
-                "Array/string is smaller than defined size (strict SIZE).".to_owned(),
-            ));
-        }
+        self.check_1d_length(length, size)?;
         let mut out = Vec::new();
         out.try_reserve_exact(total_bytes).map_err(|error| {
             LayoutError::DataValueExportFailed(format!(

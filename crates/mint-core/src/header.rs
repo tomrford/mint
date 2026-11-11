@@ -211,7 +211,7 @@ fn render_block(
     resolved.validate(block, settings)?;
 
     let Entry::Branch(source) = &block.data else {
-        return Err(header_error("block data must be a table"));
+        unreachable!("resolution rejects block data that is not a table")
     };
 
     let mut macros = Vec::new();
