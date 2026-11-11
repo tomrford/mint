@@ -622,7 +622,6 @@ impl LeafEntry {
         field_path: &[String],
         scalar_abi: ScalarAbi,
     ) -> Result<Vec<u8>, LayoutError> {
-        self.validate_bitmap(fields, scalar_abi)?;
         let signed = self.scalar_type.is_signed();
         let mut accumulator: u128 = 0;
         let mut offset: usize = 0;
@@ -641,12 +640,11 @@ impl LeafEntry {
             offset += field.bits;
         }
 
-        encode_bitmap_storage(
+        Ok(encode_bitmap_storage(
             accumulator,
-            self.scalar_type,
             config.abi.endianness(),
             scalar_abi.storage_size,
-        )
+        ))
     }
 
     fn emit_bytes_single(
@@ -886,23 +884,11 @@ pub(crate) fn append_array_element(
     );
 }
 
-fn encode_bitmap_storage(
-    accumulator: u128,
-    scalar_type: ScalarType,
-    endianness: Endianness,
-    width: usize,
-) -> Result<Vec<u8>, LayoutError> {
-    if !scalar_type.is_integer() {
-        return Err(LayoutError::DataValueExportFailed(
-            "Bitmap requires integer storage type.".into(),
-        ));
-    }
-
-    let bytes = match endianness {
+fn encode_bitmap_storage(accumulator: u128, endianness: Endianness, width: usize) -> Vec<u8> {
+    match endianness {
         Endianness::Little => (accumulator as u64).to_le_bytes()[..width].to_vec(),
         Endianness::Big => (accumulator as u64).to_be_bytes()[8 - width..].to_vec(),
-    };
-    Ok(bytes)
+    }
 }
 
 fn bitmap_field_key(field: &BitmapField, offset: usize) -> String {
