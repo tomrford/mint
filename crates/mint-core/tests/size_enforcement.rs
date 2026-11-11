@@ -238,6 +238,10 @@ value = 7
             r#"x = { value = [1, 2, 3], type = "u16", SIZE = 5 }"#,
             "Array/string is smaller than defined size (strict SIZE)",
         ),
+        (
+            r#"x = { value = [1, "A"], type = "u8", size = 2 }"#,
+            "Cannot convert string to scalar type",
+        ),
     ] {
         cases.push((literal_layout(data), expected));
     }
