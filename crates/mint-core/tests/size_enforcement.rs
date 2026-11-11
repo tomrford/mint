@@ -272,10 +272,15 @@ matrix = { name = "CalibrationMatrix", type = "i16", SIZE = [5, 3] }
 
     let ds = default_excel_source();
 
-    let res = common::build_block(&path, "block", false, Some(&ds));
-    assert!(res.is_err(), "SIZE should reject underfilled 2D array");
-    let err_msg = format!("{:?}", res.unwrap_err());
-    assert!(err_msg.contains("smaller than defined size"));
+    let error = common::build_block(&path, "block", false, Some(&ds))
+        .expect_err("SIZE should reject underfilled 2D array");
+    let chain = common::error_chain(&error);
+    assert!(
+        chain.contains(
+            "in field 'matrix': data value export failed: 2D array row count smaller than defined size (strict SIZE)"
+        ),
+        "{chain}"
+    );
 }
 
 #[test]
