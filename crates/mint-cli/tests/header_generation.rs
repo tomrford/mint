@@ -27,6 +27,24 @@ fn generated_example_header_is_checked_in() {
 }
 
 #[test]
+fn example_layout_builds_strictly_from_the_example_workbook() {
+    for variants in ["Default", "Debug/Default", "VarA/Default"] {
+        let output = mint_command()
+            .args(["build", "../../doc/examples/block.toml", "--xlsx"])
+            .args(["../../doc/examples/data.xlsx", "--variants", variants])
+            .args(["--strict", "--quiet", "-o"])
+            .arg(common::unique_out_path("strict-example", "hex"))
+            .output()
+            .expect("mint build should run");
+        assert!(
+            output.status.success(),
+            "variants {variants}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn empty_layout_does_not_touch_build_or_header_output() {
     let layout = common::write_layout_file(
         "empty-layout",
