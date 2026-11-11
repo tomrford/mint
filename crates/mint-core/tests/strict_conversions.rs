@@ -129,9 +129,14 @@ bools.array_flags = { value = [true, false, true], type = "u8", size = 3 }
 #[test]
 fn non_finite_inputs_are_rejected_with_or_without_strict() {
     for value in ["nan", "inf", "-inf"] {
-        for scalar in ["u8", "f32", "f64", "uq8.8"] {
+        let entries = ["u8", "f32", "f64", "uq8.8"]
+            .map(|scalar| format!(r#"bad = {{ value = {value}, type = "{scalar}" }}"#))
+            .into_iter()
+            .chain([format!(
+                r#"bad = {{ type = "u8", bitmap = [{{ bits = 8, value = {value} }}] }}"#
+            )]);
+        for entry in entries {
             for strict in [false, true] {
-                let entry = format!(r#"bad = {{ value = {value}, type = "{scalar}" }}"#);
                 let error = build_inline(&entry, strict, None)
                     .expect_err("non-finite input should be rejected");
                 let message = common::error_chain(&error);
