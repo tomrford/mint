@@ -11,8 +11,6 @@ mint abi show ABI
 mint skill
 ```
 
-`mint build` is the build command.
-
 ## Positional Arguments
 
 ### `[FILE[#BLOCK] | FILE]...`
@@ -56,7 +54,7 @@ mint header layout.toml#config layout.toml#data -o blocks.h
 
 The command renders and validates the complete header before writing it. Each block becomes a `<block>_t` typedef. Dotted paths become inline nested structs, array dimensions use generated macros, and named bitmap regions receive `_SHIFT` and `_MASK` macros. Refs remain `uint16_t`, `uint32_t` or `uint64_t` address storage, including integer arrays for reflists; they are not emitted as C pointer objects. The output contains storage types and shape only; it does not contain data values, block addresses, packing directives, or explicit padding members.
 
-Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including dangling const names, scalar consts with array sizes, two-dimensional literals, zero-extent arrays, invalid checksum placement, invalid reflist lengths, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space.
+Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including block data that is not a table of fields, dangling const names, `value` and `const` literals whose shape, string storage type or length conflicts with their `size` or `SIZE`, zero-extent arrays, invalid checksum placement, invalid reflist lengths, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space. Layouts combined into one header must use ABI profiles with the same layout family, byte order and addressable-unit width.
 
 Generated structs use the selected ABI profile's aggregate rules and include C11 `_Static_assert` checks for every field offset and final structure size. The checks use `CHAR_BIT` so their expected values remain expressed in octets.
 
@@ -300,30 +298,30 @@ Show detailed build statistics after completion.
 mint build layout.toml --xlsx data.xlsx --variants Default -o output.hex --stats
 ```
 
-**Example output:**
+**Example output** (for `doc/examples/block.toml` with `doc/examples/data.xlsx`):
 
 ```
 +------------------+-----------+
 | Build Summary    |           |
 +==============================+
-| Build Time       | 1.396ms   |
+| Build Time       | 852us     |
 |------------------+-----------|
 | Blocks Processed | 2         |
 |------------------+-----------|
 | Total Allocated  | 512 bytes |
 |------------------+-----------|
-| Total Reserved   | 84 bytes  |
+| Total Reserved   | 112 bytes |
 |------------------+-----------|
-| Space Reserved   | 16.4%     |
+| Space Reserved   | 21.9%     |
 +------------------+-----------+
 
-+--------+---------------+--------------------+------------+----------------+
-| Block  | Address Range | Reserved/Alloc     | Space Reserved | Checksum Value |
-+===========================================================================+
-| config | 0x8000-0x80FF | 52 bytes/256 bytes | 20.3%      | 0x89ECCA27     |
-|--------+---------------+--------------------+------------+----------------|
-| data   | 0x8100-0x81FF | 32 bytes/256 bytes | 12.5%      | 0x160D17D3     |
-+--------+---------------+--------------------+------------+----------------+
++-------------------+------------------------------+----------------------------+----------------+----------------+
+| Block             | Address Range (target units) | Reserved/Allocated (bytes) | Space Reserved | Checksum Value |
++=================================================================================================================+
+| block.toml#config | 0x8000-0x80FF                | 64 bytes/256 bytes         | 25.0%          | 0x20E90F51     |
+|-------------------+------------------------------+----------------------------+----------------+----------------|
+| block.toml#data   | 0x8100-0x81FF                | 48 bytes/256 bytes         | 18.8%          | 0xC51E4C95     |
++-------------------+------------------------------+----------------------------+----------------+----------------+
 ```
 
 ### `--quiet`
