@@ -86,9 +86,8 @@
         });
 
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
+          packages = [
             rustToolchain
-            uv
           ];
         };
       }
