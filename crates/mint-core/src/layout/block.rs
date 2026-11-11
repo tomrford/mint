@@ -140,7 +140,6 @@ impl Block {
         let mut checksum_values = Vec::new();
 
         for (path, coordinates, scalar_abi, leaf) in resolved.emission_leaves() {
-            let field_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
             // Resolution places every leaf inside the `total_size` buffer.
             let (prefix, rest) = buffer.split_at_mut(coordinates.offset);
             let mut slot = Slot::new(&mut rest[..coordinates.size], scalar_abi);
@@ -152,7 +151,7 @@ impl Block {
                         &self.header,
                         &config,
                         value_sink,
-                        &field_path,
+                        path,
                         &mut slot,
                     ),
                     EntrySource::Checksum(config_name) => {
@@ -160,7 +159,7 @@ impl Block {
                             prefix, settings.checksum_config(config_name)?,
                         );
                         checksum_values.push(crc);
-                        value_sink.record_value(&field_path, || Ok(crc.into()))?;
+                        value_sink.record_value(path, || Ok(crc.into()))?;
                         let encoded = DataValue::U64(u64::from(crc)).encode(
                             leaf.scalar_type, config.abi.endianness(), true,
                         )?;
@@ -181,7 +180,7 @@ impl Block {
                             true,
                         )?;
                         value_sink.record_value(
-                            &field_path,
+                            path,
                             || Ok((*value).into()),
                         )?;
                         slot.write_scalar(encoded);
@@ -192,7 +191,7 @@ impl Block {
                         data_source,
                         &config,
                         value_sink,
-                        &field_path,
+                        path,
                     ),
                 }
             })()
@@ -211,7 +210,7 @@ impl Block {
         header: &Header,
         config: &BuildConfig<'_>,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
         slot: &mut Slot<'_>,
     ) -> Result<(), LayoutError> {
         let EntrySource::Ref(source) = &leaf.source else {
