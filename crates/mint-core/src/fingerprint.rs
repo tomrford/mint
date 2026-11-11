@@ -1,7 +1,8 @@
 use crate::build::BlockSelector;
 use crate::layout;
-use crate::layout::block::Config;
+use crate::layout::block::{Block, Config};
 use crate::layout::error::LayoutError;
+use crate::layout::plan::plan_block;
 
 /// A block's deterministic 64-bit ABI fingerprint.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -18,32 +19,40 @@ impl BlockFingerprint {
     }
 }
 
-/// Calculate every block fingerprint in declaration order.
+/// Calculate every block fingerprint in declaration order, fully validating
+/// every block first.
 pub fn calculate(config: &Config) -> Result<Vec<BlockFingerprint>, LayoutError> {
-    let resolved = layout::fingerprint::calculate_scoped(
-        config,
-        config.blocks.keys().map(String::as_str),
-        true,
-    )?;
-    for (name, block) in &resolved.blocks {
-        block.validate(&config.blocks[name], &config.mint)?;
-    }
-    Ok(resolved
-        .fingerprints
-        .into_iter()
-        .map(|(block, value)| BlockFingerprint { block, value })
-        .collect())
+    config
+        .blocks
+        .iter()
+        .map(|(name, block)| fingerprint_planned(config, name, block))
+        .collect()
 }
 
 /// Calculate one block's fingerprint, fully validating that block and resolving
 /// the ABIs of its fingerprint targets.
 pub fn calculate_block(config: &Config, name: &str) -> Result<BlockFingerprint, LayoutError> {
-    let resolved = layout::fingerprint::calculate_scoped(config, [name], true)?;
-    resolved.blocks[name].validate(&config.blocks[name], &config.mint)?;
-    let value = resolved.fingerprints[name];
+    let (name, block) = config.blocks.get_key_value(name).ok_or_else(|| {
+        LayoutError::BlockNotFound(format!(
+            "'{name}'. Available blocks: {}",
+            config.blocks.keys().cloned().collect::<Vec<_>>().join(", ")
+        ))
+    })?;
+    fingerprint_planned(config, name, block)
+}
+
+fn fingerprint_planned(
+    config: &Config,
+    name: &str,
+    block: &Block,
+) -> Result<BlockFingerprint, LayoutError> {
+    let planned = plan_block(config, name, block).map_err(|error| LayoutError::InBlock {
+        block: name.to_owned(),
+        error: Box::new(error),
+    })?;
     Ok(BlockFingerprint {
         block: name.to_owned(),
-        value,
+        value: planned.fingerprint(),
     })
 }
 

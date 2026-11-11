@@ -1,7 +1,7 @@
 mod writer;
 
 use crate::args::{AbiArgs, AbiCommand, Args, FingerprintArgs, HeaderArgs};
-use mint_core::build::{self, BuildRequest, BuildStats};
+use mint_core::build::{BuildPlan, BuildStats};
 use mint_core::data::DataSource;
 use mint_core::error::MintError;
 use mint_core::layout::abi::Abi;
@@ -81,13 +81,16 @@ pub fn abi(args: &AbiArgs) {
     }
 }
 
-pub fn build(args: &Args, data_source: Option<&dyn DataSource>) -> Result<BuildStats, MintError> {
-    let artifact = build::build(BuildRequest {
-        blocks: args.layout.blocks.clone(),
+pub fn build(
+    args: &Args,
+    plan: &BuildPlan<'_>,
+    data_source: Option<&dyn DataSource>,
+) -> Result<BuildStats, MintError> {
+    let artifact = plan.build(
         data_source,
-        strict: args.layout.strict,
-        capture_values: args.output.export_json.is_some(),
-    })?;
+        args.layout.strict,
+        args.output.export_json.is_some(),
+    )?;
 
     let contents = artifact.render(args.output.format, args.output.record_width as usize)?;
 

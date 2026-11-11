@@ -1,8 +1,8 @@
 use super::abi::{Abi, ScalarAbi};
 use super::entry::{EntrySource, LeafEntry, RefSource, SizeSource, append_array_element};
 use super::error::{LayoutError, in_field_path};
-use super::fingerprint::ResolvedBlocks;
 use super::header::Header;
+use super::plan::PlannedBlock;
 use super::resolved::ResolvedLayout;
 use super::settings::MintConfig;
 use super::used_values::ValueCollector;
@@ -115,21 +115,20 @@ impl<'de> Deserialize<'de> for Entry {
 }
 
 impl Block {
+    /// Emits a block that passed the preflight in `planned`; only data-source
+    /// values and `--strict` conversions can still fail.
     pub(crate) fn emit(
-        &self,
-        block_name: &str,
-        blocks: &ResolvedBlocks<'_>,
+        planned: &PlannedBlock<'_>,
         data_source: Option<&dyn DataSource>,
         settings: &MintConfig,
         strict: bool,
         value_sink: &mut ValueCollector,
     ) -> Result<BuildOutput, LayoutError> {
-        let resolved = &blocks.blocks[block_name];
-        resolved.validate(self, settings)?;
+        let resolved = &planned.resolved;
         let total_size = resolved.total_size();
         let config = BuildConfig {
             abi: settings.abi,
-            padding: self.header.padding,
+            padding: planned.block.header.padding,
             strict,
             consts: &settings.consts,
         };
@@ -139,7 +138,7 @@ impl Block {
                 "failed to allocate {total_size}-byte block buffer: {error}"
             ))
         })?;
-        buffer.resize(total_size, self.header.padding);
+        buffer.resize(total_size, planned.block.header.padding);
         let mut checksum_values = Vec::new();
 
         for (path, coordinates, scalar_abi, leaf) in resolved.emission_leaves() {
@@ -149,7 +148,7 @@ impl Block {
                     EntrySource::Ref(_) => Self::emit_ref(
                         leaf,
                         resolved,
-                        &self.header,
+                        &planned.block.header,
                         &config,
                         scalar_abi,
                         value_sink,
@@ -157,40 +156,28 @@ impl Block {
                     ),
                     EntrySource::Checksum(config_name) => {
                         let crc = checksum::calculate_crc(
-                            &buffer[..coordinates.offset], settings.checksum_config(config_name)?,
+                            &buffer[..coordinates.offset],
+                            settings.checksum_config(config_name)?,
                         );
                         checksum_values.push(crc);
                         value_sink.record_value(&field_path, || Ok(crc.into()))?;
                         DataValue::U64(u64::from(crc)).to_bytes(
-                            leaf.scalar_type, config.abi.endianness(), true,
+                            leaf.scalar_type,
+                            config.abi.endianness(),
+                            true,
                         )
                     }
                     EntrySource::Fingerprint(target) => {
-                        let target_name = target.block_name(block_name);
-                        let value = blocks.fingerprints.get(target_name).ok_or_else(|| {
-                            LayoutError::BlockNotFound(format!(
-                                "fingerprint target '{target_name}' from block '{block_name}'. Available blocks: {}",
-                                blocks.fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
-                            ))
-                        })?;
-                        let bytes = DataValue::U64(*value).to_bytes(
+                        let value = planned.fingerprints[target.block_name(planned.name)];
+                        let bytes = DataValue::U64(value).to_bytes(
                             leaf.scalar_type,
                             config.abi.endianness(),
                             true,
                         )?;
-                        value_sink.record_value(
-                            &field_path,
-                            || Ok((*value).into()),
-                        )?;
+                        value_sink.record_value(&field_path, || Ok(value.into()))?;
                         Ok(bytes)
                     }
-                    _ => leaf.emit_bytes(
-                        data_source,
-                        &config,
-                        value_sink,
-                        &field_path,
-                        scalar_abi,
-                    ),
+                    _ => leaf.emit_bytes(data_source, &config, value_sink, &field_path, scalar_abi),
                 }
             })()
             .map_err(|error| in_field_path(path, error))?;

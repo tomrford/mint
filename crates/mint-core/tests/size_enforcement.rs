@@ -149,7 +149,8 @@ length = 0x40
 }
 
 /// Literal (`value`) and `const` shapes are knowable from the layout alone, so
-/// `build`, `header` and `fingerprint` must accept and reject them alike.
+/// `build`, `header` and `fingerprint` must accept and reject them alike, and
+/// name the rejected block.
 #[test]
 fn literal_shapes_are_validated_alike_by_build_header_and_fingerprint() {
     let outcomes = |name: &str, layout: &str| {
@@ -253,7 +254,8 @@ value = 7
             .zip(outcomes("literal_shape_invalid", &layout))
         {
             match outcome {
-                Err(message) if message.contains(expected) => {}
+                Err(message) if message.contains(expected) && message.contains("block 'block'") => {
+                }
                 other => mismatches.push(format!("{command} for {expected:?}: {other:?}")),
             }
         }
