@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
 
       - name: Check free compiler ABIs
         run: >-
@@ -35,9 +35,9 @@ jobs:
       - name: Permit nested FHS installer sandbox
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Checkout source code
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
       - name: Check TI C28x EABI
         run: nix build --print-build-logs .#checks.x86_64-linux.abi-ti-c28x-eabi
 
@@ -46,18 +46,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: rustfmt, clippy
 
       - name: Check formatting
         run: cargo fmt --all -- --check
-
-      - name: Check workspace
-        run: cargo check --workspace --all-features --locked
 
       - name: Check clippy
         run: cargo clippy --workspace --all-targets --all-features --locked
@@ -72,13 +69,29 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Check workspace
-        run: cargo check --workspace --all-features --locked
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Test workspace
         run: cargo test --workspace --locked
+
+  msrv:
+    name: Minimum supported Rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - name: Read rust-version
+        id: msrv
+        run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mint-core") | .rust_version')" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets --locked
