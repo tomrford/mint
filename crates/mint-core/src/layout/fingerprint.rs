@@ -112,7 +112,6 @@ fn hash_node(
             coordinates,
             scalar_abi,
             leaf,
-            dimensions,
         } => {
             hasher.update(&[1]);
             hash_usize(coordinates.offset, hasher)?;
@@ -122,7 +121,7 @@ fn hash_node(
             hash_usize(scalar_abi.alignment, hasher)?;
             hash_usize(scalar_abi.array_stride, hasher)?;
             hash_scalar(leaf.scalar_type, hasher);
-            hash_dimensions(dimensions.as_ref(), hasher)?;
+            hash_dimensions(leaf.size.as_ref(), hasher)?;
             match &leaf.source {
                 EntrySource::Bitmap(fields) => {
                     hasher.update(&[1]);
@@ -140,12 +139,12 @@ fn hash_node(
                 }
                 EntrySource::Ref(RefSource::List(targets)) => {
                     hasher.update(&[2, 3]);
-                    let Some(SizeSource::OneD(capacity)) = dimensions else {
+                    let Some(SizeSource::OneD(capacity)) = leaf.size else {
                         return Err(layout_size_error(
                             "ref list dimensions disappeared after resolution",
                         ));
                     };
-                    for index in 0..*capacity {
+                    for index in 0..capacity {
                         match targets.get(index) {
                             Some(RefTarget::Path(path)) => {
                                 hash_resolved_ref_target(path, resolved, hasher)?;

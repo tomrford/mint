@@ -197,7 +197,6 @@ pub(crate) enum ResolvedNode<'a> {
         coordinates: ResolvedCoordinates,
         scalar_abi: ScalarAbi,
         leaf: &'a LeafEntry,
-        dimensions: Option<SizeSource>,
     },
 }
 
@@ -264,8 +263,7 @@ fn collect_entry<'a>(
     match entry {
         Entry::Leaf(leaf) => {
             let scalar_abi = abi.scalar(leaf.scalar_type)?;
-            let dimensions = leaf.size;
-            if let Some(dimensions) = &dimensions {
+            if let Some(dimensions) = &leaf.size {
                 let zero = match dimensions {
                     SizeSource::OneD(length) => *length == 0,
                     SizeSource::TwoD(extents) => extents.contains(&0),
@@ -277,7 +275,7 @@ fn collect_entry<'a>(
                     )));
                 }
             }
-            let size = leaf_size(scalar_abi, dimensions.as_ref())?;
+            let size = leaf_size(scalar_abi, leaf.size.as_ref())?;
             match &leaf.source {
                 EntrySource::Bitmap(fields) => {
                     leaf.validate_bitmap(fields, scalar_abi)?;
@@ -301,7 +299,6 @@ fn collect_entry<'a>(
                 },
                 scalar_abi,
                 leaf,
-                dimensions,
             })
         }
         Entry::Branch(entries) => {
