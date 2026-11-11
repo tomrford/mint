@@ -49,11 +49,11 @@ impl DataArgs {
     pub fn path(&self) -> Option<&std::path::Path> {
         self.xlsx
             .as_deref()
-            .or_else(|| {
-                self.json
-                    .as_deref()
-                    .filter(|input| !input.trim_start().starts_with('{'))
-            })
+            .or_else(|| self.json.as_deref().filter(|input| !is_inline_json(input)))
             .map(std::path::Path::new)
     }
+}
+
+pub(crate) fn is_inline_json(input: &str) -> bool {
+    input.trim_start().starts_with('{')
 }
