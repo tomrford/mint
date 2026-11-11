@@ -118,9 +118,11 @@ impl<'a> ResolvedLayout<'a> {
                         } else {
                             String::new()
                         };
+                        let mut available = nodes.keys().map(String::as_str).collect::<Vec<_>>();
+                        available.sort_unstable();
                         return Err(layout_size_error(format!(
                             "ref target{location} '{path}' not found in block. Available fields: [{}]",
-                            nodes.keys().cloned().collect::<Vec<_>>().join(", ")
+                            available.join(", ")
                         )));
                     }
                 }

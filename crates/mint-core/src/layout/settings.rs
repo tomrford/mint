@@ -44,9 +44,11 @@ impl MintConfig {
             ));
         }
         self.checksum.get(name).ok_or_else(|| {
-            let available = self.checksum.keys().cloned().collect::<Vec<_>>().join(", ");
+            let mut available = self.checksum.keys().map(String::as_str).collect::<Vec<_>>();
+            available.sort_unstable();
             LayoutError::DataValueExportFailed(format!(
-                "Checksum config '{name}' not found in [mint.checksum]. Available: [{available}]"
+                "Checksum config '{name}' not found in [mint.checksum]. Available: [{}]",
+                available.join(", ")
             ))
         })
     }

@@ -21,8 +21,11 @@ pub const MAX_RESOLVED_BLOCK_SIZE: usize = 256 * 1024 * 1024;
 
 pub fn load_layout(filename: impl AsRef<Path>) -> Result<Config, LayoutError> {
     let filename = filename.as_ref();
-    let text = std::fs::read_to_string(filename).map_err(|_| {
-        LayoutError::FileError(format!("failed to open file: {}", filename.display()))
+    let text = std::fs::read_to_string(filename).map_err(|error| {
+        LayoutError::FileError(format!(
+            "failed to read file {}: {error}",
+            filename.display()
+        ))
     })?;
 
     let ext = filename
