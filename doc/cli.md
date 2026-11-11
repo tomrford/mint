@@ -52,11 +52,7 @@ mint header layout.toml -o layout.h
 mint header layout.toml#config layout.toml#data -o blocks.h
 ```
 
-The command renders and validates the complete header before writing it. Each block becomes a `<block>_t` typedef. Dotted paths become inline nested structs, array dimensions use generated macros, and named bitmap regions receive `_SHIFT` and `_MASK` macros. Refs remain `uint16_t`, `uint32_t` or `uint64_t` address storage, including integer arrays for reflists; they are not emitted as C pointer objects. The output contains storage types and shape only; it does not contain data values, block addresses, packing directives, or explicit padding members.
-
-Header generation runs the build's static validation for selected blocks. It rejects invalid resolved shapes and selector-only errors, including block data that is not a table of fields, dangling const names, `value` and `const` literals whose shape, string storage type or length conflicts with their `size` or `SIZE`, zero-extent arrays, invalid checksum placement, invalid reflist lengths, ref addresses that do not fit their storage type and emitted ranges outside the 32-bit address space. Layouts combined into one header must use ABI profiles with the same layout family, byte order and addressable-unit width.
-
-Generated structs use the selected ABI profile's aggregate rules and include C11 `_Static_assert` checks for every field offset and final structure size. The checks use `CHAR_BIT` so their expected values remain expressed in octets.
+The command renders and validates the complete header before writing it. See [C header generation](layout.md#c-header-generation) for the generated output and validation rules.
 
 ---
 
@@ -74,15 +70,13 @@ Inspect one profile's byte order, target addressable unit, output-address conven
 mint abi show generic-le
 ```
 
-`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` use the same natural-width layout family. `tricore-eabi-le` and `ti-c28x-eabi` align 64-bit scalars to 4 octets while retaining 8-octet storage and array stride. They also give every aggregate larger than one octet at least 2-octet alignment; a single-octet aggregate stays byte-aligned. Strings use `u8` or `u16` storage, with each UTF-8 byte zero-extended into one scalar element in ABI byte order. C28x rejects exact-width 8-bit fields, so its strings use `type = "u16"`, one byte per 16-bit word. Profile names do not contribute to ABI fingerprints: profiles with the same effective layout and address semantics remain compatible.
-
-Output format remains an independent build option. Intel HEX and Motorola S-record output use standard octet addresses. For C28x, record addresses are twice the target word address and record width must be an even number of octets. Mint does not currently emit TI's native word-addressed HEX dialect.
+See [ABI profiles](layout.md#abi-profiles) for how the profiles differ and how C28x word addresses map to output addresses.
 
 ---
 
 ## ABI fingerprints
 
-`mint fingerprint` calculates fingerprints without a data source or block build. Selecting one block fully validates that block and resolves the ABI shape of its fingerprint targets without fully validating those targets or resolving unrelated siblings. It then prints exactly the selected block's 16-character lowercase hexadecimal value:
+`mint fingerprint` calculates fingerprints without a data source or block build. Selecting one block prints exactly that block's 16-character lowercase hexadecimal value:
 
 ```bash
 mint fingerprint layout.toml#config
@@ -92,7 +86,7 @@ mint fingerprint layout.toml#config
 206a2310660bb1cf
 ```
 
-Selecting a file fully validates every block and prints them in declaration order as `<block> <fingerprint>`:
+Selecting a file prints every block in declaration order as `<block> <fingerprint>`:
 
 ```bash
 mint fingerprint layout.toml
@@ -103,9 +97,7 @@ config 206a2310660bb1cf
 data c1c13126ea0f1e6b
 ```
 
-Stdout contains only these values. Diagnostics use stderr and failures return a non-zero exit code, so the command is suitable for build-system extraction. The fingerprint is also available as a macro when `mint header` encounters a `fingerprint` field.
-
-The fingerprint includes the effective ABI shape and ref topology. Resolved reflist targets contribute their target kind, shape and position. Literal addresses contribute an opaque marker but not their numeric values, so changing an external address does not change ABI compatibility.
+Stdout contains only these values. Diagnostics use stderr and failures return a non-zero exit code, so the command is suitable for build-system extraction. The fingerprint is also available as a macro when `mint header` encounters a `fingerprint` field. See [ABI fingerprints](layout.md#abi-fingerprints) for which blocks each selector validates and what the fingerprint covers.
 
 For configure-time CMake integration, track the layout as a configure dependency and pass the bare selected-block value into firmware compilation:
 
