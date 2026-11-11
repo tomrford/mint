@@ -33,8 +33,8 @@ impl JsonDataSource {
 
     pub fn from_path(path: impl AsRef<Path>, variants: &[String]) -> Result<Self, DataError> {
         let path = path.as_ref();
-        let json_content = std::fs::read_to_string(path).map_err(|_| {
-            DataError::FileError(format!("failed to open file: {}", path.display()))
+        let json_content = std::fs::read_to_string(path).map_err(|error| {
+            DataError::FileError(format!("failed to read file {}: {error}", path.display()))
         })?;
 
         Self::from_str(&json_content, variants)
