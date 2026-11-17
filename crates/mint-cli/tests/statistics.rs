@@ -30,6 +30,7 @@ value = { value = 1, type = "u16" }
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(!stdout.contains("Build Time"), "{stdout}");
     assert!(stdout.contains("Address Range (target units)"), "{stdout}");
     assert!(stdout.contains("Reserved/Allocated (bytes)"), "{stdout}");
     assert!(stdout.contains("0x1000-0x107F"), "{stdout}");
