@@ -9,7 +9,7 @@ pub struct DataArgs {
         value_name = "FILE",
         group = "datasource",
         requires = "variant_selectors",
-        help = "Path to the Excel variants file"
+        help = "Excel workbook data source"
     )]
     pub xlsx: Option<String>,
 
@@ -18,7 +18,7 @@ pub struct DataArgs {
         value_name = "NAME",
         requires = "xlsx",
         conflicts_with = "json",
-        help = "Main sheet name in Excel"
+        help = "Excel sheet holding the Name and variant columns [default: Main]"
     )]
     pub main_sheet: Option<String>,
 
@@ -40,7 +40,7 @@ pub struct DataArgs {
         group = "variant_selectors",
         value_delimiter = '/',
         value_parser = clap::builder::NonEmptyStringValueParser::new(),
-        help = "Variant columns to use in priority order (separate with '/')"
+        help = "Variants to read in priority order, separated by '/'; a value missing from one variant falls through to the next"
     )]
     pub variants: Vec<String>,
 }
