@@ -389,10 +389,12 @@ impl LeafEntry {
             ));
         }
         let value = consts.get(name).ok_or_else(|| {
-            let available = consts.keys().cloned().collect::<Vec<_>>().join(", ");
+            let mut available = consts.keys().map(String::as_str).collect::<Vec<_>>();
+            available.sort_unstable();
             LayoutError::DataValueExportFailed(format!(
                 "Const '{}' not found in [mint.const]. Available: [{}]",
-                name, available
+                name,
+                available.join(", ")
             ))
         })?;
         match (size, value) {
@@ -687,7 +689,7 @@ impl LeafEntry {
             ValueSource::Single(DataValue::Str(value)) => value.len(),
             _ => {
                 return Err(LayoutError::DataValueExportFailed(
-                    "String expected for string type.".into(),
+                    "Array or string expected for a field with size/SIZE.".into(),
                 ));
             }
         };

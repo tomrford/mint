@@ -27,7 +27,7 @@ pub struct OutputArgs {
         value_name = "N",
         default_value_t = 32u16,
         value_parser = clap::value_parser!(u16).range(1..=128),
-        help = "Number of bytes per HEX data record (1..=128)",
+        help = "Number of bytes per output data record (1..=128)",
     )]
     pub record_width: u16,
 

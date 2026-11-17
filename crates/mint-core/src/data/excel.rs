@@ -23,7 +23,8 @@ impl ExcelDataSourceOptions {
 
 /// Excel-backed data source for variants.
 pub struct ExcelDataSource {
-    names: Vec<String>,
+    /// Row index of each name; the first row wins for repeated blank names.
+    name_rows: HashMap<String, usize>,
     variant_columns: Vec<Vec<Data>>,
     sheets: HashMap<String, Range<Data>>,
 }
@@ -34,8 +35,8 @@ impl ExcelDataSource {
         options: ExcelDataSourceOptions,
     ) -> Result<Self, DataError> {
         let path = path.as_ref();
-        let mut workbook: Xlsx<_> = open_workbook(path).map_err(|_| {
-            DataError::FileError(format!("failed to open file: {}", path.display()))
+        let mut workbook: Xlsx<_> = open_workbook(path).map_err(|error| {
+            DataError::FileError(format!("failed to open file {}: {error}", path.display()))
         })?;
 
         let main_sheet_name = options.main_sheet.as_str();
@@ -43,7 +44,9 @@ impl ExcelDataSource {
         let main_sheet = worksheets
             .iter()
             .find_map(|(name, sheet)| (name == main_sheet_name).then_some(sheet))
-            .ok_or_else(|| DataError::MiscError("Main sheet not found.".to_owned()))?;
+            .ok_or_else(|| {
+                DataError::MiscError(format!("main sheet '{main_sheet_name}' not found"))
+            })?;
 
         let rows: Vec<_> = main_sheet.rows().collect();
         let (headers, data_rows) = match rows.split_first() {
@@ -75,15 +78,20 @@ impl ExcelDataSource {
             .filter(|(name, _)| name != main_sheet_name)
             .collect();
 
+        let mut name_rows = HashMap::with_capacity(names.len());
+        for (row, name) in names.into_iter().enumerate() {
+            name_rows.entry(name).or_insert(row);
+        }
+
         Ok(Self {
-            names,
+            name_rows,
             variant_columns,
             sheets,
         })
     }
 
     fn retrieve_cell(&self, name: &str) -> Result<&Data, DataError> {
-        let index = self.names.iter().position(|n| n == name).ok_or_else(|| {
+        let index = *self.name_rows.get(name).ok_or_else(|| {
             DataError::RetrievalError(format!("name '{name}' not found in data sheet"))
         })?;
 
@@ -96,6 +104,18 @@ impl ExcelDataSource {
         Err(DataError::RetrievalError(
             "data not found in any variant column".to_owned(),
         ))
+    }
+
+    fn array_sheet(&self, sheet_name: &str) -> Result<&Range<Data>, DataError> {
+        self.sheets.get(sheet_name).ok_or_else(|| {
+            let mut available: Vec<_> = self.sheets.keys().map(String::as_str).collect();
+            available.sort_unstable();
+            DataError::RetrievalError(format!(
+                "Sheet not found: '{}'. Available sheets: {}",
+                sheet_name,
+                available.join(", ")
+            ))
+        })
     }
 
     fn cell_eq(cell: &Data, target: &str) -> bool {
@@ -146,8 +166,9 @@ impl ExcelDataSource {
         variants: &[String],
     ) -> Result<Vec<Vec<Data>>, DataError> {
         let mut columns = Vec::new();
+        let mut seen = HashSet::new();
 
-        for v in variants {
+        for v in variants.iter().filter(|variant| seen.insert(*variant)) {
             let mut matches = headers
                 .iter()
                 .enumerate()
@@ -190,14 +211,7 @@ impl DataSource for ExcelDataSource {
             };
 
             if let Some(sheet_name) = cell_string.strip_prefix('#') {
-                let sheet = self.sheets.get(sheet_name).ok_or_else(|| {
-                    let available: Vec<_> = self.sheets.keys().map(|s| s.as_str()).collect();
-                    DataError::RetrievalError(format!(
-                        "Sheet not found: '{}'. Available sheets: {}",
-                        sheet_name,
-                        available.join(", ")
-                    ))
-                })?;
+                let sheet = self.array_sheet(sheet_name)?;
 
                 let mut out = Vec::new();
 
@@ -242,14 +256,7 @@ impl DataSource for ExcelDataSource {
                 ))
             })?;
 
-            let sheet = self.sheets.get(sheet_name).ok_or_else(|| {
-                let available: Vec<_> = self.sheets.keys().map(|s| s.as_str()).collect();
-                DataError::RetrievalError(format!(
-                    "Sheet not found: '{}'. Available sheets: {}",
-                    sheet_name,
-                    available.join(", ")
-                ))
-            })?;
+            let sheet = self.array_sheet(sheet_name)?;
 
             let convert = |cell: &Data| -> Result<DataValue, DataError> {
                 match cell {

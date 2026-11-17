@@ -255,15 +255,15 @@ fn resolve_blocks_from_layouts(
     let mut resolved = Vec::new();
     for arg in block_args {
         let layout = layouts.get(&arg.layout).ok_or_else(|| {
-            let available = layouts
+            let mut available = layouts
                 .keys()
                 .map(|layout| layout.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
+                .collect::<Vec<_>>();
+            available.sort_unstable();
             LayoutError::BlockNotFound(format!(
                 "layout '{}'. Available layouts: {}",
                 arg.layout.display(),
-                available
+                available.join(", ")
             ))
         })?;
 
