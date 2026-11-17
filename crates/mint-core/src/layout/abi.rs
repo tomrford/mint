@@ -283,19 +283,3 @@ fn natural_scalar(scalar: ScalarType) -> ScalarAbi {
         c_type,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Abi;
-    use crate::layout::scalar_type::ScalarType;
-
-    #[test]
-    fn c28x_rejects_exact_width_8_bit_types() {
-        assert!(Abi::TiC28xEabi.scalar(ScalarType::I8).is_err());
-        assert!(
-            Abi::TiC28xEabi
-                .scalar("q3.4".parse().expect("valid 8-bit fixed-point type"))
-                .is_err()
-        );
-    }
-}

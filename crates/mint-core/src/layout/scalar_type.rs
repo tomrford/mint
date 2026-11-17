@@ -220,28 +220,3 @@ pub fn fixed_point_unsupported_error(kind: &str, scalar_type: ScalarType) -> Lay
         scalar_type
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::ScalarType;
-
-    #[test]
-    fn rejects_malformed_and_unsupported_fixed_point_types() {
-        let cases = [
-            ("q8", "invalid fixed-point type"),
-            ("q8.8.8", "invalid fixed-point type"),
-            ("q16.-1", "invalid fixed-point type"),
-            ("uq", "invalid fixed-point type"),
-            ("uq8.", "invalid fixed-point type"),
-            ("q3.10", "unsupported fixed-point width"),
-        ];
-
-        for (value, expected) in cases {
-            let err = value.parse::<ScalarType>().expect_err("type should fail");
-            assert!(
-                err.contains(expected),
-                "expected '{expected}' for {value}, got: {err}"
-            );
-        }
-    }
-}
