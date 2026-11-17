@@ -33,8 +33,6 @@ ref_in = true              # Reflect input bytes
 ref_out = true             # Reflect output CRC
 ```
 
-Multiple named checksum configurations can be defined (e.g., `[mint.checksum.crc32]`, `[mint.checksum.crc32c]`). Each is referenced by name in block data fields.
-
 Reusable constants are defined in `[mint.const]`. Const values use the same literal shapes as field `value`: scalar values, strings, booleans, and one-dimensional arrays. The const table is flat; quote names that contain dots.
 
 ```toml
@@ -53,16 +51,16 @@ The required `abi` setting selects the layout rules used for every block in the 
 
 | ABI | Byte order | Address unit | Verification |
 | --- | --- | --- | --- |
-| `generic-le` | little-endian | 8 bits | Representative continuous check with GCC 15.2.0 (`arm-none-eabi`) in little-endian mode on Linux/Nix |
-| `generic-be` | big-endian | 8 bits | Representative continuous check with GCC 15.2.0 (`arm-none-eabi`) in big-endian mode on Linux/Nix |
-| `arm-aapcs32-le` | little-endian | 8 bits | Continuously checked with GCC 15.2.0 (`arm-none-eabi`), AAPCS soft-float Cortex-M3, on Linux/Nix |
+| `generic-le` | little-endian | 8 bits | Representative continuous check with GCC (`arm-none-eabi`) in little-endian mode on Linux/Nix |
+| `generic-be` | big-endian | 8 bits | Representative continuous check with GCC (`arm-none-eabi`) in big-endian mode on Linux/Nix |
+| `arm-aapcs32-le` | little-endian | 8 bits | Continuously checked with GCC (`arm-none-eabi`), AAPCS soft-float Cortex-M3, on Linux/Nix |
 | `tricore-eabi-le` | little-endian | 8 bits | Manually validated with HighTec TriCore GCC 4.9.4 (HDP-v4.9.4.1), default core and `-mtc162` |
-| `riscv-ilp32-le` | little-endian | 8 bits | Continuously checked with GCC 15.2.0 (`riscv32-none-elf`), RV32IMAC ILP32, on Linux/Nix |
-| `ti-c28x-eabi` | little-endian | 16 bits | Continuously checked with TI C2000 CGT 25.11.0.LTS EABI on Linux/Nix |
+| `riscv-ilp32-le` | little-endian | 8 bits | Continuously checked with GCC (`riscv32-none-elf`), RV32IMAC ILP32, on Linux/Nix |
+| `ti-c28x-eabi` | little-endian | 16 bits | Continuously checked with TI C2000 CGT EABI on Linux/Nix |
 
 “Continuously checked” means CI compiles generated headers for the example layout and `tests/abi/pack.toml` and checks scalar storage and alignment, array stride, nested aggregates (including `u32` then nested `u64` packing), field offsets, final size, byte order and `CHAR_BIT`. A manual compiler result must be labelled “Manually validated” with its compiler version and flags; it is not a recurring CI result. TriCore compilers are proprietary and license-managed, so `tests/abi/check-tricore.sh` reproduces that same probe locally with a licensed compiler supplied through `TRICORE_GCC` and `TRICORE_FLAGS`. The recorded HighTec result uses those two layouts plus `tests/abi/bytes.toml`, whose byte-only aggregate proves the EABI minimum two-octet aggregate alignment; re-run the script and update the table when the toolchain changes.
 
-`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride, and raise the alignment of aggregates larger than one octet to at least 2 octets; a single-octet aggregate keeps 1-octet alignment. C28x rejects `u8`, `i8` and 8-bit fixed-point fields because its C library has 16-bit `char` and no exact-width 8-bit integer types. Strings can use `u8` or `u16` storage; C28x strings use `type = "u16"`, with one UTF-8 byte zero-extended into each 16-bit word. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
+`generic-le`, `generic-be`, `arm-aapcs32-le` and `riscv-ilp32-le` share the same natural-width scalar and aggregate rules. TriCore and C28x align 64-bit scalars to 4 octets while retaining their 8-octet storage size and array stride, and raise the alignment of aggregates larger than one octet to at least 2 octets; a single-octet aggregate keeps 1-octet alignment. C28x rejects `u8`, `i8` and 8-bit fixed-point fields because its C library has 16-bit `char` and no exact-width 8-bit integer types. Run `mint abi list` for accepted names or `mint abi show ABI` for the effective scalar table.
 
 The ABI does not select the output container: `--format hex` and `--format mot` remain independent choices. Both use standard octet-addressed Intel HEX or Motorola S-record addresses. For C28x, Mint multiplies each target word address by two at the output boundary and requires an even output record width. This deliberately matches byte-addressed image tools and bootloaders; Mint does not currently emit TI's native word-addressed HEX dialect.
 
@@ -91,7 +89,7 @@ Every block name and data field path segment must be a valid C identifier matchi
 
 ### Aggregate alignment
 
-Each ABI family lays out dotted paths as naturally aligned C aggregates. Every leaf gets its storage size, alignment and array stride from the selected profile. The generic, ARM and RISC-V profiles align exact-width integers to their width, `f32` to 4 octets and `f64` to 8 octets. TriCore and C28x use 4-octet alignment for 64-bit scalars while retaining 8-octet storage and array stride. Each branch aligns to the maximum alignment of its children; the TriCore and C28x family raises this to at least 2 octets for branches larger than one octet. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
+Each ABI family lays out dotted paths as naturally aligned C aggregates. Every leaf gets its storage size, alignment and array stride from the selected profile. The generic, ARM and RISC-V profiles align exact-width integers to their width, `f32` to 4 octets and `f64` to 8 octets. Each branch aligns to the maximum alignment of its children; the TriCore and C28x family raises this to at least 2 octets for branches larger than one octet. Children are laid out recursively in their parsed order, and each branch is padded to a multiple of its alignment before the next sibling. The root `block.data` aggregate receives the same tail padding, so the reserved size matches `sizeof` for the equivalent C struct under this ABI.
 
 All alignment gaps and aggregate tail padding use the block header's configured `padding` byte. Mint does not support packed structs. Use `mint abi show` to inspect the selected profile before matching a generated header to a compiler target.
 
