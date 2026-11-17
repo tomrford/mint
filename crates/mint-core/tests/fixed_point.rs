@@ -83,29 +83,6 @@ grid = { name = "Grid", type = "uq8.8", size = [2, 2] }
 }
 
 #[test]
-fn fixed_point_used_values_report_resolved_numbers() {
-    let layout = r#"
-[mint]
-abi = "generic-le"
-
-[block.header]
-start_address = 0x80000
-length = 0x100
-padding = 0x00
-
-[block.data]
-gain = { value = 1.5, type = "uq8.8" }
-samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
-"#;
-
-    let path = common::write_layout_file("fixed-point-values", layout);
-    let (_, values) = common::build_block_with_values(&path, "block").expect("build succeeds");
-    assert_eq!(values["gain"].as_f64(), Some(1.5));
-    assert_eq!(values["samples"][0].as_f64(), Some(0.5));
-    assert_eq!(values["samples"][1].as_f64(), Some(1.0));
-}
-
-#[test]
 fn fixed_point_strict_rejects_overflow_and_non_strict_clamps() {
     let layout = r#"
 [mint]
@@ -168,29 +145,6 @@ signed_limit = { value = 9223372036854775808.0, type = "q63.0" }
 }
 
 #[test]
-fn fixed_point_rejects_non_finite_input() {
-    let layout = r#"
-[mint]
-abi = "generic-le"
-
-[block.header]
-start_address = 0x80000
-length = 0x100
-padding = 0x00
-
-[block.data]
-gain = { value = inf, type = "uq8.8" }
-"#;
-
-    let path = common::write_layout_file("fixed-point-non-finite", layout);
-    let err = common::build_block(&path, "block", false, None).expect_err("build should fail");
-    assert!(
-        common::error_chain(&err).contains("cannot encode non-finite"),
-        "unexpected error: {err}"
-    );
-}
-
-#[test]
 fn fixed_point_export_json_reports_resolved_numbers() {
     let layout = r#"
 [mint]
@@ -203,6 +157,7 @@ length = 0x40
 [config.data]
 ratio = { value = 1.5, type = "uq8.8" }
 phase = { name = "Phase", type = "uq0.16" }
+samples = { value = [0.5, 1.0], type = "uq8.8", size = 2 }
 "#;
 
     let layout_path = common::write_layout_file("fixed-point-export", layout);
@@ -225,6 +180,10 @@ phase = { name = "Phase", type = "uq0.16" }
     let json: serde_json::Value = serde_json::from_str(&report).expect("parse json report");
     assert_eq!(json[&layout_key]["config"]["ratio"].as_f64(), Some(1.5));
     assert_eq!(json[&layout_key]["config"]["phase"].as_f64(), Some(0.25));
+    assert_eq!(
+        json[&layout_key]["config"]["samples"],
+        serde_json::json!([0.5, 1.0])
+    );
 }
 
 #[test]

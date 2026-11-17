@@ -115,7 +115,12 @@ field = { value = 1, type = "u8" }
     );
     let err = mint_core::layout::load_layout(&path).expect_err("layout should be rejected");
 
-    assert!(err.to_string().contains("collides"), "{err}");
+    assert!(
+        err.to_string().contains(
+            "[mint.const] key 'block.start_address' collides with auto-promoted block header const"
+        ),
+        "{err}"
+    );
 }
 
 #[test]
@@ -139,5 +144,9 @@ field = { value = 1, type = "u8" }
     );
     let err = mint_core::layout::load_layout(&path).expect_err("layout should be rejected");
 
-    assert!(err.to_string().contains("failed to parse file"), "{err}");
+    let message = err.to_string();
+    assert!(
+        message.contains("line 5") && message.contains("[mint.const.block]"),
+        "{message}"
+    );
 }

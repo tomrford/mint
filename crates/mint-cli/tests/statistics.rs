@@ -1,5 +1,3 @@
-use std::process::Command;
-
 #[path = "common/mod.rs"]
 mod common;
 
@@ -20,7 +18,7 @@ value = { value = 1, type = "u16" }
 "#,
     );
     let output_path = common::unique_out_path("c28x_stats", "hex");
-    let output = Command::new(env!("CARGO_BIN_EXE_mint"))
+    let output = common::mint_command()
         .args(["build", &layout, "--stats", "-o"])
         .arg(output_path)
         .output()
