@@ -18,22 +18,12 @@ cargo add mint-core
 cargo install mint-cli
 ```
 
-From a checkout, install the CLI with:
-
-```bash
-cargo install --path crates/mint-cli
-```
-
 ### Workspace Commands
 
 ```bash
 nix develop -c cargo build
 nix develop -c cargo test
 nix develop -c cargo clippy --workspace
-nix develop -c cargo run -p mint-cli -- build block.toml --xlsx data.xlsx --variants Default
-nix develop -c cargo run -p mint-cli -- header block.toml -o blocks.h
-nix develop -c cargo run -p mint-cli -- fingerprint block.toml
-nix develop -c cargo run -p mint-cli -- abi list
 ```
 
 ### Documentation
