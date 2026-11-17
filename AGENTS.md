@@ -1,6 +1,6 @@
 ## Project Overview
 
-mint is an embedded development tool that works with TOML layout files and data sources (Excel or JSON) to assemble and export static binary files for flashing to microcontrollers. Signing and post-processing are handled downstream (see the hexy project).
+mint is an embedded development tool that works with TOML layout files and data sources (Excel or JSON) to build flash blocks (Intel HEX or Motorola S-Record) for microcontrollers, with matching C headers and ABI fingerprints. Signing and post-processing are handled downstream (see the hexy project).
 
 ## Architecture & Codebase
 
@@ -16,14 +16,14 @@ mint is a Cargo workspace with two crates:
 3. **Emit**: `layout/block.rs` starts each block as a padding-filled buffer. Data values, refs, fingerprints and prefix checksums are written at resolved offsets in field order.
 4. **Output**: `build.rs` turns emitted blocks into address ranges and rejects overlaps; `output/` renders the selected format.
 
+### Documentation
+
+The layout, data-source and command-line reference lives in `crates/mint-cli/doc/` so the binary can embed it: `mint skill <topic>` prints those pages and `mint skill` prints the agent guide in `crates/mint-cli/skill/mint/SKILL.md`. Each fact belongs in one page; the guide covers workflow and pitfalls and points at the reference instead of restating it.
+
 ## Development Environment
 
-- **Nix**: Use `nix develop` for the environment.
-- **Commands**:
-  - Build: `nix develop -c cargo build`
-  - Test: `nix develop -c cargo test` (Always run after changes)
-  - Format: `nix develop -c cargo fmt` (Run before submitting)
-  - Clippy: `nix develop -c cargo clippy --workspace` (Run before submitting)
+- Run `cargo test --workspace` after changes, and `cargo fmt` and `cargo clippy --workspace --all-targets --all-features` before submitting. `nix develop` provides a matching toolchain but nothing else requires it.
+- The ABI compiler checks need Nix on x86_64 Linux: `nix build .#checks.x86_64-linux.abi-<name>` compiles generated headers with each target compiler (see `flake.nix` for the check names). TriCore compilers are licensed, so `tests/abi/check-tricore.sh` runs the same probe, plus `tests/abi/bytes.toml`, with a compiler given through `TRICORE_GCC` and `TRICORE_FLAGS`. Update the ABI table in `crates/mint-cli/doc/layout.md` when a compiler result changes.
 
 ## Testing rules
 

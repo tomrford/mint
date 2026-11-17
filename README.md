@@ -7,7 +7,7 @@ mint builds static binary flash blocks from TOML layout files and Excel or JSON 
 mint is available as:
 
 - `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output, C header rendering, ABI fingerprints, and in-memory build APIs.
-- `mint-cli` - Implements the `mint` command-line tool for building flash files and generating C headers and ABI fingerprints.
+- `mint-cli` - Implements the `mint` command-line tool for building flash blocks and generating C headers and ABI fingerprints.
 
 ![img](https://raw.githubusercontent.com/tomrford/mint/main/doc/img.png)
 
@@ -18,20 +18,14 @@ cargo add mint-core
 cargo install mint-cli
 ```
 
-### Workspace Commands
-
-```bash
-nix develop -c cargo build
-nix develop -c cargo test
-nix develop -c cargo clippy --workspace
-```
-
 ### Documentation
 
-- [CLI reference](https://github.com/tomrford/mint/blob/main/doc/cli.md)
-- [Layout files](https://github.com/tomrford/mint/blob/main/doc/layout.md)
-- [Data sources](https://github.com/tomrford/mint/blob/main/doc/sources.md)
+- [Layout files](https://github.com/tomrford/mint/blob/main/crates/mint-cli/doc/layout.md)
+- [Data sources](https://github.com/tomrford/mint/blob/main/crates/mint-cli/doc/sources.md)
+- [Command line](https://github.com/tomrford/mint/blob/main/crates/mint-cli/doc/cli.md)
 - [Example layouts & data](https://github.com/tomrford/mint/tree/main/doc/examples)
+
+The `mint` binary carries the same pages: `mint skill layout`, `mint skill sources` and `mint skill cli` print them, and `mint skill` prints a guide for coding agents.
 
 ### Quick Start
 

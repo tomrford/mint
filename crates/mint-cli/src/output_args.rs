@@ -18,7 +18,7 @@ pub struct OutputArgs {
         long,
         value_name = "FILE",
         default_value = "out.hex",
-        help = "Output file path"
+        help = "Output file path; missing parent directories are created"
     )]
     pub out: PathBuf,
 
@@ -27,7 +27,7 @@ pub struct OutputArgs {
         value_name = "N",
         default_value_t = 32u16,
         value_parser = clap::value_parser!(u16).range(1..=128),
-        help = "Number of bytes per output data record (1..=128)",
+        help = "Data bytes per output record (1..=128; C28x layouts need an even width)",
     )]
     pub record_width: u16,
 
@@ -35,14 +35,21 @@ pub struct OutputArgs {
         long,
         value_parser = parse_output_format,
         default_value = "hex",
-        help = "Output format: hex or mot",
+        help = "Output format: hex (Intel HEX) or mot (Motorola S-Record)",
     )]
     pub format: OutputFormat,
 
-    #[arg(long, value_name = "FILE", help = "Export used values as JSON")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Write the values each block used as JSON, keyed by layout file then block"
+    )]
     pub export_json: Option<PathBuf>,
 
-    #[arg(long, help = "Show detailed build statistics")]
+    #[arg(
+        long,
+        help = "Print each block's address range, space used and checksum"
+    )]
     pub stats: bool,
 
     #[arg(long, help = "Suppress all output except errors")]
