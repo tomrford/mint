@@ -9,8 +9,6 @@ mint is available as:
 - `mint-core` - Rust library crate for layout parsing, data sources, bytestream assembly, output, C header rendering, ABI fingerprints, and in-memory build APIs.
 - `mint-cli` - Implements the `mint` command-line tool for building flash blocks and generating C headers and ABI fingerprints.
 
-![img](https://raw.githubusercontent.com/tomrford/mint/main/doc/img.png)
-
 ### Install
 
 ```bash

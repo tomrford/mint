@@ -50,6 +50,7 @@ pub struct BuildStats {
     pub blocks_processed: usize,
     pub total_allocated: u64,
     pub total_reserved: u64,
+    #[deprecated(note = "Scheduled for removal in mint-core 3.0")]
     pub total_duration: Duration,
     pub block_stats: Vec<BlockStat>,
 }
@@ -57,6 +58,14 @@ pub struct BuildStats {
 impl BuildStats {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[allow(
+        deprecated,
+        reason = "Keep reporting elapsed time to mint-core 2.x callers"
+    )]
+    fn record_duration(&mut self, duration: Duration) {
+        self.total_duration = duration;
     }
 
     pub fn add_block(&mut self, stat: BlockStat) {
@@ -162,7 +171,7 @@ pub fn build(request: BuildRequest<'_>) -> Result<BuildArtifact, MintError> {
         request.strict,
         request.capture_values,
     )?;
-    artifact.stats.total_duration = start_time.elapsed();
+    artifact.stats.record_duration(start_time.elapsed());
     Ok(artifact)
 }
 
@@ -180,7 +189,7 @@ pub fn build_from_layouts(
         request.strict,
         request.capture_values,
     )?;
-    artifact.stats.total_duration = start_time.elapsed();
+    artifact.stats.record_duration(start_time.elapsed());
     Ok(artifact)
 }
 
