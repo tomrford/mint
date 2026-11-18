@@ -122,6 +122,8 @@ Without `--strict`, conversions are lenient: floats truncate toward zero, out-of
 | `name` | string or one-dimensional array | required, `N` |
 | `name` | two-dimensional array | required, `[rows, cols]` |
 
+Literal and const arrays accept numbers and booleans. Use a string value for text stored in a `u8` or `u16` array.
+
 Two-dimensional arrays come only from a data source. A two-dimensional source must have exactly `cols` columns in every row; `size` pads missing rows and `SIZE` rejects them.
 
 Strings are stored as their UTF-8 bytes, one byte per element, zero-extended to the element width in ABI byte order; `size` counts elements, not characters. mint adds no terminator: unused elements take the `padding` byte. On C28x use `type = "u16"`, which stores one byte per 16-bit word.
@@ -200,9 +202,9 @@ config_schema = { fingerprint = "config", type = "u64" }
 
 ## Validation
 
-`mint build`, `mint header` and `mint fingerprint` share layout checks for selected blocks before producing output. Those checks include field layout, block length and address units, the output address range, checksum placement and configuration, and ref targets. A block named only as a fingerprint target is resolved for its shape.
+`mint build`, `mint header` and `mint fingerprint` share layout checks for selected blocks before producing output. Each block's `data` must be a table of fields. Shared checks cover field layout, literal and const shapes and lengths, block length and address units, the output address range, checksum placement and configuration, and ref targets. A block named only as a fingerprint target is resolved for its shape.
 
-`mint build` also checks literal and data-source values as it encodes them and rejects overlapping output ranges.
+`mint build` also checks numeric conversions and data-source values as it encodes them and rejects overlapping output ranges.
 
 ## C header
 
@@ -211,6 +213,8 @@ config_schema = { fingerprint = "config", type = "u64" }
 - a `<block>_t` typedef per block, with dotted paths as inline nested structs. Integer and float fields use `<stdint.h>` types; fixed-point fields use the integer type of their width with the mint type in a comment. Bitmap, checksum, ref and fingerprint fields are integers; refs are address values, not C pointers;
 - `<BLOCK>_START_ADDRESS` and `<BLOCK>_LENGTH`; `<BLOCK>_<PATH>_LEN` for one-dimensional arrays and `_ROWS` and `_COLS` for two-dimensional ones; `<BLOCK>_<PATH>_<NAME>_SHIFT` and `_MASK` for each bitmap sub-field with a `name`; `<BLOCK>_<PATH>_FINGERPRINT` with the expected value of each fingerprint field;
 - `_Static_assert` checks of every field offset and each block struct's size through `sizeof`, `offsetof` and `CHAR_BIT`, so compiling the header with the target compiler checks that it agrees with mint.
+
+The C assertions check struct sizes and offsets. When firmware reads generated flash bytes through native C fields, the block's byte order must match the target. To read a block with a different byte order, decode its fields explicitly.
 
 Macro names are the block name and field path in upper snake case, so `flags` sub-field `EnableDebug` in block `config` becomes `CONFIG_FLAGS_ENABLE_DEBUG_SHIFT`.
 
