@@ -128,19 +128,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
 
-      - name: Extract workspace version
-        id: metadata
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
-        run: |
-          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Check mint-core publish status
         id: core_status
         shell: bash
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
-          VERSION="${{ steps.metadata.outputs.version }}"
           if curl -fsSL -H "User-Agent: mint-release-workflow" "https://crates.io/api/v1/crates/mint-core/${VERSION}" >/dev/null; then
             echo "published=true" >> "$GITHUB_OUTPUT"
             echo "mint-core ${VERSION} is already published."
@@ -151,8 +144,9 @@ jobs:
       - name: Check mint-cli publish status
         id: cli_status
         shell: bash
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
-          VERSION="${{ steps.metadata.outputs.version }}"
           if curl -fsSL -H "User-Agent: mint-release-workflow" "https://crates.io/api/v1/crates/mint-cli/${VERSION}" >/dev/null; then
             echo "published=true" >> "$GITHUB_OUTPUT"
             echo "mint-cli ${VERSION} is already published."
@@ -178,8 +172,9 @@ jobs:
       - name: Wait for mint-core index
         if: steps.cli_status.outputs.published != 'true'
         shell: bash
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
-          VERSION="${{ steps.metadata.outputs.version }}"
           for attempt in {1..30}; do
             if curl -fsSL -H "User-Agent: mint-release-workflow" "https://crates.io/api/v1/crates/mint-core/${VERSION}" >/dev/null; then
               exit 0
