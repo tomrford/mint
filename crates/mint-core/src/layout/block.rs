@@ -1,25 +1,21 @@
-use super::abi::Abi;
-use super::entry::{EntrySource, LeafEntry, RefSource, SizeSource, Slot};
+use super::abi::Endianness;
+use super::entry::{LeafEntry, SizeSource, Slot};
 use super::error::{LayoutError, in_field_path};
-use super::fingerprint::PlannedLayout;
 use super::header::Header;
-use super::resolved::ResolvedLayout;
+use super::resolved::{LeafBinding, PlannedBlock, ResolvedLeafEntry};
 use super::settings::MintConfig;
 use super::used_values::ValueCollector;
-use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
 use crate::output::checksum;
 
 use indexmap::IndexMap;
 use serde::de::{Error as _, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
-use std::collections::HashMap;
 use std::fmt;
 
-pub(crate) struct BuildConfig<'a> {
-    pub(crate) abi: Abi,
+pub(crate) struct BuildConfig {
+    pub(crate) endianness: Endianness,
     pub(crate) strict: bool,
-    pub(crate) consts: &'a HashMap<String, ValueSource>,
 }
 
 pub(crate) struct BuildOutput {
@@ -116,19 +112,17 @@ impl<'de> Deserialize<'de> for Entry {
 impl Block {
     pub(crate) fn emit(
         &self,
-        block_name: &str,
-        blocks: &PlannedLayout<'_>,
+        plan: &PlannedBlock<'_>,
+        fingerprints: &IndexMap<String, u64>,
         data_source: Option<&dyn DataSource>,
-        settings: &MintConfig,
         strict: bool,
         value_sink: &mut ValueCollector,
     ) -> Result<BuildOutput, LayoutError> {
-        let resolved = &blocks.blocks[block_name];
+        let resolved = &plan.resolved;
         let total_size = resolved.total_size();
         let config = BuildConfig {
-            abi: settings.abi,
+            endianness: resolved.abi().endianness(),
             strict,
-            consts: &settings.consts,
         };
         let mut buffer = Vec::new();
         buffer.try_reserve_exact(total_size).map_err(|error| {
@@ -139,122 +133,60 @@ impl Block {
         buffer.resize(total_size, self.header.padding);
         let mut checksum_values = Vec::new();
 
-        for (path, coordinates, scalar_abi, leaf) in resolved.emission_leaves() {
-            // Resolution places every leaf inside the `total_size` buffer.
+        for field in &plan.fields {
+            let ResolvedLeafEntry {
+                path,
+                coordinates,
+                scalar_abi,
+                leaf,
+            } = &field.leaf;
             let (prefix, rest) = buffer.split_at_mut(coordinates.offset);
-            let mut slot = Slot::new(&mut rest[..coordinates.size], scalar_abi);
-            (|| -> Result<(), LayoutError> {
-                match &leaf.source {
-                    EntrySource::Ref(_) => Self::emit_ref(
-                        leaf,
-                        resolved,
-                        &self.header,
-                        &config,
-                        value_sink,
-                        path,
-                        &mut slot,
-                    ),
-                    EntrySource::Checksum(config_name) => {
-                        let crc = checksum::calculate_crc(
-                            prefix, settings.checksum_config(config_name)?,
-                        );
-                        checksum_values.push(crc);
-                        value_sink.record_value(path, || Ok(crc.into()))?;
-                        let encoded = DataValue::U64(u64::from(crc)).encode(
-                            leaf.scalar_type, config.abi.endianness(), true,
-                        )?;
-                        slot.write_scalar(encoded);
-                        Ok(())
-                    }
-                    EntrySource::Fingerprint(target) => {
-                        let target_name = target.block_name(block_name);
-                        let value = blocks.fingerprints.get(target_name).ok_or_else(|| {
-                            LayoutError::BlockNotFound(format!(
-                                "fingerprint target '{target_name}' from block '{block_name}'. Available blocks: {}",
-                                blocks.fingerprints.keys().cloned().collect::<Vec<_>>().join(", ")
-                            ))
-                        })?;
-                        let encoded = DataValue::U64(*value).encode(
-                            leaf.scalar_type,
-                            config.abi.endianness(),
-                            true,
-                        )?;
-                        value_sink.record_value(
+            let mut slot = Slot::new(&mut rest[..coordinates.size], *scalar_abi);
+            let mut emit = || -> Result<(), LayoutError> {
+                let value = match &field.binding {
+                    LeafBinding::Source => {
+                        return leaf.emit_from_source(
+                            &mut slot,
+                            data_source,
+                            &config,
+                            value_sink,
                             path,
-                            || Ok((*value).into()),
-                        )?;
-                        slot.write_scalar(encoded);
-                        Ok(())
+                        );
                     }
-                    _ => leaf.emit_into(
-                        &mut slot,
-                        data_source,
-                        &config,
-                        value_sink,
-                        path,
-                    ),
-                }
-            })()
-            .map_err(|error| in_field_path(path, error))?;
+                    LeafBinding::Literal(value) => {
+                        return leaf.emit_literal(&mut slot, value, &config, value_sink, path);
+                    }
+                    LeafBinding::RefList(addresses) => {
+                        let Some(SizeSource::OneD(capacity)) = leaf.size else {
+                            unreachable!("ref list shape was validated during resolution");
+                        };
+                        for (index, &address) in addresses.iter().enumerate() {
+                            slot.write_element(index, slot.encode_bits(address, config.endianness));
+                        }
+                        // Unused entries encode address zero.
+                        let zero = slot.encode_bits(0, config.endianness);
+                        for index in addresses.len()..capacity {
+                            slot.write_element(index, zero);
+                        }
+                        return value_sink.record_value(path, || Ok(addresses.as_slice().into()));
+                    }
+                    LeafBinding::Checksum(config) => {
+                        let crc = checksum::calculate_crc(prefix, config);
+                        checksum_values.push(crc);
+                        u64::from(crc)
+                    }
+                    LeafBinding::Ref(address) => *address,
+                    LeafBinding::Fingerprint(target) => fingerprints[*target],
+                };
+                slot.write_scalar(slot.encode_bits(value, config.endianness));
+                value_sink.record_value(path, || Ok(value.into()))
+            };
+            emit().map_err(|error| in_field_path(path, error))?;
         }
 
         Ok(BuildOutput {
             bytestream: buffer,
             checksum_values,
         })
-    }
-
-    fn emit_ref(
-        leaf: &LeafEntry,
-        resolved: &ResolvedLayout<'_>,
-        header: &Header,
-        config: &BuildConfig<'_>,
-        value_sink: &mut ValueCollector,
-        field_path: &str,
-        slot: &mut Slot<'_>,
-    ) -> Result<(), LayoutError> {
-        let EntrySource::Ref(source) = &leaf.source else {
-            unreachable!("emit_ref requires a ref leaf");
-        };
-        let mut addresses = Vec::with_capacity(source.targets().len());
-        for target in source.targets() {
-            addresses.push(resolved.ref_address(target, header.start_address)?);
-        }
-
-        match source {
-            RefSource::Scalar(_) => {
-                let address = addresses[0];
-                let encoded = DataValue::U64(address).encode(
-                    leaf.scalar_type,
-                    config.abi.endianness(),
-                    true,
-                )?;
-                value_sink.record_value(field_path, || Ok(address.into()))?;
-                slot.write_scalar(encoded);
-                Ok(())
-            }
-            RefSource::List(_) => {
-                let Some(SizeSource::OneD(capacity)) = leaf.size else {
-                    unreachable!("ref list shape was validated during resolution");
-                };
-                for (index, address) in addresses.iter().enumerate() {
-                    let encoded = DataValue::U64(*address).encode(
-                        leaf.scalar_type,
-                        config.abi.endianness(),
-                        true,
-                    )?;
-                    slot.write_element(index, encoded);
-                }
-                // Unused entries hold address zero, not the padding byte.
-                let zero =
-                    DataValue::U64(0).encode(leaf.scalar_type, config.abi.endianness(), true)?;
-                for index in addresses.len()..capacity {
-                    slot.write_element(index, zero);
-                }
-
-                value_sink.record_value(field_path, || Ok(addresses.into()))?;
-                Ok(())
-            }
-        }
     }
 }

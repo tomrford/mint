@@ -5,10 +5,12 @@ use crate::layout;
 use crate::layout::block::{Block, Config};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint::PlannedLayout;
+use crate::layout::resolved::PlannedBlock;
 use crate::layout::used_values::ValueCollector;
 use crate::output;
 use crate::output::error::OutputError;
 use crate::output::{DataRange, OutputFormat};
+use indexmap::IndexMap;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
@@ -155,6 +157,13 @@ pub(crate) struct ResolvedBlock<'a> {
     pub(crate) name: &'a str,
     pub(crate) layout: &'a PathBuf,
     pub(crate) block: &'a Block,
+    config: &'a Config,
+}
+
+struct BlockJob<'a> {
+    selected: ResolvedBlock<'a>,
+    plan: &'a PlannedBlock<'a>,
+    fingerprints: &'a IndexMap<String, u64>,
 }
 
 struct BlockBuildResult {
@@ -191,13 +200,7 @@ fn build_from_files<'a, S: Deref<Target = dyn DataSource + 'a>>(
     let start_time = Instant::now();
     let (blocks, layouts) = load_layouts(blocks)?;
     let resolved_blocks = resolve_blocks(&blocks, &layouts)?;
-    let mut artifact = build_resolved(
-        resolved_blocks,
-        &layouts,
-        strict,
-        capture_values,
-        load_data_source,
-    )?;
+    let mut artifact = build_resolved(resolved_blocks, strict, capture_values, load_data_source)?;
     artifact.stats.record_duration(start_time.elapsed());
     Ok(artifact)
 }
@@ -211,7 +214,6 @@ pub fn build_from_layouts(
     let resolved_blocks = resolve_blocks(&request.blocks, &layouts)?;
     let mut artifact = build_resolved(
         resolved_blocks,
-        &layouts,
         request.strict,
         request.capture_values,
         || Ok(request.data_source),
@@ -222,25 +224,34 @@ pub fn build_from_layouts(
 
 fn build_resolved<'a, S: Deref<Target = dyn DataSource + 'a>>(
     resolved_blocks: Vec<ResolvedBlock<'_>>,
-    layouts: &HashMap<PathBuf, Config>,
     strict: bool,
     capture_values: bool,
     load_data_source: impl FnOnce() -> Result<Option<S>, DataError>,
 ) -> Result<BuildArtifact, MintError> {
-    let plans = plan_layouts(
-        layouts,
-        &resolved_blocks,
-        |block_name, layout_file, source| MintError::InBlock {
+    let plans = plan_layouts(&resolved_blocks, |block_name, layout_file, source| {
+        MintError::InBlock {
             block_name,
             layout_file,
             source,
-        },
-    )?;
+        }
+    })?;
+    let jobs = resolved_blocks
+        .into_iter()
+        .map(|selected| {
+            let layout = &plans[selected.layout];
+            BlockJob {
+                plan: &layout.blocks[selected.name],
+                fingerprints: &layout.fingerprints,
+                selected,
+            }
+        })
+        .collect::<Vec<_>>();
+    check_allocations(&jobs)?;
     let source = load_data_source()?;
     let data_source = source.as_deref();
-    let mut results = resolved_blocks
+    let mut results = jobs
         .par_iter()
-        .map(|block| build_single_bytestream(block, &plans, data_source, strict, capture_values))
+        .map(|job| build_single_bytestream(job, data_source, strict, capture_values))
         .collect::<Result<Vec<_>, _>>()?;
 
     let used_values = if capture_values {
@@ -249,7 +260,14 @@ fn build_resolved<'a, S: Deref<Target = dyn DataSource + 'a>>(
         None
     };
 
-    let (ranges, stats) = collect_results(results)?;
+    let mut stats = BuildStats::new();
+    let ranges = results
+        .into_iter()
+        .map(|result| {
+            stats.add_block(result.stat);
+            result.data_range
+        })
+        .collect();
 
     Ok(BuildArtifact {
         ranges,
@@ -259,19 +277,21 @@ fn build_resolved<'a, S: Deref<Target = dyn DataSource + 'a>>(
 }
 
 pub(crate) fn plan_layouts<'a>(
-    layouts: &'a HashMap<PathBuf, Config>,
-    resolved_blocks: &[ResolvedBlock<'_>],
+    resolved_blocks: &[ResolvedBlock<'a>],
     with_context: fn(String, String, Box<MintError>) -> MintError,
-) -> Result<HashMap<PathBuf, PlannedLayout<'a>>, MintError> {
+) -> Result<HashMap<&'a PathBuf, PlannedLayout<'a>>, MintError> {
+    let mut layouts: HashMap<_, (_, Vec<_>)> = HashMap::new();
+    for selected in resolved_blocks {
+        let (_, blocks) = layouts
+            .entry(selected.layout)
+            .or_insert_with(|| (selected.config, Vec::new()));
+        blocks.push((selected.name, selected.block));
+    }
     layouts
-        .par_iter()
-        .map(|(path, config)| {
-            let roots = resolved_blocks
-                .iter()
-                .filter(|block| block.layout == path)
-                .map(|block| block.name);
-            layout::fingerprint::plan_layout(config, roots, false)
-                .map(|plan| (path.clone(), plan))
+        .into_par_iter()
+        .map(|(path, (config, blocks))| {
+            layout::fingerprint::plan_layout(config, blocks, false)
+                .map(|plan| (path, plan))
                 .map_err(|error| match error {
                     LayoutError::InBlock { block, source } => with_context(
                         block,
@@ -322,6 +342,7 @@ pub(crate) fn resolve_blocks<'a>(
             name,
             layout: path,
             block,
+            config: layout,
         };
         if let Some(block_name) = &arg.block {
             let block = layout.blocks.get_key_value(block_name).ok_or_else(|| {
@@ -384,35 +405,35 @@ pub(crate) fn load_layouts(
 }
 
 fn build_single_bytestream(
-    resolved: &ResolvedBlock<'_>,
-    plans: &HashMap<PathBuf, PlannedLayout<'_>>,
+    job: &BlockJob<'_>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
 ) -> Result<BlockBuildResult, MintError> {
+    let selected = &job.selected;
     let result = (|| {
-        let plan = &plans[resolved.layout];
-        let block = resolved.block;
+        let block = selected.block;
         let mut collector = ValueCollector::new(capture_values);
 
         let build_output = block.emit(
-            resolved.name,
-            plan,
+            job.plan,
+            job.fingerprints,
             data_source,
-            &plan.config.mint,
             strict,
             &mut collector,
         )?;
 
-        let data_range = output::bytestream_to_datarange(
-            build_output.bytestream,
-            &block.header,
-            plan.config.mint.abi,
-        )?;
+        let data_range = DataRange {
+            start_address: block.header.start_address,
+            address_unit_bits: job.plan.resolved.abi().address_unit_bits(),
+            reserved_size: build_output.bytestream.len() as u32,
+            allocated_size: block.header.length,
+            bytestream: build_output.bytestream,
+        };
 
         let stat = BlockStat {
-            layout: resolved.layout.clone(),
-            block: resolved.name.to_owned(),
+            layout: selected.layout.clone(),
+            block: selected.name.to_owned(),
             start_address: data_range.start_address,
             address_unit_bits: data_range.address_unit_bits,
             allocated_size: data_range.allocated_size,
@@ -428,35 +449,20 @@ fn build_single_bytestream(
     })();
 
     result.map_err(|e| MintError::InBlock {
-        block_name: resolved.name.to_owned(),
-        layout_file: resolved.layout.display().to_string(),
+        block_name: selected.name.to_owned(),
+        layout_file: selected.layout.display().to_string(),
         source: Box::new(e),
     })
 }
 
-fn collect_results(
-    results: Vec<BlockBuildResult>,
-) -> Result<(Vec<DataRange>, BuildStats), MintError> {
-    let mut stats = BuildStats::new();
-    let named_ranges: Vec<(String, DataRange)> = results
-        .into_iter()
-        .map(|r| {
-            let name = r.stat.display_name();
-            stats.add_block(r.stat);
-            (name, r.data_range)
-        })
-        .collect();
-
-    check_overlaps(&named_ranges)?;
-    let ranges = named_ranges.into_iter().map(|(_, r)| r).collect();
-    Ok((ranges, stats))
-}
-
-fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError> {
-    if let Some((_, first)) = named_ranges.first()
-        && named_ranges
-            .iter()
-            .any(|(_, range)| range.address_unit_bits != first.address_unit_bits)
+fn check_allocations(jobs: &[BlockJob<'_>]) -> Result<(), MintError> {
+    let Some(first) = jobs.first() else {
+        return Ok(());
+    };
+    let address_unit_bits = first.plan.resolved.abi().address_unit_bits();
+    if jobs
+        .iter()
+        .any(|job| job.plan.resolved.abi().address_unit_bits() != address_unit_bits)
     {
         return Err(OutputError::AddressRangeError(
             "one output file cannot mix target addressable-unit widths".to_owned(),
@@ -464,40 +470,23 @@ fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError>
         .into());
     }
 
-    let mut ranges = Vec::with_capacity(named_ranges.len());
-    for (name, range) in named_ranges {
-        let start = u64::from(range.output_start_address()?);
-        ranges.push((
-            name.as_str(),
-            start,
-            start + u64::from(range.allocated_size),
-        ));
-    }
-
-    for i in 0..ranges.len() {
-        for j in (i + 1)..ranges.len() {
-            let (name_a, a_start, a_end) = ranges[i];
-            let (name_b, b_start, b_end) = ranges[j];
-
-            let overlap_start = a_start.max(b_start);
+    let mut sorted = jobs.iter().collect::<Vec<_>>();
+    sorted.sort_unstable_by_key(|job| job.plan.allocation.start);
+    for pair in sorted.windows(2) {
+        let first = pair[0];
+        let second = pair[1];
+        let a_start = first.plan.allocation.start;
+        let b_start = second.plan.allocation.start;
+        let a_end = first.plan.allocation.end;
+        if b_start < a_end {
+            let b_end = second.plan.allocation.end;
             let overlap_end = a_end.min(b_end);
-
-            if overlap_start < overlap_end {
-                let overlap_size = overlap_end - overlap_start;
-                let msg = format!(
-                    "Block '{}' (0x{:08X}-0x{:08X}) overlaps with block '{}' (0x{:08X}-0x{:08X}). Overlap: 0x{:08X}-0x{:08X} ({} bytes)",
-                    name_a,
-                    a_start,
-                    a_end - 1,
-                    name_b,
-                    b_start,
-                    b_end - 1,
-                    overlap_start,
-                    overlap_end - 1,
-                    overlap_size
-                );
-                return Err(OutputError::BlockOverlapError(msg).into());
-            }
+            return Err(OutputError::BlockOverlapError(format!(
+                "Block '{}#{}' (0x{a_start:08X}-0x{:08X}) overlaps with block '{}#{}' (0x{b_start:08X}-0x{:08X}). Overlap: 0x{b_start:08X}-0x{:08X} ({} bytes)",
+                first.selected.layout.display(), first.selected.name, a_end - 1,
+                second.selected.layout.display(), second.selected.name, b_end - 1,
+                overlap_end - 1, overlap_end - b_start,
+            )).into());
         }
     }
     Ok(())

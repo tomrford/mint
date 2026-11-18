@@ -1,4 +1,4 @@
-use super::abi::{EncodedScalar, EndianBytes, ScalarAbi};
+use super::abi::{EncodedScalar, EndianBytes, Endianness, ScalarAbi};
 use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
@@ -330,26 +330,66 @@ impl BitmapField {
 }
 
 impl LeafEntry {
-    pub(crate) fn emit_into(
+    pub(crate) fn emit_from_source(
         &self,
         slot: &mut Slot<'_>,
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &str,
+        path: &str,
     ) -> Result<(), LayoutError> {
         if let EntrySource::Bitmap(fields) = &self.source {
-            return self.emit_bitmap(slot, fields, data_source, config, value_sink, field_path);
+            return self.emit_bitmap(slot, fields, data_source, config, value_sink, path);
         }
-
+        let EntrySource::Name(name) = &self.source else {
+            unreachable!("the plan binds all other sources");
+        };
+        let data_source = data_source.ok_or_else(|| {
+            LayoutError::MissingDataSheet(format!(
+                "Field '{name}' requires a value from a data source, but none was provided."
+            ))
+        })?;
         match self.size {
-            None => self.emit_single(slot, data_source, config, value_sink, field_path),
+            None => {
+                let value = data_source.retrieve_single_value(name)?;
+                self.emit_scalar(slot, &value, config, value_sink, path)
+            }
             Some(SizeSource::OneD(size)) => {
-                self.emit_1d(slot, data_source, size, config, value_sink, field_path)
+                let value = data_source.retrieve_1d_array_or_string(name)?;
+                let length = match &value {
+                    ValueSource::Array(values) => values.len(),
+                    ValueSource::Single(DataValue::Str(value)) => value.len(),
+                    _ => {
+                        return Err(LayoutError::DataValueExportFailed(
+                            "Array or string expected for a field with size/SIZE.".into(),
+                        ));
+                    }
+                };
+                self.check_1d_length(length, size)?;
+                self.emit_1d(slot, &value, config, value_sink, path)
             }
             Some(SizeSource::TwoD(size)) => {
-                self.emit_2d(slot, data_source, size, config, value_sink, field_path)
+                let data = data_source.retrieve_2d_array(name)?;
+                self.emit_2d(slot, &data, size, config, value_sink, path)
             }
+        }
+    }
+
+    pub(crate) fn emit_literal(
+        &self,
+        slot: &mut Slot<'_>,
+        value: &ValueSource,
+        config: &BuildConfig,
+        value_sink: &mut ValueCollector,
+        path: &str,
+    ) -> Result<(), LayoutError> {
+        if self.size.is_none() {
+            let ValueSource::Single(value) = value else {
+                unreachable!("unsized literal shape is validated before emission");
+            };
+            self.emit_scalar(slot, value, config, value_sink, path)
+        } else {
+            self.emit_1d(slot, value, config, value_sink, path)
         }
     }
 
@@ -441,18 +481,6 @@ impl LeafEntry {
             ))
         })?;
         Ok(value)
-    }
-
-    /// Returns a layout-defined literal; its shape was checked by static validation.
-    fn literal<'a>(
-        &'a self,
-        consts: &'a HashMap<String, ValueSource>,
-    ) -> Result<&'a ValueSource, LayoutError> {
-        match &self.source {
-            EntrySource::Value(value) => Ok(value),
-            EntrySource::Const(name) => Self::const_value(name, consts),
-            _ => unreachable!("only value and const sources are literals"),
-        }
     }
 
     pub fn validate_ref(&self, source: &RefSource) -> Result<(), LayoutError> {
@@ -628,117 +656,49 @@ impl LeafEntry {
             offset += field.bits;
         }
 
-        // Bitmap storage is an integer type, so its width is 1, 2, 4 or 8 octets.
-        let endianness = config.abi.endianness();
-        slot.write_scalar(match slot.abi.storage_size {
-            1 => (accumulator as u8).to_endian_bytes(endianness),
-            2 => (accumulator as u16).to_endian_bytes(endianness),
-            4 => (accumulator as u32).to_endian_bytes(endianness),
-            _ => (accumulator as u64).to_endian_bytes(endianness),
-        });
+        slot.write_scalar(slot.encode_bits(accumulator as u64, config.endianness));
         Ok(())
     }
 
-    fn emit_single(
+    fn emit_scalar(
         &self,
         slot: &mut Slot<'_>,
-        data_source: Option<&dyn DataSource>,
+        value: &DataValue,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &str,
+        path: &str,
     ) -> Result<(), LayoutError> {
-        match &self.source {
-            EntrySource::Name(name) => {
-                let Some(ds) = data_source else {
-                    return Err(LayoutError::MissingDataSheet(format!(
-                        "Field '{}' requires a value from a data source, but none was provided.",
-                        name
-                    )));
-                };
-                let value = ds.retrieve_single_value(name)?;
-                let encoded =
-                    value.encode(self.scalar_type, config.abi.endianness(), config.strict)?;
-                value_sink.record_value(field_path, || data_value_to_json(&value))?;
-                slot.write_scalar(encoded);
-                Ok(())
-            }
-            EntrySource::Value(_) | EntrySource::Const(_) => {
-                let ValueSource::Single(v) = self.literal(config.consts)? else {
-                    unreachable!("unsized literal shape is validated before emission")
-                };
-                let encoded = v.encode(self.scalar_type, config.abi.endianness(), config.strict)?;
-                value_sink.record_value(field_path, || data_value_to_json(v))?;
-                slot.write_scalar(encoded);
-                Ok(())
-            }
-            EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_into"),
-            EntrySource::Ref(_) => unreachable!("ref handled by block emitter"),
-            EntrySource::Checksum(_) => unreachable!("checksum handled by block emitter"),
-            EntrySource::Fingerprint(_) => {
-                unreachable!("fingerprint handled by block emitter")
-            }
-        }
+        slot.write_scalar(value.encode(self.scalar_type, config.endianness, config.strict)?);
+        value_sink.record_value(path, || data_value_to_json(value))
     }
 
     fn emit_1d(
         &self,
         slot: &mut Slot<'_>,
-        data_source: Option<&dyn DataSource>,
-        size: usize,
+        value: &ValueSource,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
         field_path: &str,
     ) -> Result<(), LayoutError> {
-        let retrieved;
-        let value = match &self.source {
-            EntrySource::Name(name) => {
-                let Some(ds) = data_source else {
-                    return Err(LayoutError::MissingDataSheet(format!(
-                        "Field '{}' requires a value from a data source, but none was provided.",
-                        name
-                    )));
-                };
-                retrieved = ds.retrieve_1d_array_or_string(name)?;
-                &retrieved
-            }
-            EntrySource::Value(_) | EntrySource::Const(_) => self.literal(config.consts)?,
-            EntrySource::Bitmap(_) => unreachable!("bitmap handled in emit_into"),
-            EntrySource::Ref(_) => unreachable!("ref handled by block emitter"),
-            EntrySource::Checksum(_) => unreachable!("checksum handled by block emitter"),
-            EntrySource::Fingerprint(_) => {
-                unreachable!("fingerprint handled by block emitter")
-            }
-        };
-
-        let length = match value {
-            ValueSource::Array(values) => values.len(),
-            ValueSource::Single(DataValue::Str(value)) => value.len(),
-            _ => {
-                return Err(LayoutError::DataValueExportFailed(
-                    "Array or string expected for a field with size/SIZE.".into(),
-                ));
-            }
-        };
-        self.check_1d_length(length, size)?;
-
         match value {
             ValueSource::Array(values) => {
                 for (index, value) in values.iter().enumerate() {
                     let encoded =
-                        value.encode(self.scalar_type, config.abi.endianness(), config.strict)?;
+                        value.encode(self.scalar_type, config.endianness, config.strict)?;
                     slot.write_element(index, encoded);
                 }
                 value_sink.record_value(field_path, || array_to_json(values))?;
             }
             ValueSource::Single(value) => {
-                if !matches!(self.scalar_type, ScalarType::U8 | ScalarType::U16) {
-                    return Err(LayoutError::DataValueExportFailed(
-                        "Strings should have type u8 or u16.".to_owned(),
-                    ));
-                }
-                let elements = value.string_elements(self.scalar_type, config.abi.endianness())?;
-                for (index, encoded) in elements.enumerate() {
-                    slot.write_element(index, encoded);
+                if let (DataValue::Str(text), ScalarType::U8) = (value, self.scalar_type)
+                    && slot.abi.array_stride == 1
+                {
+                    slot.bytes[..text.len()].copy_from_slice(text.as_bytes());
+                } else {
+                    let elements = value.string_elements(self.scalar_type, config.endianness)?;
+                    for (index, encoded) in elements.enumerate() {
+                        slot.write_element(index, encoded);
+                    }
                 }
                 value_sink.record_value(field_path, || data_value_to_json(value))?;
             }
@@ -749,23 +709,12 @@ impl LeafEntry {
     fn emit_2d(
         &self,
         slot: &mut Slot<'_>,
-        data_source: Option<&dyn DataSource>,
+        data: &[Vec<DataValue>],
         size: [usize; 2],
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
         field_path: &str,
     ) -> Result<(), LayoutError> {
-        let EntrySource::Name(name) = &self.source else {
-            unreachable!("2D source validated before block emission")
-        };
-        let Some(ds) = data_source else {
-            return Err(LayoutError::MissingDataSheet(format!(
-                "Field '{}' requires a value from a data source, but none was provided.",
-                name
-            )));
-        };
-        let data = ds.retrieve_2d_array(name)?;
-
         let rows = size[0];
         let cols = size[1];
 
@@ -788,10 +737,10 @@ impl LeafEntry {
         }
 
         for (index, v) in data.iter().flatten().enumerate() {
-            let encoded = v.encode(self.scalar_type, config.abi.endianness(), config.strict)?;
+            let encoded = v.encode(self.scalar_type, config.endianness, config.strict)?;
             slot.write_element(index, encoded);
         }
-        value_sink.record_value(field_path, || array_2d_to_json(&data))?;
+        value_sink.record_value(field_path, || array_2d_to_json(data))?;
         Ok(())
     }
 }
@@ -808,7 +757,15 @@ impl<'a> Slot<'a> {
         Self { bytes, abi }
     }
 
-    /// Writes the scalar that occupies the whole slot.
+    pub(crate) fn encode_bits(&self, value: u64, endianness: Endianness) -> EncodedScalar {
+        match self.abi.storage_size {
+            1 => (value as u8).to_endian_bytes(endianness),
+            2 => (value as u16).to_endian_bytes(endianness),
+            4 => (value as u32).to_endian_bytes(endianness),
+            _ => value.to_endian_bytes(endianness),
+        }
+    }
+
     pub(crate) fn write_scalar(&mut self, value: EncodedScalar) {
         self.bytes.copy_from_slice(value.as_bytes());
     }

@@ -1,8 +1,8 @@
 use super::abi::Endianness;
-use super::block::Config;
+use super::block::{Block, Config};
 use super::entry::{EntrySource, RefSource, RefTarget, SizeSource};
 use super::error::LayoutError;
-use super::resolved::{ResolvedLayout, ResolvedNode, TargetKind};
+use super::resolved::{LeafBinding, PlannedBlock, ResolvedLayout, ResolvedNode, TargetKind};
 use super::scalar_type::ScalarType;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
@@ -11,38 +11,28 @@ const HASH_CONTEXT: &str = "mint block ABI fingerprint v2";
 
 pub(crate) struct PlannedLayout<'a> {
     pub(crate) config: &'a Config,
-    pub(crate) blocks: HashMap<String, ResolvedLayout<'a>>,
+    pub(crate) blocks: HashMap<&'a str, PlannedBlock<'a>>,
     pub(crate) fingerprints: IndexMap<String, u64>,
 }
 
 /// Validate selected blocks and resolve the shapes needed for their fingerprints.
-pub(crate) fn plan_layout<'a, 'b>(
+pub(crate) fn plan_layout<'a>(
     config: &'a Config,
-    roots: impl IntoIterator<Item = &'b str>,
+    roots: impl IntoIterator<Item = (&'a str, &'a Block)>,
     hash_roots: bool,
 ) -> Result<PlannedLayout<'a>, LayoutError> {
     let available = || config.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
     let mut resolved_roots = HashMap::new();
     let mut hash_names = HashSet::new();
 
-    for root_name in roots {
-        if resolved_roots.contains_key(root_name) {
-            continue;
-        }
-        let block = config.blocks.get(root_name).ok_or_else(|| {
-            LayoutError::BlockNotFound(format!("'{root_name}'. Available blocks: {}", available()))
-        })?;
-        let resolved = ResolvedLayout::new(&block.data, config.mint.abi)
-            .and_then(|resolved| {
-                resolved.validate(block, &config.mint)?;
-                Ok(resolved)
-            })
+    for (root_name, block) in roots {
+        let planned = ResolvedLayout::new(&block.data, config.mint.abi)
+            .and_then(|resolved| resolved.prepare(root_name, block, &config.mint))
             .map_err(|source| in_block(root_name, source))?;
-        for (_, _, _, leaf) in resolved.emission_leaves() {
-            let EntrySource::Fingerprint(target) = &leaf.source else {
+        for field in &planned.fields {
+            let LeafBinding::Fingerprint(target_name) = field.binding else {
                 continue;
             };
-            let target_name = target.block_name(root_name);
             if !config.blocks.contains_key(target_name) {
                 return Err(in_block(
                     root_name,
@@ -52,23 +42,23 @@ pub(crate) fn plan_layout<'a, 'b>(
                     )),
                 ));
             }
-            hash_names.insert(target_name.to_owned());
+            hash_names.insert(target_name);
         }
-        resolved_roots.insert(root_name.to_owned(), resolved);
+        resolved_roots.insert(root_name, planned);
     }
 
     if hash_roots {
-        hash_names.extend(resolved_roots.keys().cloned());
+        hash_names.extend(resolved_roots.keys().copied());
     }
 
     let mut fingerprints = IndexMap::with_capacity(hash_names.len());
     for (name, block) in &config.blocks {
-        if !hash_names.contains(name) {
+        if !hash_names.contains(name.as_str()) {
             continue;
         }
         let target;
-        let resolved = match resolved_roots.get(name) {
-            Some(resolved) => resolved,
+        let resolved = match resolved_roots.get(name.as_str()) {
+            Some(planned) => &planned.resolved,
             None => {
                 target = ResolvedLayout::new(&block.data, config.mint.abi)
                     .map_err(|source| in_block(name, source))?;
@@ -151,7 +141,7 @@ fn hash_node(
                 }
                 EntrySource::Ref(RefSource::Scalar(RefTarget::Path(path))) => {
                     hasher.update(&[2]);
-                    hash_resolved_ref_target(path, resolved, hasher)?;
+                    hash_resolved_ref_target(path, None, resolved, hasher)?;
                 }
                 EntrySource::Ref(RefSource::Scalar(RefTarget::Address(_))) => {
                     hasher.update(&[2, 2]);
@@ -166,7 +156,7 @@ fn hash_node(
                     for index in 0..capacity {
                         match targets.get(index) {
                             Some(RefTarget::Path(path)) => {
-                                hash_resolved_ref_target(path, resolved, hasher)?;
+                                hash_resolved_ref_target(path, Some(index), resolved, hasher)?;
                             }
                             Some(RefTarget::Address(_)) | None => {
                                 hasher.update(&[2]);
@@ -185,12 +175,11 @@ fn hash_node(
 
 fn hash_resolved_ref_target(
     path: &str,
+    index: Option<usize>,
     resolved: &ResolvedLayout<'_>,
     hasher: &mut blake3::Hasher,
 ) -> Result<(), LayoutError> {
-    let target = resolved.target(path).ok_or_else(|| {
-        layout_size_error(format!("ref target '{path}' disappeared after resolution"))
-    })?;
+    let target = resolved.ref_target(path, index)?;
     hasher.update(&[match target.kind {
         TargetKind::Branch => 0,
         TargetKind::Leaf => 1,

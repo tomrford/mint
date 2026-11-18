@@ -46,8 +46,12 @@ impl DataValue {
         scalar_type: ScalarType,
         endianness: Endianness,
     ) -> Result<Vec<u8>, LayoutError> {
-        let mut bytes = Vec::new();
-        for element in self.string_elements(scalar_type, endianness)? {
+        if let (Self::Str(text), ScalarType::U8) = (self, scalar_type) {
+            return Ok(text.as_bytes().to_vec());
+        }
+        let elements = self.string_elements(scalar_type, endianness)?;
+        let mut bytes = Vec::with_capacity(elements.len() * 2);
+        for element in elements {
             bytes.extend_from_slice(element.as_bytes());
         }
         Ok(bytes)
@@ -58,7 +62,7 @@ impl DataValue {
         &self,
         scalar_type: ScalarType,
         endianness: Endianness,
-    ) -> Result<impl Iterator<Item = EncodedScalar> + '_, LayoutError> {
+    ) -> Result<impl ExactSizeIterator<Item = EncodedScalar> + '_, LayoutError> {
         match self {
             DataValue::Str(val) => {
                 let wide = match scalar_type {

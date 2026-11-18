@@ -4,8 +4,10 @@ use super::block::{Block, Entry};
 use super::entry::{EntrySource, LeafEntry, RefSource, RefTarget, SizeSource};
 use super::error::{LayoutError, in_field_path};
 use super::scalar_type::ScalarType;
-use super::settings::MintConfig;
+use super::settings::{ChecksumConfig, MintConfig};
+use super::value::ValueSource;
 use std::collections::HashMap;
+use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedCoordinates {
@@ -22,8 +24,33 @@ pub(crate) struct ResolvedLayout<'a> {
     abi: Abi,
 }
 
+pub(crate) struct PlannedBlock<'a> {
+    pub(crate) resolved: ResolvedLayout<'a>,
+    pub(crate) allocation: Range<u64>,
+    pub(crate) fields: Vec<PlannedField<'a>>,
+}
+
+pub(crate) struct PlannedField<'a> {
+    pub(crate) leaf: ResolvedLeafEntry<'a>,
+    pub(crate) binding: LeafBinding<'a>,
+}
+
+pub(crate) enum LeafBinding<'a> {
+    Source,
+    Literal(&'a ValueSource),
+    Ref(u64),
+    RefList(Vec<u64>),
+    Checksum(&'a ChecksumConfig),
+    Fingerprint(&'a str),
+}
+
 impl<'a> ResolvedLayout<'a> {
-    pub(crate) fn validate(&self, block: &Block, settings: &MintConfig) -> Result<(), LayoutError> {
+    pub(crate) fn prepare(
+        mut self,
+        name: &'a str,
+        block: &Block,
+        settings: &'a MintConfig,
+    ) -> Result<PlannedBlock<'a>, LayoutError> {
         let total_size = self.total_size();
         if total_size > block.header.length as usize {
             return Err(LayoutError::InvalidLayout(format!(
@@ -61,26 +88,50 @@ impl<'a> ResolvedLayout<'a> {
                 output_end.saturating_sub(1)
             )));
         }
-        for (path, coordinates, _, leaf) in self.emission_leaves() {
-            let result = match &leaf.source {
-                EntrySource::Const(name) => LeafEntry::const_value(name, &settings.consts)
-                    .and_then(|value| leaf.validate_literal("const", value)),
-                EntrySource::Value(value) => leaf.validate_literal("value", value),
-                EntrySource::Checksum(_) if coordinates.offset == 0 => {
-                    Err(LayoutError::InvalidLayout(
-                        "Checksum must follow at least one data byte.".to_owned(),
-                    ))
-                }
-                EntrySource::Checksum(name) => settings.checksum_config(name).map(|_| ()),
-                EntrySource::Ref(source) => {
-                    validate_ref_addresses(path, source, leaf, self, block.header.start_address)
-                }
-                _ => Ok(()),
-            };
-            result.map_err(|error| in_field_path(path, error))?;
-        }
-        Ok(())
+        let fields = std::mem::take(&mut self.leaves)
+            .into_iter()
+            .map(|field| -> Result<_, LayoutError> {
+                let leaf = field.leaf;
+                let bind = || match &leaf.source {
+                    EntrySource::Const(key) => {
+                        let value = LeafEntry::const_value(key, &settings.consts)?;
+                        leaf.validate_literal("const", value)?;
+                        Ok(LeafBinding::Literal(value))
+                    }
+                    EntrySource::Value(value) => {
+                        leaf.validate_literal("value", value)?;
+                        Ok(LeafBinding::Literal(value))
+                    }
+                    EntrySource::Checksum(_) if field.coordinates.offset == 0 => {
+                        Err(LayoutError::InvalidLayout(
+                            "Checksum must follow at least one data byte.".to_owned(),
+                        ))
+                    }
+                    EntrySource::Checksum(key) => {
+                        settings.checksum_config(key).map(LeafBinding::Checksum)
+                    }
+                    EntrySource::Ref(source) => {
+                        self.bind_ref(&field.path, source, leaf, block.header.start_address)
+                    }
+                    EntrySource::Fingerprint(target) => {
+                        Ok(LeafBinding::Fingerprint(target.block_name(name)))
+                    }
+                    EntrySource::Name(_) | EntrySource::Bitmap(_) => Ok(LeafBinding::Source),
+                };
+                let binding = bind().map_err(|error| in_field_path(&field.path, error))?;
+                Ok(PlannedField {
+                    leaf: field,
+                    binding,
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(PlannedBlock {
+            resolved: self,
+            allocation: output_start..output_end,
+            fields,
+        })
     }
+
     pub(crate) fn new(entry: &'a Entry, abi: Abi) -> Result<Self, LayoutError> {
         if matches!(entry, Entry::Leaf(_)) {
             return Err(LayoutError::InvalidLayout(
@@ -105,29 +156,6 @@ impl<'a> ResolvedLayout<'a> {
             )));
         }
 
-        for leaf in &leaves {
-            if let EntrySource::Ref(source) = &leaf.leaf.source {
-                for (index, target) in source.targets().iter().enumerate() {
-                    let RefTarget::Path(path) = target else {
-                        continue;
-                    };
-                    if !nodes.contains_key(path) {
-                        let location = if source.is_list() {
-                            format!(" at index {index}")
-                        } else {
-                            String::new()
-                        };
-                        let mut available = nodes.keys().map(String::as_str).collect::<Vec<_>>();
-                        available.sort_unstable();
-                        return Err(layout_size_error(format!(
-                            "ref target{location} '{path}' not found in block. Available fields: [{}]",
-                            available.join(", ")
-                        )));
-                    }
-                }
-            }
-        }
-
         Ok(Self {
             root,
             leaves,
@@ -137,49 +165,45 @@ impl<'a> ResolvedLayout<'a> {
         })
     }
 
-    pub(crate) fn coordinates(&self, path: &str) -> Option<ResolvedCoordinates> {
-        self.nodes.get(path).map(|target| target.coordinates)
-    }
-
     pub(crate) fn total_size(&self) -> usize {
         self.total_size
     }
 
-    pub(crate) fn emission_leaves(
+    pub(crate) fn ref_target(
         &self,
-    ) -> impl ExactSizeIterator<Item = (&str, ResolvedCoordinates, ScalarAbi, &LeafEntry)> {
-        self.leaves.iter().map(|leaf| {
-            (
-                leaf.path.as_str(),
-                leaf.coordinates,
-                leaf.scalar_abi,
-                leaf.leaf,
-            )
+        path: &str,
+        index: Option<usize>,
+    ) -> Result<ResolvedTarget, LayoutError> {
+        self.nodes.get(path).copied().ok_or_else(|| {
+            let location = index
+                .map(|index| format!(" at index {index}"))
+                .unwrap_or_default();
+            let mut available = self.nodes.keys().map(String::as_str).collect::<Vec<_>>();
+            available.sort_unstable();
+            layout_size_error(format!(
+                "ref target{location} '{path}' not found in block. Available fields: [{}]",
+                available.join(", ")
+            ))
         })
-    }
-
-    pub(crate) fn target(&self, path: &str) -> Option<ResolvedTarget> {
-        self.nodes.get(path).copied()
     }
 
     pub(crate) fn abi(&self) -> Abi {
         self.abi
     }
 
-    pub(crate) fn ref_address(
+    fn ref_address(
         &self,
         target: &RefTarget,
         start_address: u32,
+        index: Option<usize>,
     ) -> Result<u64, LayoutError> {
         match target {
             RefTarget::Address(address) => Ok(*address),
             RefTarget::Path(path) => {
-                let target = self.coordinates(path).ok_or_else(|| {
-                    LayoutError::InvalidLayout(format!(
-                        "ref target '{path}' disappeared after resolution"
-                    ))
-                })?;
-                let target_offset = self.abi.offset_to_address_units(target.offset)?;
+                let target = self.ref_target(path, index)?;
+                let target_offset = self
+                    .abi
+                    .offset_to_address_units(target.coordinates.offset)?;
                 u64::from(start_address)
                     .checked_add(target_offset)
                     .ok_or_else(|| {
@@ -188,6 +212,49 @@ impl<'a> ResolvedLayout<'a> {
                         ))
                     })
             }
+        }
+    }
+
+    fn bind_ref(
+        &self,
+        path: &str,
+        source: &RefSource,
+        leaf: &LeafEntry,
+        start_address: u32,
+    ) -> Result<LeafBinding<'a>, LayoutError> {
+        let maximum = match leaf.scalar_type {
+            ScalarType::U16 => u64::from(u16::MAX),
+            ScalarType::U32 => u64::from(u32::MAX),
+            ScalarType::U64 => u64::MAX,
+            _ => unreachable!("ref storage was validated during resolution"),
+        };
+
+        let resolve = |index, target: &RefTarget| {
+            let index = source.is_list().then_some(index);
+            let address = self.ref_address(target, start_address, index)?;
+            if address > maximum {
+                let target = match target {
+                    RefTarget::Path(target) => format!("target '{target}'"),
+                    RefTarget::Address(target) => format!("literal address 0x{target:X}"),
+                };
+                let location = index
+                    .map(|index| format!(" at index {index}"))
+                    .unwrap_or_default();
+                return Err(LayoutError::InvalidLayout(format!(
+                    "ref '{path}'{location} {target} resolves to address 0x{address:X}, which does not fit storage type {}",
+                    leaf.scalar_type
+                )));
+            }
+            Ok(address)
+        };
+        match source {
+            RefSource::Scalar(target) => resolve(0, target).map(LeafBinding::Ref),
+            RefSource::List(targets) => targets
+                .iter()
+                .enumerate()
+                .map(|(index, target)| resolve(index, target))
+                .collect::<Result<_, _>>()
+                .map(LeafBinding::RefList),
         }
     }
 }
@@ -240,11 +307,11 @@ impl ResolvedNode<'_> {
     }
 }
 
-struct ResolvedLeafEntry<'a> {
-    path: String,
-    coordinates: ResolvedCoordinates,
-    scalar_abi: ScalarAbi,
-    leaf: &'a LeafEntry,
+pub(crate) struct ResolvedLeafEntry<'a> {
+    pub(crate) path: String,
+    pub(crate) coordinates: ResolvedCoordinates,
+    pub(crate) scalar_abi: ScalarAbi,
+    pub(crate) leaf: &'a LeafEntry,
 }
 
 #[derive(Clone, Copy)]
@@ -346,41 +413,6 @@ fn collect_entry<'a>(
             })
         }
     }
-}
-
-fn validate_ref_addresses(
-    path: &str,
-    source: &RefSource,
-    leaf: &LeafEntry,
-    resolved: &ResolvedLayout<'_>,
-    start_address: u32,
-) -> Result<(), LayoutError> {
-    let maximum = match leaf.scalar_type {
-        ScalarType::U16 => u64::from(u16::MAX),
-        ScalarType::U32 => u64::from(u32::MAX),
-        ScalarType::U64 => u64::MAX,
-        _ => unreachable!("ref storage was validated during resolution"),
-    };
-
-    for (index, target) in source.targets().iter().enumerate() {
-        let address = resolved.ref_address(target, start_address)?;
-        if address > maximum {
-            let target = match target {
-                RefTarget::Path(target) => format!("target '{target}'"),
-                RefTarget::Address(target) => format!("literal address 0x{target:X}"),
-            };
-            let location = if source.is_list() {
-                format!(" at index {index}")
-            } else {
-                String::new()
-            };
-            return Err(LayoutError::InvalidLayout(format!(
-                "ref '{path}'{location} {target} resolves to address 0x{address:X}, which does not fit storage type {}",
-                leaf.scalar_type
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn layout_node<'a>(
