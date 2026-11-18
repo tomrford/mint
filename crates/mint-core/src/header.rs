@@ -1,4 +1,4 @@
-use crate::build::{BlockSelector, plan_layouts, resolve_blocks};
+use crate::build::{BlockSelector, load_layouts, plan_layouts, resolve_blocks};
 use crate::error::MintError;
 use crate::layout::abi::Abi;
 use crate::layout::block::{Block, Entry};
@@ -13,7 +13,8 @@ use std::path::PathBuf;
 
 /// Generate a complete C11 header for the selected layout blocks.
 pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
-    let (resolved, layouts) = resolve_blocks(blocks)?;
+    let (blocks, layouts) = load_layouts(blocks)?;
+    let resolved = resolve_blocks(&blocks, &layouts)?;
     let plans = plan_layouts(&layouts, &resolved, |block_name, layout_file, source| {
         MintError::InHeaderBlock {
             block_name,
@@ -24,15 +25,10 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let mut rendered = Vec::with_capacity(resolved.len());
     let mut names = NameRegistry::default();
     let mut guard_parts = Vec::with_capacity(resolved.len());
-    let mut includes: Option<(PathBuf, &[String])> = None;
+    let mut includes: Option<(&PathBuf, &[String])> = None;
 
     for selected in resolved {
-        let plan = plans.get(&selected.layout).ok_or_else(|| {
-            LayoutError::FileError(format!(
-                "resolved layout missing from header plan: {}",
-                selected.layout.display()
-            ))
-        })?;
+        let plan = &plans[selected.layout];
         let layout = plan.config;
         let configured_includes = &layout.mint.header.includes;
         if let Some((first_path, first_includes)) = &includes {
@@ -50,19 +46,17 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
                     header_error(format!("{}: {message}", selected.layout.display()))
                 })?;
             }
-            includes = Some((selected.layout.clone(), configured_includes));
+            includes = Some((selected.layout, configured_includes));
         }
-        let block = layout.blocks.get(&selected.name).ok_or_else(|| {
-            LayoutError::BlockNotFound(format!(
-                "'{}' in '{}'",
-                selected.name,
-                selected.layout.display()
-            ))
-        })?;
-
-        let result = render_block(&selected.name, block, &layout.mint, plan, &mut names);
+        let result = render_block(
+            selected.name,
+            selected.block,
+            &layout.mint,
+            plan,
+            &mut names,
+        );
         let block_output = result.map_err(|source| MintError::InHeaderBlock {
-            block_name: selected.name.clone(),
+            block_name: selected.name.to_owned(),
             layout_file: selected.layout.display().to_string(),
             source: Box::new(source.into()),
         })?;
