@@ -335,7 +335,7 @@ impl LeafEntry {
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
         scalar_abi: ScalarAbi,
     ) -> Result<Vec<u8>, LayoutError> {
         if let EntrySource::Bitmap(fields) = &self.source {
@@ -629,7 +629,7 @@ impl LeafEntry {
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
         scalar_abi: ScalarAbi,
     ) -> Result<Vec<u8>, LayoutError> {
         self.validate_bitmap(fields, scalar_abi)?;
@@ -644,9 +644,11 @@ impl LeafEntry {
             let pattern = (clamped as u128) & mask;
             accumulator |= pattern << offset;
 
-            let mut bitmap_path = field_path.to_vec();
-            bitmap_path.push(bitmap_field_key(field, offset));
-            value_sink.record_value(&bitmap_path, || i128_to_json(clamped))?;
+            value_sink.record_member_value(
+                field_path,
+                || bitmap_field_key(field, offset),
+                || i128_to_json(clamped),
+            )?;
 
             offset += field.bits;
         }
@@ -664,7 +666,7 @@ impl LeafEntry {
         data_source: Option<&dyn DataSource>,
         config: &BuildConfig,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<Vec<u8>, LayoutError> {
         match &self.source {
             EntrySource::Name(name) => {
@@ -704,7 +706,7 @@ impl LeafEntry {
         config: &BuildConfig,
         encoding: ArrayEncoding,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<Vec<u8>, LayoutError> {
         let scalar_abi = encoding.scalar_abi;
         let elem = scalar_abi.array_stride;
@@ -794,7 +796,7 @@ impl LeafEntry {
         config: &BuildConfig,
         encoding: ArrayEncoding,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<Vec<u8>, LayoutError> {
         let scalar_abi = encoding.scalar_abi;
         let EntrySource::Name(name) = &self.source else {

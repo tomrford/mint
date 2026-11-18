@@ -143,7 +143,6 @@ impl Block {
         let mut checksum_values = Vec::new();
 
         for (path, coordinates, scalar_abi, leaf) in resolved.emission_leaves() {
-            let field_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
             let bytes = (|| -> Result<Vec<u8>, LayoutError> {
                 match &leaf.source {
                     EntrySource::Ref(_) => Self::emit_ref(
@@ -153,14 +152,14 @@ impl Block {
                         &config,
                         scalar_abi,
                         value_sink,
-                        &field_path,
+                        path,
                     ),
                     EntrySource::Checksum(config_name) => {
                         let crc = checksum::calculate_crc(
                             &buffer[..coordinates.offset], settings.checksum_config(config_name)?,
                         );
                         checksum_values.push(crc);
-                        value_sink.record_value(&field_path, || Ok(crc.into()))?;
+                        value_sink.record_value(path, || Ok(crc.into()))?;
                         DataValue::U64(u64::from(crc)).to_bytes(
                             leaf.scalar_type, config.abi.endianness(), true,
                         )
@@ -179,7 +178,7 @@ impl Block {
                             true,
                         )?;
                         value_sink.record_value(
-                            &field_path,
+                            path,
                             || Ok((*value).into()),
                         )?;
                         Ok(bytes)
@@ -188,7 +187,7 @@ impl Block {
                         data_source,
                         &config,
                         value_sink,
-                        &field_path,
+                        path,
                         scalar_abi,
                     ),
                 }
@@ -240,7 +239,7 @@ impl Block {
         config: &BuildConfig<'_>,
         scalar_abi: ScalarAbi,
         value_sink: &mut ValueCollector,
-        field_path: &[String],
+        field_path: &str,
     ) -> Result<Vec<u8>, LayoutError> {
         let EntrySource::Ref(source) = &leaf.source else {
             unreachable!("emit_ref requires a ref leaf");

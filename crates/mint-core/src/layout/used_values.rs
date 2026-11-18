@@ -19,13 +19,32 @@ impl ValueCollector {
         self.root.map(Value::Object)
     }
 
+    /// Records `value` under the dotted field `path` when capture is enabled.
     pub fn record_value(
         &mut self,
-        path: &[String],
+        path: &str,
         value: impl FnOnce() -> Result<Value, LayoutError>,
     ) -> Result<(), LayoutError> {
         match &mut self.root {
-            Some(root) => insert_value(root, path, value()?),
+            Some(root) => insert_value(root, &path.split('.').collect::<Vec<_>>(), value()?),
+            None => Ok(()),
+        }
+    }
+
+    /// Records `value` under `key` inside the dotted field `path` when capture is enabled.
+    pub fn record_member_value(
+        &mut self,
+        path: &str,
+        key: impl FnOnce() -> String,
+        value: impl FnOnce() -> Result<Value, LayoutError>,
+    ) -> Result<(), LayoutError> {
+        match &mut self.root {
+            Some(root) => {
+                let key = key();
+                let mut segments = path.split('.').collect::<Vec<_>>();
+                segments.push(&key);
+                insert_value(root, &segments, value()?)
+            }
             None => Ok(()),
         }
     }
@@ -77,7 +96,7 @@ pub fn array_2d_to_json(values: &[Vec<DataValue>]) -> Result<Value, LayoutError>
 
 fn insert_value(
     root: &mut Map<String, Value>,
-    path: &[String],
+    path: &[&str],
     value: Value,
 ) -> Result<(), LayoutError> {
     if path.is_empty() {
@@ -86,7 +105,7 @@ fn insert_value(
         ));
     }
 
-    let key = &path[0];
+    let key = path[0];
     if path.len() == 1 {
         if root.contains_key(key) {
             return Err(LayoutError::DataValueExportFailed(format!(
@@ -94,12 +113,12 @@ fn insert_value(
                 path.join(".")
             )));
         }
-        root.insert(key.clone(), value);
+        root.insert(key.to_owned(), value);
         return Ok(());
     }
 
     let entry = root
-        .entry(key.clone())
+        .entry(key.to_owned())
         .or_insert_with(|| Value::Object(Map::new()));
 
     match entry {
