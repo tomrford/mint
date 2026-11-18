@@ -111,6 +111,7 @@ abi = "generic-le"
 magic = 0xDEADBEEF
 label = "AB"
 octets = [192, 168, 1, 10]
+mixed = [1, "A"]
 
 [block.header]
 start_address = 0x1000
@@ -210,6 +211,10 @@ value = 7
         ),
         (
             r#"x = { value = [1, "A"], type = "u8", size = 2 }"#,
+            "Cannot convert string to scalar type",
+        ),
+        (
+            r#"x = { const = "mixed", type = "u8", size = 2 }"#,
             "Cannot convert string to scalar type",
         ),
     ] {
