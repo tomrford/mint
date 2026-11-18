@@ -228,7 +228,8 @@ value = 7
             .zip(outcomes("literal_shape_invalid", &layout))
         {
             match outcome {
-                Err(message) if message.contains(expected) => {}
+                Err(message) if message.contains(expected) && message.contains("block 'block'") => {
+                }
                 other => mismatches.push(format!("{command} for {expected:?}: {other:?}")),
             }
         }

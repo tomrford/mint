@@ -9,39 +9,48 @@ use std::collections::{HashMap, HashSet};
 
 const HASH_CONTEXT: &str = "mint block ABI fingerprint v2";
 
-pub(crate) struct ResolvedBlocks<'a> {
+pub(crate) struct PlannedLayout<'a> {
+    pub(crate) config: &'a Config,
     pub(crate) blocks: HashMap<String, ResolvedLayout<'a>>,
     pub(crate) fingerprints: IndexMap<String, u64>,
 }
 
-pub(crate) fn calculate_scoped<'a, 'b>(
+/// Validate selected blocks and resolve the shapes needed for their fingerprints.
+pub(crate) fn plan_layout<'a, 'b>(
     config: &'a Config,
     roots: impl IntoIterator<Item = &'b str>,
     hash_roots: bool,
-) -> Result<ResolvedBlocks<'a>, LayoutError> {
+) -> Result<PlannedLayout<'a>, LayoutError> {
     let available = || config.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
     let mut resolved_roots = HashMap::new();
-    let mut root_names = HashSet::new();
     let mut hash_names = HashSet::new();
 
     for root_name in roots {
-        if !root_names.insert(root_name.to_owned()) {
+        if resolved_roots.contains_key(root_name) {
             continue;
         }
         let block = config.blocks.get(root_name).ok_or_else(|| {
             LayoutError::BlockNotFound(format!("'{root_name}'. Available blocks: {}", available()))
         })?;
-        let resolved = ResolvedLayout::new(&block.data, config.mint.abi)?;
+        let resolved = ResolvedLayout::new(&block.data, config.mint.abi)
+            .and_then(|resolved| {
+                resolved.validate(block, &config.mint)?;
+                Ok(resolved)
+            })
+            .map_err(|source| in_block(root_name, source))?;
         for (_, _, _, leaf) in resolved.emission_leaves() {
             let EntrySource::Fingerprint(target) = &leaf.source else {
                 continue;
             };
             let target_name = target.block_name(root_name);
             if !config.blocks.contains_key(target_name) {
-                return Err(LayoutError::BlockNotFound(format!(
-                    "fingerprint target '{target_name}' from block '{root_name}'. Available blocks: {}",
-                    available()
-                )));
+                return Err(in_block(
+                    root_name,
+                    LayoutError::BlockNotFound(format!(
+                        "fingerprint target '{target_name}' from block '{root_name}'. Available blocks: {}",
+                        available()
+                    )),
+                ));
             }
             hash_names.insert(target_name.to_owned());
         }
@@ -49,7 +58,7 @@ pub(crate) fn calculate_scoped<'a, 'b>(
     }
 
     if hash_roots {
-        hash_names.extend(root_names);
+        hash_names.extend(resolved_roots.keys().cloned());
     }
 
     let mut fingerprints = IndexMap::with_capacity(hash_names.len());
@@ -61,16 +70,26 @@ pub(crate) fn calculate_scoped<'a, 'b>(
         let resolved = match resolved_roots.get(name) {
             Some(resolved) => resolved,
             None => {
-                target = ResolvedLayout::new(&block.data, config.mint.abi)?;
+                target = ResolvedLayout::new(&block.data, config.mint.abi)
+                    .map_err(|source| in_block(name, source))?;
                 &target
             }
         };
-        fingerprints.insert(name.clone(), fingerprint(resolved)?);
+        let value = fingerprint(resolved).map_err(|source| in_block(name, source))?;
+        fingerprints.insert(name.clone(), value);
     }
-    Ok(ResolvedBlocks {
+    Ok(PlannedLayout {
+        config,
         blocks: resolved_roots,
         fingerprints,
     })
+}
+
+fn in_block(block: &str, source: LayoutError) -> LayoutError {
+    LayoutError::InBlock {
+        block: block.to_owned(),
+        source: Box::new(source),
+    }
 }
 
 fn fingerprint(resolved: &ResolvedLayout<'_>) -> Result<u64, LayoutError> {

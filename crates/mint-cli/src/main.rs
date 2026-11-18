@@ -62,9 +62,7 @@ fn run_build(args: &Args) -> Result<(), MintError> {
         eprintln!("warning: {warning}");
     }
 
-    let data_source = data::create_data_source(&args.data)?;
-
-    let stats = commands::build(args, data_source.as_deref())?;
+    let stats = commands::build(args)?;
 
     if !args.output.quiet {
         if args.output.stats {

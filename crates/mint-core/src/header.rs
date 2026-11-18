@@ -1,4 +1,4 @@
-use crate::build::{BlockSelector, resolve_blocks};
+use crate::build::{BlockSelector, plan_layouts, resolve_blocks};
 use crate::error::MintError;
 use crate::layout::abi::Abi;
 use crate::layout::block::{Block, Entry};
@@ -14,28 +14,26 @@ use std::path::PathBuf;
 /// Generate a complete C11 header for the selected layout blocks.
 pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let (resolved, layouts) = resolve_blocks(blocks)?;
-    let fingerprints = layouts
-        .iter()
-        .map(|(path, layout)| {
-            let roots = resolved
-                .iter()
-                .filter(|block| &block.layout == path)
-                .map(|block| block.name.as_str());
-            fingerprint::calculate_scoped(layout, roots, false).map(|values| (path.clone(), values))
-        })
-        .collect::<Result<HashMap<_, _>, LayoutError>>()?;
+    let plans = plan_layouts(&layouts, &resolved, |block_name, layout_file, source| {
+        MintError::InHeaderBlock {
+            block_name,
+            layout_file,
+            source,
+        }
+    })?;
     let mut rendered = Vec::with_capacity(resolved.len());
     let mut names = NameRegistry::default();
     let mut guard_parts = Vec::with_capacity(resolved.len());
     let mut includes: Option<(PathBuf, &[String])> = None;
 
     for selected in resolved {
-        let layout = layouts.get(&selected.layout).ok_or_else(|| {
+        let plan = plans.get(&selected.layout).ok_or_else(|| {
             LayoutError::FileError(format!(
-                "resolved layout missing from header map: {}",
+                "resolved layout missing from header plan: {}",
                 selected.layout.display()
             ))
         })?;
+        let layout = plan.config;
         let configured_includes = &layout.mint.header.includes;
         if let Some((first_path, first_includes)) = &includes {
             if *first_includes != configured_includes.as_slice() {
@@ -61,20 +59,8 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
                 selected.layout.display()
             ))
         })?;
-        let block_fingerprints = fingerprints.get(&selected.layout).ok_or_else(|| {
-            LayoutError::FileError(format!(
-                "resolved layout missing from fingerprint map: {}",
-                selected.layout.display()
-            ))
-        })?;
 
-        let result = render_block(
-            &selected.name,
-            block,
-            &layout.mint,
-            block_fingerprints,
-            &mut names,
-        );
+        let result = render_block(&selected.name, block, &layout.mint, plan, &mut names);
         let block_output = result.map_err(|source| MintError::InHeaderBlock {
             block_name: selected.name.clone(),
             layout_file: selected.layout.display().to_string(),
@@ -200,7 +186,7 @@ fn render_block(
     block_name: &str,
     block: &Block,
     settings: &MintConfig,
-    fingerprints: &fingerprint::ResolvedBlocks<'_>,
+    fingerprints: &fingerprint::PlannedLayout<'_>,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
     let typedef_name = format!("{block_name}_t");
@@ -208,7 +194,6 @@ fn render_block(
     names.add_block_prefix(&macro_prefix, block_name)?;
 
     let resolved = &fingerprints.blocks[block_name];
-    resolved.validate(block, settings)?;
 
     let Entry::Branch(source) = &block.data else {
         unreachable!("resolution rejects block data that is not a table")

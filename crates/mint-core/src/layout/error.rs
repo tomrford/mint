@@ -27,6 +27,13 @@ pub enum LayoutError {
     #[error("missing datasheet: {0}")]
     MissingDataSheet(String),
 
+    #[error("in block '{block}': {source}")]
+    InBlock {
+        block: String,
+        #[source]
+        source: Box<LayoutError>,
+    },
+
     #[error("in field '{field}'")]
     InField {
         field: String,

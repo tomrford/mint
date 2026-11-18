@@ -1,15 +1,17 @@
 use crate::data::DataSource;
+use crate::data::error::DataError;
 use crate::error::MintError;
 use crate::layout;
 use crate::layout::block::Config;
 use crate::layout::error::LayoutError;
-use crate::layout::fingerprint::ResolvedBlocks;
+use crate::layout::fingerprint::PlannedLayout;
 use crate::layout::used_values::ValueCollector;
 use crate::output;
 use crate::output::error::OutputError;
 use crate::output::{DataRange, OutputFormat};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -161,15 +163,38 @@ struct BlockBuildResult {
 }
 
 pub fn build(request: BuildRequest<'_>) -> Result<BuildArtifact, MintError> {
-    let start_time = Instant::now();
+    build_from_files(
+        &request.blocks,
+        request.strict,
+        request.capture_values,
+        || Ok(request.data_source),
+    )
+}
 
-    let (resolved_blocks, layouts) = resolve_blocks(&request.blocks)?;
+/// Build selected blocks, loading the data source after their static validation.
+pub fn build_with_data_source(
+    blocks: &[BlockSelector],
+    strict: bool,
+    capture_values: bool,
+    load_data_source: impl FnOnce() -> Result<Option<Box<dyn DataSource>>, DataError>,
+) -> Result<BuildArtifact, MintError> {
+    build_from_files(blocks, strict, capture_values, load_data_source)
+}
+
+fn build_from_files<'a, S: Deref<Target = dyn DataSource + 'a>>(
+    blocks: &[BlockSelector],
+    strict: bool,
+    capture_values: bool,
+    load_data_source: impl FnOnce() -> Result<Option<S>, DataError>,
+) -> Result<BuildArtifact, MintError> {
+    let start_time = Instant::now();
+    let (resolved_blocks, layouts) = resolve_blocks(blocks)?;
     let mut artifact = build_resolved(
         resolved_blocks,
         &layouts,
-        request.data_source,
-        request.strict,
-        request.capture_values,
+        strict,
+        capture_values,
+        load_data_source,
     )?;
     artifact.stats.record_duration(start_time.elapsed());
     Ok(artifact)
@@ -185,30 +210,36 @@ pub fn build_from_layouts(
     let mut artifact = build_resolved(
         resolved_blocks,
         &layouts,
-        request.data_source,
         request.strict,
         request.capture_values,
+        || Ok(request.data_source),
     )?;
     artifact.stats.record_duration(start_time.elapsed());
     Ok(artifact)
 }
 
-fn build_resolved(
+fn build_resolved<'a, S: Deref<Target = dyn DataSource + 'a>>(
     resolved_blocks: Vec<ResolvedBlock>,
     layouts: &HashMap<PathBuf, Config>,
-    data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
+    load_data_source: impl FnOnce() -> Result<Option<S>, DataError>,
 ) -> Result<BuildArtifact, MintError> {
-    let fingerprints = resolve_layouts(layouts, &resolved_blocks)?;
-    let mut results = build_bytestreams(
-        &resolved_blocks,
+    let plans = plan_layouts(
         layouts,
-        &fingerprints,
-        data_source,
-        strict,
-        capture_values,
+        &resolved_blocks,
+        |block_name, layout_file, source| MintError::InBlock {
+            block_name,
+            layout_file,
+            source,
+        },
     )?;
+    let source = load_data_source()?;
+    let data_source = source.as_deref();
+    let mut results = resolved_blocks
+        .par_iter()
+        .map(|block| build_single_bytestream(block, &plans, data_source, strict, capture_values))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let used_values = if capture_values {
         Some(take_used_values_report(&mut results)?)
@@ -225,10 +256,11 @@ fn build_resolved(
     })
 }
 
-fn resolve_layouts<'a>(
+pub(crate) fn plan_layouts<'a>(
     layouts: &'a HashMap<PathBuf, Config>,
     resolved_blocks: &[ResolvedBlock],
-) -> Result<HashMap<PathBuf, ResolvedBlocks<'a>>, LayoutError> {
+    with_context: fn(String, String, Box<MintError>) -> MintError,
+) -> Result<HashMap<PathBuf, PlannedLayout<'a>>, MintError> {
     layouts
         .par_iter()
         .map(|(path, config)| {
@@ -236,8 +268,16 @@ fn resolve_layouts<'a>(
                 .iter()
                 .filter(|block| &block.layout == path)
                 .map(|block| block.name.as_str());
-            layout::fingerprint::calculate_scoped(config, roots, false)
-                .map(|values| (path.clone(), values))
+            layout::fingerprint::plan_layout(config, roots, false)
+                .map(|plan| (path.clone(), plan))
+                .map_err(|error| match error {
+                    LayoutError::InBlock { block, source } => with_context(
+                        block,
+                        path.display().to_string(),
+                        Box::new((*source).into()),
+                    ),
+                    error => error.into(),
+                })
         })
         .collect()
 }
@@ -346,44 +386,21 @@ pub(crate) fn resolve_blocks(
     Ok((resolved, layouts))
 }
 
-fn build_bytestreams(
-    blocks: &[ResolvedBlock],
-    layouts: &HashMap<PathBuf, Config>,
-    fingerprints: &HashMap<PathBuf, ResolvedBlocks<'_>>,
-    data_source: Option<&dyn DataSource>,
-    strict: bool,
-    capture_values: bool,
-) -> Result<Vec<BlockBuildResult>, MintError> {
-    blocks
-        .par_iter()
-        .map(|resolved| {
-            build_single_bytestream(
-                resolved,
-                layouts,
-                fingerprints,
-                data_source,
-                strict,
-                capture_values,
-            )
-        })
-        .collect()
-}
-
 fn build_single_bytestream(
     resolved: &ResolvedBlock,
-    layouts: &HashMap<PathBuf, Config>,
-    fingerprints: &HashMap<PathBuf, ResolvedBlocks<'_>>,
+    plans: &HashMap<PathBuf, PlannedLayout<'_>>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
 ) -> Result<BlockBuildResult, MintError> {
     let result = (|| {
-        let layout = layouts.get(&resolved.layout).ok_or_else(|| {
+        let plan = plans.get(&resolved.layout).ok_or_else(|| {
             LayoutError::FileError(format!(
-                "resolved layout missing from build map: {}",
+                "resolved layout missing from build plan: {}",
                 resolved.layout.display()
             ))
         })?;
+        let layout = plan.config;
         let block = layout.blocks.get(&resolved.name).ok_or_else(|| {
             let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
             LayoutError::BlockNotFound(format!(
@@ -393,17 +410,11 @@ fn build_single_bytestream(
                 available_blocks
             ))
         })?;
-        let fingerprints = fingerprints.get(&resolved.layout).ok_or_else(|| {
-            LayoutError::FileError(format!(
-                "resolved layout missing from build plan: {}",
-                resolved.layout.display()
-            ))
-        })?;
         let mut collector = ValueCollector::new(capture_values);
 
         let build_output = block.emit(
             &resolved.name,
-            fingerprints,
+            plan,
             data_source,
             &layout.mint,
             strict,
