@@ -1,7 +1,7 @@
 use super::abi::{Abi, ScalarAbi};
 use super::entry::{EntrySource, LeafEntry, RefSource, SizeSource, append_array_element};
 use super::error::{LayoutError, in_field_path};
-use super::fingerprint::ResolvedBlocks;
+use super::fingerprint::PlannedLayout;
 use super::header::Header;
 use super::resolved::ResolvedLayout;
 use super::settings::MintConfig;
@@ -118,14 +118,13 @@ impl Block {
     pub(crate) fn emit(
         &self,
         block_name: &str,
-        blocks: &ResolvedBlocks<'_>,
+        blocks: &PlannedLayout<'_>,
         data_source: Option<&dyn DataSource>,
         settings: &MintConfig,
         strict: bool,
         value_sink: &mut ValueCollector,
     ) -> Result<BuildOutput, LayoutError> {
         let resolved = &blocks.blocks[block_name];
-        resolved.validate(self, settings)?;
         let total_size = resolved.total_size();
         let config = BuildConfig {
             abi: settings.abi,

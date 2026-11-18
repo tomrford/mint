@@ -1,15 +1,17 @@
 use crate::data::DataSource;
+use crate::data::error::DataError;
 use crate::error::MintError;
 use crate::layout;
-use crate::layout::block::Config;
+use crate::layout::block::{Block, Config};
 use crate::layout::error::LayoutError;
-use crate::layout::fingerprint::ResolvedBlocks;
+use crate::layout::fingerprint::PlannedLayout;
 use crate::layout::used_values::ValueCollector;
 use crate::output;
 use crate::output::error::OutputError;
 use crate::output::{DataRange, OutputFormat};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -149,9 +151,10 @@ impl BlockSelector {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ResolvedBlock {
-    pub(crate) name: String,
-    pub(crate) layout: PathBuf,
+pub(crate) struct ResolvedBlock<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) layout: &'a PathBuf,
+    pub(crate) block: &'a Block,
 }
 
 struct BlockBuildResult {
@@ -161,15 +164,39 @@ struct BlockBuildResult {
 }
 
 pub fn build(request: BuildRequest<'_>) -> Result<BuildArtifact, MintError> {
-    let start_time = Instant::now();
+    build_from_files(
+        &request.blocks,
+        request.strict,
+        request.capture_values,
+        || Ok(request.data_source),
+    )
+}
 
-    let (resolved_blocks, layouts) = resolve_blocks(&request.blocks)?;
+/// Build selected blocks, loading the data source after their static validation.
+pub fn build_with_data_source(
+    blocks: &[BlockSelector],
+    strict: bool,
+    capture_values: bool,
+    load_data_source: impl FnOnce() -> Result<Option<Box<dyn DataSource>>, DataError>,
+) -> Result<BuildArtifact, MintError> {
+    build_from_files(blocks, strict, capture_values, load_data_source)
+}
+
+fn build_from_files<'a, S: Deref<Target = dyn DataSource + 'a>>(
+    blocks: &[BlockSelector],
+    strict: bool,
+    capture_values: bool,
+    load_data_source: impl FnOnce() -> Result<Option<S>, DataError>,
+) -> Result<BuildArtifact, MintError> {
+    let start_time = Instant::now();
+    let (blocks, layouts) = load_layouts(blocks)?;
+    let resolved_blocks = resolve_blocks(&blocks, &layouts)?;
     let mut artifact = build_resolved(
         resolved_blocks,
         &layouts,
-        request.data_source,
-        request.strict,
-        request.capture_values,
+        strict,
+        capture_values,
+        load_data_source,
     )?;
     artifact.stats.record_duration(start_time.elapsed());
     Ok(artifact)
@@ -181,34 +208,40 @@ pub fn build_from_layouts(
     let start_time = Instant::now();
 
     let layouts = collect_named_layouts(request.layouts)?;
-    let resolved_blocks = resolve_blocks_from_layouts(&request.blocks, &layouts)?;
+    let resolved_blocks = resolve_blocks(&request.blocks, &layouts)?;
     let mut artifact = build_resolved(
         resolved_blocks,
         &layouts,
-        request.data_source,
         request.strict,
         request.capture_values,
+        || Ok(request.data_source),
     )?;
     artifact.stats.record_duration(start_time.elapsed());
     Ok(artifact)
 }
 
-fn build_resolved(
-    resolved_blocks: Vec<ResolvedBlock>,
+fn build_resolved<'a, S: Deref<Target = dyn DataSource + 'a>>(
+    resolved_blocks: Vec<ResolvedBlock<'_>>,
     layouts: &HashMap<PathBuf, Config>,
-    data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
+    load_data_source: impl FnOnce() -> Result<Option<S>, DataError>,
 ) -> Result<BuildArtifact, MintError> {
-    let fingerprints = resolve_layouts(layouts, &resolved_blocks)?;
-    let mut results = build_bytestreams(
-        &resolved_blocks,
+    let plans = plan_layouts(
         layouts,
-        &fingerprints,
-        data_source,
-        strict,
-        capture_values,
+        &resolved_blocks,
+        |block_name, layout_file, source| MintError::InBlock {
+            block_name,
+            layout_file,
+            source,
+        },
     )?;
+    let source = load_data_source()?;
+    let data_source = source.as_deref();
+    let mut results = resolved_blocks
+        .par_iter()
+        .map(|block| build_single_bytestream(block, &plans, data_source, strict, capture_values))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let used_values = if capture_values {
         Some(take_used_values_report(&mut results)?)
@@ -225,19 +258,28 @@ fn build_resolved(
     })
 }
 
-fn resolve_layouts<'a>(
+pub(crate) fn plan_layouts<'a>(
     layouts: &'a HashMap<PathBuf, Config>,
-    resolved_blocks: &[ResolvedBlock],
-) -> Result<HashMap<PathBuf, ResolvedBlocks<'a>>, LayoutError> {
+    resolved_blocks: &[ResolvedBlock<'_>],
+    with_context: fn(String, String, Box<MintError>) -> MintError,
+) -> Result<HashMap<PathBuf, PlannedLayout<'a>>, MintError> {
     layouts
         .par_iter()
         .map(|(path, config)| {
             let roots = resolved_blocks
                 .iter()
-                .filter(|block| &block.layout == path)
-                .map(|block| block.name.as_str());
-            layout::fingerprint::calculate_scoped(config, roots, false)
-                .map(|values| (path.clone(), values))
+                .filter(|block| block.layout == path)
+                .map(|block| block.name);
+            layout::fingerprint::plan_layout(config, roots, false)
+                .map(|plan| (path.clone(), plan))
+                .map_err(|error| match error {
+                    LayoutError::InBlock { block, source } => with_context(
+                        block,
+                        path.display().to_string(),
+                        Box::new((*source).into()),
+                    ),
+                    error => error.into(),
+                })
         })
         .collect()
 }
@@ -257,13 +299,13 @@ fn collect_named_layouts(
     Ok(out)
 }
 
-fn resolve_blocks_from_layouts(
+pub(crate) fn resolve_blocks<'a>(
     block_args: &[BlockSelector],
-    layouts: &HashMap<PathBuf, Config>,
-) -> Result<Vec<ResolvedBlock>, LayoutError> {
+    layouts: &'a HashMap<PathBuf, Config>,
+) -> Result<Vec<ResolvedBlock<'a>>, LayoutError> {
     let mut resolved = Vec::new();
     for arg in block_args {
-        let layout = layouts.get(&arg.layout).ok_or_else(|| {
+        let (path, layout) = layouts.get_key_value(&arg.layout).ok_or_else(|| {
             let mut available = layouts
                 .keys()
                 .map(|layout| layout.display().to_string())
@@ -276,41 +318,37 @@ fn resolve_blocks_from_layouts(
             ))
         })?;
 
+        let select = |(name, block): (&'a String, &'a Block)| ResolvedBlock {
+            name,
+            layout: path,
+            block,
+        };
         if let Some(block_name) = &arg.block {
-            if layout.blocks.contains_key(block_name) {
-                resolved.push(ResolvedBlock {
-                    name: block_name.clone(),
-                    layout: arg.layout.clone(),
-                });
-            } else {
+            let block = layout.blocks.get_key_value(block_name).ok_or_else(|| {
                 let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
-                return Err(LayoutError::BlockNotFound(format!(
+                LayoutError::BlockNotFound(format!(
                     "'{}' in '{}'. Available blocks: {}",
                     block_name,
-                    arg.layout.display(),
+                    path.display(),
                     available_blocks
-                )));
-            }
+                ))
+            })?;
+            resolved.push(select(block));
         } else {
-            for block_name in layout.blocks.keys() {
-                resolved.push(ResolvedBlock {
-                    name: block_name.clone(),
-                    layout: arg.layout.clone(),
-                });
-            }
+            resolved.extend(layout.blocks.iter().map(select));
         }
     }
 
     let mut seen = HashSet::new();
-    resolved.retain(|b| seen.insert((b.layout.clone(), b.name.clone())));
+    resolved.retain(|b| seen.insert((b.layout, b.name)));
     (!resolved.is_empty())
         .then_some(resolved)
         .ok_or(LayoutError::NoBlocksProvided)
 }
 
-pub(crate) fn resolve_blocks(
+pub(crate) fn load_layouts(
     block_args: &[BlockSelector],
-) -> Result<(Vec<ResolvedBlock>, HashMap<PathBuf, Config>), LayoutError> {
+) -> Result<(Vec<BlockSelector>, HashMap<PathBuf, Config>), LayoutError> {
     let mut first_paths = HashMap::new();
     let normalized_blocks = block_args
         .iter()
@@ -342,70 +380,26 @@ pub(crate) fn resolve_blocks(
         .map(|file| layout::load_layout(file).map(|cfg| (file.clone(), cfg)))
         .collect::<Result<_, LayoutError>>()?;
 
-    let resolved = resolve_blocks_from_layouts(&normalized_blocks, &layouts)?;
-    Ok((resolved, layouts))
-}
-
-fn build_bytestreams(
-    blocks: &[ResolvedBlock],
-    layouts: &HashMap<PathBuf, Config>,
-    fingerprints: &HashMap<PathBuf, ResolvedBlocks<'_>>,
-    data_source: Option<&dyn DataSource>,
-    strict: bool,
-    capture_values: bool,
-) -> Result<Vec<BlockBuildResult>, MintError> {
-    blocks
-        .par_iter()
-        .map(|resolved| {
-            build_single_bytestream(
-                resolved,
-                layouts,
-                fingerprints,
-                data_source,
-                strict,
-                capture_values,
-            )
-        })
-        .collect()
+    Ok((normalized_blocks, layouts))
 }
 
 fn build_single_bytestream(
-    resolved: &ResolvedBlock,
-    layouts: &HashMap<PathBuf, Config>,
-    fingerprints: &HashMap<PathBuf, ResolvedBlocks<'_>>,
+    resolved: &ResolvedBlock<'_>,
+    plans: &HashMap<PathBuf, PlannedLayout<'_>>,
     data_source: Option<&dyn DataSource>,
     strict: bool,
     capture_values: bool,
 ) -> Result<BlockBuildResult, MintError> {
     let result = (|| {
-        let layout = layouts.get(&resolved.layout).ok_or_else(|| {
-            LayoutError::FileError(format!(
-                "resolved layout missing from build map: {}",
-                resolved.layout.display()
-            ))
-        })?;
-        let block = layout.blocks.get(&resolved.name).ok_or_else(|| {
-            let available_blocks = layout.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
-            LayoutError::BlockNotFound(format!(
-                "'{}' in '{}'. Available blocks: {}",
-                resolved.name,
-                resolved.layout.display(),
-                available_blocks
-            ))
-        })?;
-        let fingerprints = fingerprints.get(&resolved.layout).ok_or_else(|| {
-            LayoutError::FileError(format!(
-                "resolved layout missing from build plan: {}",
-                resolved.layout.display()
-            ))
-        })?;
+        let plan = &plans[resolved.layout];
+        let block = resolved.block;
         let mut collector = ValueCollector::new(capture_values);
 
         let build_output = block.emit(
-            &resolved.name,
-            fingerprints,
+            resolved.name,
+            plan,
             data_source,
-            &layout.mint,
+            &plan.config.mint,
             strict,
             &mut collector,
         )?;
@@ -413,12 +407,12 @@ fn build_single_bytestream(
         let data_range = output::bytestream_to_datarange(
             build_output.bytestream,
             &block.header,
-            layout.mint.abi,
+            plan.config.mint.abi,
         )?;
 
         let stat = BlockStat {
             layout: resolved.layout.clone(),
-            block: resolved.name.clone(),
+            block: resolved.name.to_owned(),
             start_address: data_range.start_address,
             address_unit_bits: data_range.address_unit_bits,
             allocated_size: data_range.allocated_size,
@@ -434,7 +428,7 @@ fn build_single_bytestream(
     })();
 
     result.map_err(|e| MintError::InBlock {
-        block_name: resolved.name.clone(),
+        block_name: resolved.name.to_owned(),
         layout_file: resolved.layout.display().to_string(),
         source: Box::new(e),
     })
@@ -458,8 +452,6 @@ fn collect_results(
     Ok((ranges, stats))
 }
 
-const ADDRESS_SPACE_SIZE: u64 = u32::MAX as u64 + 1;
-
 fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError> {
     if let Some((_, first)) = named_ranges.first()
         && named_ranges
@@ -474,8 +466,12 @@ fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError>
 
     let mut ranges = Vec::with_capacity(named_ranges.len());
     for (name, range) in named_ranges {
-        let (start, end) = checked_range_bounds(name, range)?;
-        ranges.push((name.as_str(), start, end));
+        let start = u64::from(range.output_start_address()?);
+        ranges.push((
+            name.as_str(),
+            start,
+            start + u64::from(range.allocated_size),
+        ));
     }
 
     for i in 0..ranges.len() {
@@ -505,21 +501,6 @@ fn check_overlaps(named_ranges: &[(String, DataRange)]) -> Result<(), MintError>
         }
     }
     Ok(())
-}
-
-fn checked_range_bounds(name: &str, range: &DataRange) -> Result<(u64, u64), MintError> {
-    let start = u64::from(range.output_start_address()?);
-    let end = start + u64::from(range.allocated_size);
-    if end > ADDRESS_SPACE_SIZE {
-        return Err(OutputError::AddressRangeError(format!(
-            "Block '{}' range 0x{:08X}-0x{:08X} exceeds the 32-bit address space",
-            name,
-            start,
-            end.saturating_sub(1)
-        ))
-        .into());
-    }
-    Ok((start, end))
 }
 
 fn take_used_values_report(

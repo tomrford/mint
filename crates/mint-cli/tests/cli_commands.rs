@@ -291,6 +291,24 @@ value = { const = "missing", type = "u32" }
         "stderr: {}",
         String::from_utf8_lossy(&dangling_const.stderr)
     );
+
+    let missing_data = common::unique_out_path("preflight-before-data", "json");
+    let out = common::unique_out_path("preflight-before-data", "hex");
+    let build = mint_command()
+        .args(["build", &format!("{layout}#bad_const"), "--json"])
+        .arg(&missing_data)
+        .args(["--variants", "Default", "--out"])
+        .arg(&out)
+        .output()
+        .expect("selected build command runs");
+    assert!(!build.status.success());
+    let stderr = String::from_utf8_lossy(&build.stderr);
+    assert!(
+        stderr.contains("while building block 'bad_const'")
+            && stderr.contains("Const 'missing' not found"),
+        "{stderr}"
+    );
+    assert!(!out.exists(), "preflight failure wrote output");
 }
 
 #[test]
