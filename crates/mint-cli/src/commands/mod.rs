@@ -11,7 +11,7 @@ use std::iter::once;
 pub fn header(args: &HeaderArgs) -> Result<(), MintError> {
     let inputs = args.blocks.iter().map(|block| block.layout.as_path());
     let outputs = writer::inspect(inputs, once(args.out.as_path()))?;
-    writer::write(&outputs[0], &mint_core::header::generate(&args.blocks)?)?;
+    outputs[0].write(&mint_core::header::generate(&args.blocks)?)?;
     Ok(())
 }
 
@@ -96,8 +96,8 @@ pub fn build(args: &Args) -> Result<BuildStats, MintError> {
     )?;
     let contents = artifact.render(args.output.format, args.output.record_width as usize)?;
     let report = artifact.used_values.as_ref().map(render_json).transpose()?;
-    for (path, contents) in outputs.iter().zip(once(contents).chain(report)) {
-        writer::write(path, &contents)?;
+    for (destination, contents) in outputs.iter().zip(once(contents).chain(report)) {
+        destination.write(&contents)?;
     }
     Ok(artifact.stats)
 }

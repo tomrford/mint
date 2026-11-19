@@ -593,4 +593,21 @@ fn output_aliases_are_rejected_before_either_file_is_written() {
     let output = build(&path, &root);
     assert!(!output.status.success());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
+
+    let missing_parent_dir = root.join("missing_a/missing_b/..");
+    let output = build(&path, &missing_parent_dir);
+    assert!(!output.status.success());
+    assert!(!root.join("missing_a").exists());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
+
+    let under_existing_file = path.join("missing/report.json");
+    let output = build(&path, &under_existing_file);
+    assert!(!output.status.success());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
+
+    let parent_of_existing_file = path.join("missing/..");
+    let output = build(&parent_of_existing_file, &root.join("other.json"));
+    assert!(!output.status.success());
+    assert!(!root.join("other.json").exists());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
 }
