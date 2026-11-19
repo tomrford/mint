@@ -496,3 +496,52 @@ x = {{ value = [1, 2], type = "u8", size = 2 }}
         );
     }
 }
+
+#[test]
+fn combined_layouts_need_a_common_c_representation() {
+    let layout = |block, abi, fields| {
+        common::write_layout_file(
+            block,
+            &format!(
+                r#"
+[mint]
+abi = "{abi}"
+[{block}.header]
+start_address = 0
+length = 16
+[{block}.data]
+{fields}
+"#
+            ),
+        )
+    };
+    let fields = "lead = { value = 1, type = 'u8' }\nvalue = { value = 2, type = 'u64' }";
+    let generic = layout("generic", "generic-be", fields);
+    let tricore = layout("tricore", "tricore-eabi-le", fields);
+    let error =
+        mint_core::header::generate(&[BlockSelector::all(&generic), BlockSelector::all(&tricore)])
+            .expect_err("identical C member types cannot have both offsets 4 and 8");
+    assert!(common::error_chain(&error).contains("incompatible C ABI layouts"));
+
+    let neutral = layout(
+        "neutral",
+        "generic-le",
+        "value = { value = 2, type = 'u32' }",
+    );
+    let header =
+        mint_core::header::generate(&[BlockSelector::all(neutral), BlockSelector::all(tricore)])
+            .expect("both blocks can use the TriCore C layout");
+    assert!(header.contains("} neutral_t;") && header.contains("} tricore_t;"));
+}
+
+#[test]
+fn rejects_member_named_like_required_char_width_macro() {
+    let message = error(
+        "char-bit",
+        &include_layout("block", "").replace("\nvalue = ", "\nCHAR_BIT = "),
+    );
+    assert!(
+        message.contains("field 'CHAR_BIT' collides with the required CHAR_BIT macro"),
+        "{message}"
+    );
+}
