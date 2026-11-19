@@ -162,6 +162,37 @@ checksum_two = {{ checksum = "crc32", type = "u32" }}
 }
 
 #[test]
+fn excel_errors_list_available_sheets_and_columns() {
+    let error = |options: ExcelDataSourceOptions| match ExcelDataSource::from_path(
+        "tests/data/data.xlsx",
+        options,
+    ) {
+        Err(error) => common::error_chain(&error),
+        Ok(_) => panic!("invalid Excel options should fail"),
+    };
+
+    let message = error(ExcelDataSourceOptions {
+        main_sheet: "Config".to_owned(),
+        variants: vec!["Default".to_owned()],
+    });
+    assert!(
+        message.contains("main sheet 'Config' not found"),
+        "{message}"
+    );
+    assert!(message.contains("Available sheets: Main"), "{message}");
+
+    let message = error(ExcelDataSourceOptions::new(vec!["Typo".to_owned()]));
+    assert!(
+        message.contains("Excel column not found: 'Typo' in sheet 'Main'"),
+        "{message}"
+    );
+    assert!(
+        message.contains("Available columns: Name, Default, Debug, VarA"),
+        "{message}"
+    );
+}
+
+#[test]
 fn excel_rejects_ambiguous_names_and_incomplete_matrices() {
     for (fixture, expected) in [
         ("duplicate-names", "duplicate name 'CrcSeed'"),

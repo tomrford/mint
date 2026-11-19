@@ -45,7 +45,10 @@ impl ExcelDataSource {
             .iter()
             .find_map(|(name, sheet)| (name == main_sheet_name).then_some(sheet))
             .ok_or_else(|| {
-                DataError::MiscError(format!("main sheet '{main_sheet_name}' not found"))
+                DataError::MiscError(format!(
+                    "main sheet '{main_sheet_name}' not found. Available sheets: {}",
+                    Self::sheet_names(&worksheets)
+                ))
             })?;
 
         let rows: Vec<_> = main_sheet.rows().collect();
@@ -61,7 +64,7 @@ impl ExcelDataSource {
         let name_index = headers
             .iter()
             .position(|cell| Self::cell_eq(cell, "Name"))
-            .ok_or(DataError::ColumnNotFound("Name".to_owned()))?;
+            .ok_or_else(|| Self::missing_column("Name", main_sheet_name, headers))?;
 
         let mut names: Vec<String> = Vec::with_capacity(data_rows);
         names.extend(rows.iter().skip(1).map(|row| {
@@ -70,8 +73,13 @@ impl ExcelDataSource {
                 .unwrap_or_default()
         }));
         Self::validate_unique_names(&names)?;
-        let variant_columns =
-            Self::collect_variant_columns(headers, &rows, data_rows, &options.variants)?;
+        let variant_columns = Self::collect_variant_columns(
+            main_sheet_name,
+            headers,
+            &rows,
+            data_rows,
+            &options.variants,
+        )?;
 
         let sheets = worksheets
             .into_iter()
@@ -118,6 +126,30 @@ impl ExcelDataSource {
         })
     }
 
+    fn sheet_names(sheets: &[(String, Range<Data>)]) -> String {
+        sheets
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn header_names(headers: &[Data]) -> String {
+        headers
+            .iter()
+            .filter(|cell| !Self::cell_is_empty(cell))
+            .map(|cell| cell.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn missing_column(column: &str, sheet_name: &str, headers: &[Data]) -> DataError {
+        DataError::ColumnNotFound(format!(
+            "'{column}' in sheet '{sheet_name}'. Available columns: {}",
+            Self::header_names(headers)
+        ))
+    }
+
     fn cell_eq(cell: &Data, target: &str) -> bool {
         match cell {
             Data::String(s) => s == target,
@@ -160,6 +192,7 @@ impl ExcelDataSource {
     }
 
     fn collect_variant_columns(
+        main_sheet_name: &str,
         headers: &[Data],
         rows: &[&[Data]],
         data_rows: usize,
@@ -176,7 +209,7 @@ impl ExcelDataSource {
                 .map(|(index, _)| index);
             let index = matches
                 .next()
-                .ok_or_else(|| DataError::ColumnNotFound(v.clone()))?;
+                .ok_or_else(|| Self::missing_column(v, main_sheet_name, headers))?;
             if matches.next().is_some() {
                 return Err(DataError::RetrievalError(format!(
                     "duplicate variant '{v}' in data sheet"
