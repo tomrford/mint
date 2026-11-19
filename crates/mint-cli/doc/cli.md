@@ -15,7 +15,7 @@ mint header layout.toml -o layout.h
 
 `mint build` writes every selected block into one file and rejects blocks whose address ranges overlap. It refuses to write the output over an input file, and warns when the output extension suggests the other format. Data-source options are described in [sources.md](sources.md) (`mint skill sources`).
 
-`--export-json` writes the values each block used, nested by layout file, block and field path. Bitmaps appear as objects of their sub-fields, with literal sub-fields named `reserved_<bit offset>_<bits>`.
+`--export-json` writes the values each block used, nested by layout file, block and field path. Scalar and array entries show selected inputs, bitmap entries show the clamped sub-field values, and generated fields show their computed values. Bitmap keys use source names or `reserved_<bit offset>_<bits>` for literals. When a key repeats, the later sub-field uses `bits_<bit offset>_<bits>`, with underscores appended as needed to make it unique.
 
 `--stats` prints a summary and one row per block; for `doc/examples/block.toml` with `doc/examples/data.xlsx`:
 
