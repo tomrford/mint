@@ -1,12 +1,11 @@
 use crate::build::{BlockSelector, load_layouts, plan_layouts, resolve_blocks};
 use crate::error::MintError;
-use crate::layout::abi::Abi;
-use crate::layout::block::{Block, Entry};
+use crate::layout::abi::ScalarAbi;
+use crate::layout::block::Block;
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::fingerprint;
 use crate::layout::resolved::ResolvedNode;
-use crate::layout::settings::MintConfig;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -15,7 +14,7 @@ use std::path::PathBuf;
 pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let (blocks, layouts) = load_layouts(blocks)?;
     let resolved = resolve_blocks(&blocks, &layouts)?;
-    let plans = plan_layouts(&layouts, &resolved, |block_name, layout_file, source| {
+    let plans = plan_layouts(&resolved, |block_name, layout_file, source| {
         MintError::InHeaderBlock {
             block_name,
             layout_file,
@@ -48,13 +47,7 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
             }
             includes = Some((selected.layout, configured_includes));
         }
-        let result = render_block(
-            selected.name,
-            selected.block,
-            &layout.mint,
-            plan,
-            &mut names,
-        );
+        let result = render_block(selected.name, selected.block, plan, &mut names);
         let block_output = result.map_err(|source| MintError::InHeaderBlock {
             block_name: selected.name.to_owned(),
             layout_file: selected.layout.display().to_string(),
@@ -179,7 +172,6 @@ impl NameRegistry {
 fn render_block(
     block_name: &str,
     block: &Block,
-    settings: &MintConfig,
     fingerprints: &fingerprint::PlannedLayout<'_>,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
@@ -187,9 +179,12 @@ fn render_block(
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
-    let resolved = &fingerprints.blocks[block_name];
+    let root = &fingerprints.blocks[block_name].resolved.root;
 
-    let Entry::Branch(source) = &block.data else {
+    let ResolvedNode::Branch {
+        children: source, ..
+    } = root
+    else {
         unreachable!("resolution rejects block data that is not a table")
     };
 
@@ -220,21 +215,13 @@ fn render_block(
         names,
         &mut path,
         &mut macros,
-        settings.abi,
     )?;
 
     let mut typedef = String::from("typedef struct {\n");
-    render_fields(
-        source,
-        1,
-        &macro_prefix,
-        &mut path,
-        &mut typedef,
-        settings.abi,
-    )?;
+    render_fields(source, 1, &macro_prefix, &mut path, &mut typedef)?;
     typedef.push_str(&format!("}} {typedef_name};\n"));
 
-    let assertions = render_layout_assertions(block_name, &typedef_name, &resolved.root);
+    let assertions = render_layout_assertions(block_name, &typedef_name, root);
 
     Ok(RenderedBlock {
         macro_prefix,
@@ -246,20 +233,19 @@ fn render_block(
 
 #[allow(clippy::too_many_arguments)]
 fn collect_macros(
-    fields: &IndexMap<String, Entry>,
+    fields: &[(String, ResolvedNode<'_>)],
     block_name: &str,
     block_prefix: &str,
     fingerprints: &IndexMap<String, u64>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
     output: &mut Vec<MacroDefinition>,
-    abi: Abi,
 ) -> Result<(), LayoutError> {
     for (name, node) in fields {
         names.members.insert(name.clone());
         path.push(name.clone());
         match node {
-            Entry::Branch(children) => {
+            ResolvedNode::Branch { children, .. } => {
                 collect_macros(
                     children,
                     block_name,
@@ -268,10 +254,11 @@ fn collect_macros(
                     names,
                     path,
                     output,
-                    abi,
                 )?;
             }
-            Entry::Leaf(leaf) => collect_leaf_macros(
+            ResolvedNode::Leaf {
+                leaf, scalar_abi, ..
+            } => collect_leaf_macros(
                 leaf,
                 block_name,
                 block_prefix,
@@ -279,7 +266,7 @@ fn collect_macros(
                 names,
                 path,
                 output,
-                abi,
+                *scalar_abi,
             )?,
         }
         path.pop();
@@ -296,7 +283,7 @@ fn collect_leaf_macros(
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,
-    abi: Abi,
+    scalar_abi: ScalarAbi,
 ) -> Result<(), LayoutError> {
     let size = leaf.size;
 
@@ -336,7 +323,7 @@ fn collect_leaf_macros(
     }
 
     if let EntrySource::Bitmap(fields) = &leaf.source {
-        let width = abi.scalar(leaf.scalar_type)?.storage_size * 8;
+        let width = scalar_abi.storage_size * 8;
         let mut shift = 0usize;
         for field in fields {
             if let BitmapFieldSource::Name(data_name) = &field.source {
@@ -407,24 +394,25 @@ fn add_macro(
 }
 
 fn render_fields(
-    fields: &IndexMap<String, Entry>,
+    fields: &[(String, ResolvedNode<'_>)],
     depth: usize,
     block_prefix: &str,
     path: &mut Vec<String>,
     output: &mut String,
-    abi: Abi,
 ) -> Result<(), LayoutError> {
     let indent = "  ".repeat(depth);
     for (name, node) in fields {
         path.push(name.clone());
         match node {
-            Entry::Branch(children) => {
+            ResolvedNode::Branch { children, .. } => {
                 output.push_str(&format!("{indent}struct {{\n"));
-                render_fields(children, depth + 1, block_prefix, path, output, abi)?;
+                render_fields(children, depth + 1, block_prefix, path, output)?;
                 output.push_str(&format!("{indent}}} {name};\n"));
             }
-            Entry::Leaf(leaf) => {
-                let c_type = abi.scalar(leaf.scalar_type)?.c_type;
+            ResolvedNode::Leaf {
+                leaf, scalar_abi, ..
+            } => {
+                let c_type = scalar_abi.c_type;
                 let dimensions = match leaf.size {
                     None => String::new(),
                     Some(SizeSource::OneD(_)) => {

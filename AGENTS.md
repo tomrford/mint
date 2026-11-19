@@ -12,9 +12,9 @@ mint is a Cargo workspace with two crates:
 ### Build Flow
 
 1. **Parse**: Serde parses each TOML layout into layout configuration types.
-2. **Resolve**: `ResolvedLayout` (`layout/resolved.rs`) calculates every field's offset, size and alignment and runs static checks for address-unit fit, checksum placement and ref addresses.
+2. **Resolve**: `ResolvedLayout` (`layout/resolved.rs`) calculates every field's offset, size and alignment and prepares static field bindings. The build checks allocated ranges before opening input data.
 3. **Emit**: `layout/block.rs` starts each block as a padding-filled buffer. Data values, refs, fingerprints and prefix checksums are written at resolved offsets in field order.
-4. **Output**: `build.rs` turns emitted blocks into address ranges and rejects overlaps; `output/` renders the selected format.
+4. **Output**: `build.rs` turns emitted blocks into address ranges; `output/` renders the selected format.
 
 ### Documentation
 

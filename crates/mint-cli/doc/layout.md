@@ -204,7 +204,7 @@ config_schema = { fingerprint = "config", type = "u64" }
 
 `mint build`, `mint header` and `mint fingerprint` share layout checks for selected blocks before producing output. Each block's `data` must be a table of fields. Shared checks cover field layout, literal and const shapes and lengths, block length and address units, the output address range, checksum placement and configuration, and ref targets. Errors from these checks name the affected block. A block named only as a fingerprint target is resolved for its shape.
 
-`mint build` validates the selected layouts before opening the data source. It also checks numeric conversions and data-source values as it encodes them and rejects overlapping output ranges.
+`mint build` validates the selected layouts and checks their allocated ranges for overlap and address-unit compatibility before opening the data source. It checks numeric conversions and data-source values during encoding.
 
 ## C header
 

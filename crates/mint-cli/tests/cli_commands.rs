@@ -312,6 +312,39 @@ value = { const = "missing", type = "u32" }
 }
 
 #[test]
+fn overlapping_allocations_fail_before_opening_a_source() {
+    let layout = common::write_layout_file(
+        "overlap-before-data",
+        r#"
+[mint]
+abi = "generic-le"
+
+[first.header]
+start_address = 0x100
+length = 16
+[first.data]
+value = { value = 1, type = "u8" }
+
+[second.header]
+start_address = 0x108
+length = 16
+[second.data]
+value = { value = 2, type = "u8" }
+"#,
+    );
+    let output = mint_command()
+        .args(["build", &layout, "--json"])
+        .arg(common::unique_out_path("missing-source", "json"))
+        .args(["--variants", "Default", "--out"])
+        .arg(common::unique_out_path("overlap-before-data", "hex"))
+        .output()
+        .expect("build command runs");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("block memory overlap detected"), "{stderr}");
+}
+
+#[test]
 fn missing_command_reports_top_level_usage() {
     let output = mint_command().output().expect("mint should run");
 
