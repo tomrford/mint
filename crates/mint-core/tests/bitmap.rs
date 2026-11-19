@@ -145,3 +145,43 @@ fn bitmap_validation_rejects_invalid_shapes() {
         );
     }
 }
+
+#[test]
+fn capture_preserves_each_bitmap_subfield_when_names_collide() {
+    use mint_core::build::{BlockSelector, BuildRequest, build};
+    use mint_core::data::JsonDataSource;
+    use serde_json::json;
+
+    let layout = bitmap_layout(
+        r#"flags = { type = "u16", bitmap = [
+    { bits = 2, value = 1 },
+    { bits = 2, name = "reserved_0_2" },
+    { bits = 2, name = "mode" },
+    { bits = 2, name = "bits_8_2" },
+    { bits = 2, name = "mode" },
+    { bits = 6, value = 0 },
+] }"#,
+    );
+    let path = common::write_layout_file("bitmap-report", &layout);
+    let source = JsonDataSource::from_value(
+        json!({"Default": {"reserved_0_2": 2, "bits_8_2": 2, "mode": 1}}),
+        &["Default".into()],
+    )
+    .unwrap();
+    let artifact = build(BuildRequest {
+        blocks: vec![BlockSelector::all(&path)],
+        data_source: Some(&source),
+        strict: true,
+        capture_values: true,
+    })
+    .expect("reusing source names should still produce a report");
+
+    assert_eq!(artifact.ranges[0].bytestream, [0x99, 0x01]);
+    assert_eq!(
+        artifact.used_values.unwrap()[&path]["block"]["flags"],
+        json!({
+            "reserved_0_2": 1, "bits_2_2": 2, "mode": 1, "bits_8_2": 2, "bits_8_2_": 1,
+            "reserved_10_6": 0
+        })
+    );
+}
