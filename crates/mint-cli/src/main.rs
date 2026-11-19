@@ -11,7 +11,6 @@
 
 mod args;
 mod commands;
-mod data;
 mod data_args;
 mod layout_args;
 mod output_args;
