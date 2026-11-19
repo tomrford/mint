@@ -31,22 +31,8 @@ impl ValueCollector {
         }
     }
 
-    /// Records `value` under `key` inside the dotted field `path` when capture is enabled.
-    pub fn record_member_value(
-        &mut self,
-        path: &str,
-        key: impl FnOnce() -> String,
-        value: impl FnOnce() -> Result<Value, LayoutError>,
-    ) -> Result<(), LayoutError> {
-        match &mut self.root {
-            Some(root) => {
-                let key = key();
-                let mut segments = path.split('.').collect::<Vec<_>>();
-                segments.push(&key);
-                insert_value(root, &segments, value()?)
-            }
-            None => Ok(()),
-        }
+    pub fn enabled(&self) -> bool {
+        self.root.is_some()
     }
 }
 

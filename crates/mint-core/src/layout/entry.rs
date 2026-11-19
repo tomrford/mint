@@ -10,6 +10,7 @@ use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
+use serde_json::{Map, Value};
 
 const LEAF_SOURCE_KEYS: &[&str] = &[
     "name",
@@ -616,6 +617,7 @@ impl LeafEntry {
     ) -> Result<(), LayoutError> {
         let signed = self.scalar_type.is_signed();
         let mut accumulator: u128 = 0;
+        let mut captured = value_sink.enabled().then(Map::new);
         let mut offset: usize = 0;
         for field in fields {
             let value = field.resolve_value(data_source)?;
@@ -625,13 +627,22 @@ impl LeafEntry {
             let pattern = (clamped as u128) & mask;
             accumulator |= pattern << offset;
 
-            value_sink.record_member_value(
-                field_path,
-                || bitmap_field_key(field, offset),
-                || i128_to_json(clamped),
-            )?;
+            if let Some(captured) = &mut captured {
+                let mut key = bitmap_field_key(field, offset);
+                if captured.contains_key(&key) {
+                    key = format!("bits_{offset}_{}", field.bits);
+                    while captured.contains_key(&key) {
+                        key.push('_');
+                    }
+                }
+                captured.insert(key, i128_to_json(clamped)?);
+            }
 
             offset += field.bits;
+        }
+
+        if let Some(captured) = captured {
+            value_sink.record_value(field_path, || Ok(Value::Object(captured)))?;
         }
 
         // Bitmap storage is an integer type, so its width is 1, 2, 4 or 8 octets.
