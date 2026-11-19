@@ -216,3 +216,25 @@ fn excel_rejects_ambiguous_names_and_incomplete_matrices() {
         assert!(message.contains(expected), "{fixture}: {message}");
     }
 }
+
+#[test]
+fn rendering_rejects_partial_target_address_units() {
+    let artifact = BuildArtifact {
+        ranges: vec![DataRange {
+            start_address: 0x100,
+            address_unit_bits: 16,
+            bytestream: vec![0xff],
+            reserved_size: 1,
+            allocated_size: 2,
+        }],
+        stats: Default::default(),
+        used_values: None,
+    };
+    let error = artifact
+        .render(OutputFormat::Hex, 16)
+        .expect_err("a 16-bit address unit needs two octets of payload");
+    assert!(
+        error.to_string().contains("bytestream length 1 octets"),
+        "{error}"
+    );
+}

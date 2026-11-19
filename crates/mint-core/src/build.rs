@@ -244,11 +244,12 @@ fn build_single_bytestream(
             &mut collector,
         )?;
 
-        let data_range = output::bytestream_to_datarange(
+        // Preparation validates the allocation and emission writes the planned size.
+        let data_range = DataRange::from_block(
             build_output.bytestream,
             &block.header,
             job.plan.resolved.abi(),
-        )?;
+        );
 
         let stat = BlockStat {
             layout: job.path.to_path_buf(),
