@@ -553,7 +553,7 @@ fn output_aliases_are_rejected_before_either_file_is_written() {
     let root = common::unique_out_path("output-aliases", "dir");
     std::fs::create_dir_all(root.join("sub")).unwrap();
     let path = root.join("out.hex");
-    let mut aliases = vec![root.join("sub/../out.hex")];
+    let mut aliases = vec![root.join("sub/../out.hex"), path.join("report.json")];
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&root, root.join("alias")).unwrap();
@@ -575,6 +575,10 @@ fn output_aliases_are_rejected_before_either_file_is_written() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
         assert!(!path.exists());
     }
+    let output = build(&path.join("report.json"), &path);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
+    assert!(!path.exists());
     #[cfg(unix)]
     {
         let dangling = root.join("dangling.hex");
@@ -590,24 +594,24 @@ fn output_aliases_are_rejected_before_either_file_is_written() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
-    let output = build(&path, &root);
-    assert!(!output.status.success());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
 
-    let missing_parent_dir = root.join("missing_a/missing_b/..");
-    let output = build(&path, &missing_parent_dir);
-    assert!(!output.status.success());
+    let mut bad_reports = vec![
+        root.clone(),
+        root.join("missing_a/missing_b/.."),
+        path.join("missing/report.json"),
+    ];
+    #[cfg(unix)]
+    bad_reports.push(root.join("missing/../out.hex/../report.json"));
+    for bad in bad_reports {
+        assert!(!build(&path, &bad).status.success(), "{}", bad.display());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
+    }
     assert!(!root.join("missing_a").exists());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
-
-    let under_existing_file = path.join("missing/report.json");
-    let output = build(&path, &under_existing_file);
-    assert!(!output.status.success());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
-
-    let parent_of_existing_file = path.join("missing/..");
-    let output = build(&parent_of_existing_file, &root.join("other.json"));
-    assert!(!output.status.success());
+    assert!(
+        !build(&path.join("missing/.."), &root.join("other.json"))
+            .status
+            .success()
+    );
     assert!(!root.join("other.json").exists());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
 }

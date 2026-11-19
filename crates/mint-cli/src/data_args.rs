@@ -51,42 +51,39 @@ pub struct DataArgs {
 
 type LoadedSource = Result<Option<Box<dyn DataSource>>, DataError>;
 
-enum DataInput<'a> {
-    None,
-    Excel(&'a Path),
-    JsonFile(&'a Path),
-    JsonInline(&'a str),
-}
-
 impl DataArgs {
     pub fn input(&self) -> (Option<&Path>, impl FnOnce() -> LoadedSource) {
-        let input = match (self.xlsx.as_deref(), self.json.as_deref()) {
-            (Some(path), _) => DataInput::Excel(Path::new(path)),
-            (_, Some(json)) if json.trim_start().starts_with('{') => DataInput::JsonInline(json),
-            (_, Some(path)) => DataInput::JsonFile(Path::new(path)),
-            (None, None) => DataInput::None,
+        enum Source<'a> {
+            None,
+            Excel(&'a Path),
+            JsonFile(&'a Path),
+            JsonInline(&'a str),
+        }
+        let source = match (self.xlsx.as_deref(), self.json.as_deref()) {
+            (Some(path), _) => Source::Excel(Path::new(path)),
+            (_, Some(json)) if json.trim_start().starts_with('{') => Source::JsonInline(json),
+            (_, Some(path)) => Source::JsonFile(Path::new(path)),
+            (None, None) => Source::None,
         };
-        let file = match input {
-            DataInput::Excel(path) | DataInput::JsonFile(path) => Some(path),
-            DataInput::JsonInline(_) | DataInput::None => None,
+        let file = match source {
+            Source::Excel(path) | Source::JsonFile(path) => Some(path),
+            _ => None,
         };
-        (file, move || -> LoadedSource {
-            match input {
-                DataInput::Excel(path) => {
-                    let mut options = ExcelDataSourceOptions::new(self.variants.clone());
-                    options.main_sheet = self.main_sheet.clone().unwrap_or(options.main_sheet);
-                    Ok(Some(Box::new(ExcelDataSource::from_path(path, options)?)))
-                }
-                DataInput::JsonFile(path) => Ok(Some(Box::new(JsonDataSource::from_path(
-                    path,
-                    &self.variants,
-                )?))),
-                DataInput::JsonInline(json) => Ok(Some(Box::new(JsonDataSource::from_str(
-                    json,
-                    &self.variants,
-                )?))),
-                DataInput::None => Ok(None),
+        (file, move || match source {
+            Source::Excel(path) => {
+                let mut options = ExcelDataSourceOptions::new(self.variants.clone());
+                options.main_sheet = self.main_sheet.clone().unwrap_or(options.main_sheet);
+                Ok(Some(Box::new(ExcelDataSource::from_path(path, options)?)))
             }
+            Source::JsonFile(path) => Ok(Some(Box::new(JsonDataSource::from_path(
+                path,
+                &self.variants,
+            )?))),
+            Source::JsonInline(json) => Ok(Some(Box::new(JsonDataSource::from_str(
+                json,
+                &self.variants,
+            )?))),
+            Source::None => Ok(None),
         })
     }
 }

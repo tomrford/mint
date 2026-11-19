@@ -1,27 +1,37 @@
 use mint_core::output::error::OutputError;
 use same_file::Handle;
 use std::collections::BTreeSet;
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf, is_separator};
 
 pub struct Destination<'a> {
     original: &'a Path,
     resolved: PathBuf,
+    existed: bool,
 }
 
 impl Destination<'_> {
     pub fn write(&self, contents: &str) -> Result<(), OutputError> {
-        if let Some(parent) = self
-            .resolved
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent)
-                .map_err(|error| file_error("write", self.original, error))?;
-        }
-        fs::write(&self.resolved, contents)
-            .map_err(|error| file_error("write", self.original, error))
+        let write = || -> io::Result<()> {
+            if let Some(parent) = self
+                .resolved
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
+                fs::create_dir_all(parent)?;
+            }
+            if self.existed {
+                fs::write(&self.resolved, contents)
+            } else {
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&self.resolved)?
+                    .write_all(contents.as_bytes())
+            }
+        };
+        write().map_err(|error| file_error("write", self.original, error))
     }
 }
 
@@ -29,95 +39,110 @@ pub fn inspect<'a>(
     inputs: impl Iterator<Item = &'a Path>,
     outputs: impl Iterator<Item = &'a Path>,
 ) -> Result<Vec<Destination<'a>>, OutputError> {
-    let inputs = inputs.collect::<BTreeSet<_>>();
-    let mut input_handles: Option<Vec<(&Path, Option<Handle>)>> = None;
+    let inputs: BTreeSet<_> = inputs.collect();
     let mut checked: Vec<(Destination<'a>, Option<Handle>)> = Vec::new();
     for output in outputs {
         let resolved = destination(output).map_err(|error| file_error("resolve", output, error))?;
         let id = Handle::from_path(&resolved).ok();
-        let overlapping_input = inputs
+        let overlap = inputs
             .iter()
             .copied()
-            .find(|other| resolved == *other)
+            .find(|other| resolved == *other || id.is_some() && id == Handle::from_path(other).ok())
             .or_else(|| {
-                let id = id.as_ref()?;
-                let handles = input_handles.get_or_insert_with(|| {
-                    inputs
-                        .iter()
-                        .copied()
-                        .map(|path| (path, Handle::from_path(path).ok()))
-                        .collect()
-                });
-                handles
+                checked
                     .iter()
-                    .find(|(_, handle)| handle.as_ref() == Some(id))
-                    .map(|(path, _)| *path)
+                    .find(|(other, handle)| {
+                        resolved.starts_with(&other.resolved)
+                            || other.resolved.starts_with(&resolved)
+                            || id.is_some() && id == *handle
+                    })
+                    .map(|(other, _)| other.original)
             });
-        let overlapping = overlapping_input.or_else(|| {
-            checked
-                .iter()
-                .find(|(other, handle)| resolved == other.resolved || id.is_some() && id == *handle)
-                .map(|(other, _)| other.original)
-        });
-        if let Some(other) = overlapping {
+        if let Some(other) = overlap {
             return Err(OutputError::FileError(format!(
                 "output '{}' overlaps input or output '{}'",
                 output.display(),
                 other.display()
             )));
         }
-        checked.push((
-            Destination {
-                original: output,
-                resolved,
-            },
-            id,
-        ));
+        let dest = Destination {
+            original: output,
+            resolved,
+            existed: id.is_some(),
+        };
+        checked.push((dest, id));
     }
     Ok(checked.into_iter().map(|(dest, _)| dest).collect())
 }
 
 fn destination(path: &Path) -> io::Result<PathBuf> {
     let spelling = path.as_os_str().as_encoded_bytes();
+    if spelling.is_empty() {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
     let end = spelling.strip_suffix(b".").unwrap_or(spelling).last();
-    let path = std::path::absolute(path)?;
     if path.file_name().is_none() || end.is_some_and(|&byte| is_separator(byte.into())) {
         return Err(io::ErrorKind::IsADirectory.into());
     }
-    for ancestor in path.ancestors() {
-        let mut target = match ancestor.canonicalize() {
-            Ok(target) => target,
-            Err(error) if error.kind() == io::ErrorKind::NotFound && !ancestor.is_symlink() => {
-                continue;
-            }
-            Err(error) => return Err(error),
-        };
-        if ancestor == path {
-            return if target.is_dir() {
-                Err(io::ErrorKind::IsADirectory.into())
-            } else {
-                Ok(target)
-            };
-        }
-        if !target.is_dir() {
-            return Err(io::ErrorKind::NotADirectory.into());
-        }
-        let mut cancelled = false;
-        for part in path.components().skip(ancestor.components().count()) {
-            if part == Component::ParentDir {
-                target.pop();
-                cancelled = true;
-            } else {
+
+    let mut target = if path.is_absolute() {
+        PathBuf::new()
+    } else {
+        std::env::current_dir()?.canonicalize()?
+    };
+    let mut missing = 0usize;
+    let mut components = path.components().peekable();
+    while let Some(part) = components.next() {
+        let is_last = components.peek().is_none();
+        match part {
+            Component::Prefix(_) => {
                 target.push(part);
+                if !matches!(components.peek(), Some(Component::RootDir)) {
+                    target = target.canonicalize()?;
+                }
+                missing = 0;
+            }
+            Component::RootDir => {
+                target.push(part);
+                target = target.canonicalize()?;
+                missing = 0;
+            }
+            Component::CurDir => {}
+            Component::ParentDir if missing > 0 => {
+                missing -= 1;
+                target.pop();
+            }
+            Component::ParentDir => {
+                target.push(part);
+                target = target.canonicalize()?;
+            }
+            Component::Normal(name) => {
+                target.push(name);
+                if missing > 0 {
+                    missing += 1;
+                    continue;
+                }
+                match target.canonicalize() {
+                    Ok(real) => {
+                        target = real;
+                        if is_last && target.is_dir() {
+                            return Err(io::ErrorKind::IsADirectory.into());
+                        }
+                        if !is_last && !target.is_dir() {
+                            return Err(io::ErrorKind::NotADirectory.into());
+                        }
+                    }
+                    Err(error)
+                        if error.kind() == io::ErrorKind::NotFound && !target.is_symlink() =>
+                    {
+                        missing = 1;
+                    }
+                    Err(error) => return Err(error),
+                }
             }
         }
-        return if cancelled {
-            destination(&target)
-        } else {
-            Ok(target)
-        };
     }
-    Err(io::ErrorKind::NotFound.into())
+    Ok(target)
 }
 
 fn file_error(action: &str, path: &Path, error: io::Error) -> OutputError {
