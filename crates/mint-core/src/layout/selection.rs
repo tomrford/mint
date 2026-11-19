@@ -50,7 +50,7 @@ impl<'a> LayoutSelection<'a> {
         let selectors = selectors
             .iter()
             .map(|selector| {
-                let index = match paths.entry(&selector.layout) {
+                let index = match paths.entry(selector.layout.as_os_str()) {
                     Entry::Occupied(entry) => *entry.get(),
                     Entry::Vacant(entry) => {
                         let canonical = selector.layout.canonicalize().map_err(|error| {

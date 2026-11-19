@@ -31,6 +31,18 @@ fn build_deduplicates_equivalent_layout_paths() {
         artifact.stats.block_stats[0].layout,
         PathBuf::from(first_path)
     );
+
+    #[cfg(target_os = "linux")]
+    build::build(BuildRequest {
+        blocks: vec![
+            simple_block_selector(first_path),
+            simple_block_selector("tests/data/blocks.toml/"),
+        ],
+        data_source: None,
+        strict: false,
+        capture_values: false,
+    })
+    .expect_err("invalid trailing-slash spelling must not reuse a cached valid selector");
 }
 
 #[test]

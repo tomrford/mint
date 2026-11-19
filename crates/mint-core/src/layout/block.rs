@@ -44,7 +44,8 @@ impl Config {
         }
     }
 
-    pub(crate) fn const_value(&self, name: &str) -> Result<Cow<'_, ValueSource>, LayoutError> {
+    /// Look up an explicit `[mint.const]` or live `<block>.start_address` / `<block>.length` const.
+    pub fn const_value(&self, name: &str) -> Result<Cow<'_, ValueSource>, LayoutError> {
         if name.is_empty() {
             return Err(LayoutError::DataValueExportFailed(
                 "Const name must not be empty.".into(),
