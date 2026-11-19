@@ -559,16 +559,18 @@ fn output_aliases_are_rejected_before_either_file_is_written() {
         std::os::unix::fs::symlink(&root, root.join("alias")).unwrap();
         aliases.push(root.join("alias/out.hex"));
     }
-    let block = "../mint-core/tests/data/blocks.toml#simple_block";
-    for alias in aliases {
-        let output = mint_command()
-            .args(["build", block])
+    let build = |image: &std::path::Path, report: &std::path::Path| {
+        mint_command()
+            .args(["build", "../mint-core/tests/data/blocks.toml#simple_block"])
             .arg("--out")
-            .arg(&path)
+            .arg(image)
             .arg("--export-json")
-            .arg(&alias)
+            .arg(report)
             .output()
-            .unwrap();
+            .expect("mint build should run")
+    };
+    for alias in aliases {
+        let output = build(&path, &alias);
         assert!(!output.status.success());
         assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
         assert!(!path.exists());
@@ -577,29 +579,18 @@ fn output_aliases_are_rejected_before_either_file_is_written() {
     {
         let dangling = root.join("dangling.hex");
         std::os::unix::fs::symlink(&path, &dangling).unwrap();
-        let output = mint_command()
-            .args(["build", block])
-            .arg("--out")
-            .arg(&dangling)
-            .arg("--export-json")
-            .arg(&path)
-            .output()
-            .unwrap();
+        let output = build(&dangling, &path);
         assert!(!output.status.success());
         assert!(!path.exists());
     }
     std::fs::write(&path, "keep me").unwrap();
     let alias = root.join("hardlink.hex");
     std::fs::hard_link(&path, &alias).unwrap();
-    let output = mint_command()
-        .args(["build", block])
-        .arg("--out")
-        .arg(&path)
-        .arg("--export-json")
-        .arg(&alias)
-        .output()
-        .unwrap();
+    let output = build(&path, &alias);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("overlaps input or output"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
+    let output = build(&path, &root);
+    assert!(!output.status.success());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep me");
 }

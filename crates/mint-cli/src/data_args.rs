@@ -1,4 +1,8 @@
 use clap::Args;
+use mint_core::data::{
+    DataSource, ExcelDataSource, ExcelDataSourceOptions, JsonDataSource, error::DataError,
+};
+use std::path::Path;
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct DataArgs {
@@ -45,15 +49,26 @@ pub struct DataArgs {
     pub variants: Vec<String>,
 }
 
+type LoadedSource = Result<Option<Box<dyn DataSource>>, DataError>;
+
 impl DataArgs {
-    pub fn path(&self) -> Option<&std::path::Path> {
-        self.xlsx
-            .as_deref()
-            .or_else(|| {
-                self.json
-                    .as_deref()
-                    .filter(|input| !input.trim_start().starts_with('{'))
-            })
-            .map(std::path::Path::new)
+    pub fn input(&self) -> (Option<&Path>, impl FnOnce() -> LoadedSource) {
+        let (file, inline) = match (self.xlsx.as_deref(), self.json.as_deref()) {
+            (Some(path), _) => (Some(Path::new(path)), None),
+            (_, Some(json)) if json.trim_start().starts_with('{') => (None, Some(json)),
+            (_, json) => (json.map(Path::new), None),
+        };
+        (file, move || -> LoadedSource {
+            Ok(Some(match (file, inline) {
+                (Some(path), _) if self.xlsx.is_some() => {
+                    let mut options = ExcelDataSourceOptions::new(self.variants.clone());
+                    options.main_sheet = self.main_sheet.clone().unwrap_or(options.main_sheet);
+                    Box::new(ExcelDataSource::from_path(path, options)?)
+                }
+                (Some(path), _) => Box::new(JsonDataSource::from_path(path, &self.variants)?),
+                (_, Some(json)) => Box::new(JsonDataSource::from_str(json, &self.variants)?),
+                _ => return Ok(None),
+            }))
+        })
     }
 }

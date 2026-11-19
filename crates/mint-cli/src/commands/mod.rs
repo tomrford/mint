@@ -5,17 +5,13 @@ use mint_core::build::{self, BuildStats};
 use mint_core::error::MintError;
 use mint_core::layout::abi::Abi;
 use mint_core::layout::scalar_type::ScalarType;
-use mint_core::output;
-use writer::write_files;
+use mint_core::output::report::render_used_values_json as render_json;
+use std::iter::once;
 
 pub fn header(args: &HeaderArgs) -> Result<(), MintError> {
-    let contents = mint_core::header::generate(&args.blocks)?;
-    let inputs = args
-        .blocks
-        .iter()
-        .map(|block| block.layout.as_path())
-        .collect::<Vec<_>>();
-    write_files(&inputs, &[(&args.out, &contents)])?;
+    let inputs = args.blocks.iter().map(|block| block.layout.as_path());
+    let outputs = writer::inspect(inputs, once(args.out.as_path()))?;
+    writer::write(&outputs[0], &mint_core::header::generate(&args.blocks)?)?;
     Ok(())
 }
 
@@ -81,32 +77,27 @@ pub fn abi(args: &AbiArgs) {
 }
 
 pub fn build(args: &Args) -> Result<BuildStats, MintError> {
-    let artifact = build::build_with_data_source(
-        &args.layout.blocks,
-        args.layout.strict,
-        args.output.export_json.is_some(),
-        || crate::data::create_data_source(&args.data),
-    )?;
-
-    let contents = artifact.render(args.output.format, args.output.record_width as usize)?;
-
-    let report = artifact
-        .used_values
-        .as_ref()
-        .map(output::report::render_used_values_json)
-        .transpose()?;
-    let mut outputs = vec![(args.output.out.as_path(), contents.as_str())];
-    if let (Some(path), Some(report)) = (&args.output.export_json, &report) {
-        outputs.push((path.as_path(), report.as_str()));
-    }
+    let (data_file, load_data) = args.data.input();
     let inputs = args
         .layout
         .blocks
         .iter()
         .map(|block| block.layout.as_path())
-        .chain(args.data.path())
-        .collect::<Vec<_>>();
-    write_files(&inputs, &outputs)?;
-
+        .chain(data_file);
+    let outputs = writer::inspect(
+        inputs,
+        once(args.output.out.as_path()).chain(args.output.export_json.as_deref()),
+    )?;
+    let artifact = build::build_with_data_source(
+        &args.layout.blocks,
+        args.layout.strict,
+        args.output.export_json.is_some(),
+        load_data,
+    )?;
+    let contents = artifact.render(args.output.format, args.output.record_width as usize)?;
+    let report = artifact.used_values.as_ref().map(render_json).transpose()?;
+    for (path, contents) in outputs.iter().zip(once(contents).chain(report)) {
+        writer::write(path, &contents)?;
+    }
     Ok(artifact.stats)
 }

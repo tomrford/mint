@@ -1,60 +1,76 @@
 use mint_core::output::error::OutputError;
-use std::path::{Path, PathBuf};
+use same_file::Handle;
+use std::collections::BTreeSet;
+use std::fs;
+use std::io;
+use std::path::{Component, Path, PathBuf, is_separator};
 
-pub fn write_files(inputs: &[&Path], outputs: &[(&Path, &str)]) -> Result<(), OutputError> {
-    let destinations = outputs
-        .iter()
-        .map(|(path, _)| destination(path))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    for (index, path) in destinations.iter().enumerate() {
-        for other in inputs
+pub fn inspect<'a>(
+    inputs: impl Iterator<Item = &'a Path>,
+    outputs: impl Iterator<Item = &'a Path>,
+) -> Result<Vec<PathBuf>, OutputError> {
+    let inputs = inputs.collect::<BTreeSet<_>>();
+    let mut checked: Vec<PathBuf> = Vec::new();
+    for output in outputs {
+        let path = destination(output).map_err(|error| file_error("resolve", output, error))?;
+        let id = Handle::from_path(&path).ok();
+        if let Some(other) = inputs
             .iter()
             .copied()
-            .chain(destinations[..index].iter().map(PathBuf::as_path))
+            .chain(checked.iter().map(PathBuf::as_path))
+            .find(|other| path == *other || id.is_some() && id == Handle::from_path(other).ok())
         {
-            if path == other || same_file::is_same_file(path, other).unwrap_or(false) {
-                return Err(OutputError::FileError(format!(
-                    "output '{}' overlaps input or output '{}'",
-                    outputs[index].0.display(),
-                    other.display()
-                )));
-            }
+            return Err(OutputError::FileError(format!(
+                "output '{}' overlaps input or output '{}'",
+                output.display(),
+                other.display()
+            )));
         }
+        checked.push(path);
     }
-
-    for (path, contents) in outputs {
-        std::fs::write(path, contents).map_err(|error| {
-            OutputError::FileError(format!("failed to write {}: {error}", path.display()))
-        })?;
-    }
-    Ok(())
+    Ok(checked)
 }
 
-fn destination(path: &Path) -> Result<PathBuf, OutputError> {
-    let resolve = || -> std::io::Result<PathBuf> {
-        let path = std::path::absolute(path)?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        match path.canonicalize() {
-            Ok(path) => Ok(path),
-            Err(error)
-                if error.kind() == std::io::ErrorKind::NotFound
-                    && path.symlink_metadata().is_err() =>
-            {
-                match (path.parent(), path.file_name()) {
-                    (Some(parent), Some(name)) => Ok(parent.canonicalize()?.join(name)),
-                    _ => Err(error),
-                }
+fn destination(path: &Path) -> io::Result<PathBuf> {
+    let spelling = path.as_os_str().as_encoded_bytes();
+    let end = spelling.strip_suffix(b".").unwrap_or(spelling).last();
+    let path = std::path::absolute(path)?;
+    for ancestor in path.ancestors() {
+        let mut target = match ancestor.canonicalize() {
+            Ok(target) => target,
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !ancestor.is_symlink() => {
+                continue;
             }
-            Err(error) => Err(error),
+            Err(error) => return Err(error),
+        };
+        if ancestor == path && target.is_dir() || end.is_some_and(|&byte| is_separator(byte.into()))
+        {
+            return Err(io::ErrorKind::IsADirectory.into());
         }
-    };
-    resolve().map_err(|error| {
-        OutputError::FileError(format!(
-            "failed to resolve output {}: {error}",
-            path.display()
-        ))
-    })
+        let mut cancelled = false;
+        for part in path.components().skip(ancestor.components().count()) {
+            if part == Component::ParentDir {
+                target.pop();
+                cancelled = true;
+            } else {
+                target.push(part);
+            }
+        }
+        return if cancelled {
+            destination(&target)
+        } else {
+            Ok(target)
+        };
+    }
+    Err(io::ErrorKind::NotFound.into())
+}
+
+pub fn write(path: &Path, contents: &str) -> Result<(), OutputError> {
+    fs::create_dir_all(path.parent().unwrap_or(Path::new("")))
+        .and_then(|()| fs::write(path, contents))
+        .map_err(|error| file_error("write", path, error))
+}
+
+fn file_error(action: &str, path: &Path, error: io::Error) -> OutputError {
+    OutputError::FileError(format!("failed to {action} {}: {error}", path.display()))
 }
