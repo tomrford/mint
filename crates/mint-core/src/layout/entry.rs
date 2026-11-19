@@ -10,7 +10,6 @@ use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
-use std::collections::HashMap;
 
 const LEAF_SOURCE_KEYS: &[&str] = &[
     "name",
@@ -460,27 +459,6 @@ impl LeafEntry {
             ));
         }
         Ok(())
-    }
-
-    pub(crate) fn const_value<'a>(
-        name: &str,
-        consts: &'a HashMap<String, ValueSource>,
-    ) -> Result<&'a ValueSource, LayoutError> {
-        if name.is_empty() {
-            return Err(LayoutError::DataValueExportFailed(
-                "Const name must not be empty.".into(),
-            ));
-        }
-        let value = consts.get(name).ok_or_else(|| {
-            let mut available = consts.keys().map(String::as_str).collect::<Vec<_>>();
-            available.sort_unstable();
-            LayoutError::DataValueExportFailed(format!(
-                "Const '{}' not found in [mint.const]. Available: [{}]",
-                name,
-                available.join(", ")
-            ))
-        })?;
-        Ok(value)
     }
 
     pub fn validate_ref(&self, source: &RefSource) -> Result<(), LayoutError> {

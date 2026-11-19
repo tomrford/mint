@@ -1,7 +1,8 @@
-use crate::build::BlockSelector;
 use crate::layout;
-use crate::layout::block::{Block, Config};
+use crate::layout::block::Config;
 use crate::layout::error::LayoutError;
+use crate::layout::selection::{BlockSelector, plan_layout, select_blocks};
+use std::path::Path;
 
 /// A block's deterministic 64-bit ABI fingerprint.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -20,55 +21,42 @@ impl BlockFingerprint {
 
 /// Calculate every block fingerprint in declaration order.
 pub fn calculate(config: &Config) -> Result<Vec<BlockFingerprint>, LayoutError> {
-    let blocks = config
-        .blocks
-        .iter()
-        .map(|(name, block)| (name.as_str(), block));
-    let resolved = layout::fingerprint::plan_layout(config, blocks, true)?;
-    Ok(resolved
-        .fingerprints
-        .into_iter()
-        .map(|(block, value)| BlockFingerprint { block, value })
-        .collect())
+    calculate_selected(config, None, None)
 }
 
 /// Calculate one block's fingerprint, fully validating that block and resolving
 /// the ABIs of its fingerprint targets.
 pub fn calculate_block(config: &Config, name: &str) -> Result<BlockFingerprint, LayoutError> {
-    let block = config.blocks.get(name).ok_or_else(|| {
-        LayoutError::BlockNotFound(format!(
-            "'{name}'. Available blocks: {}",
-            config.blocks.keys().cloned().collect::<Vec<_>>().join(", ")
-        ))
-    })?;
-    calculate_selected(config, name, block)
-}
-
-fn calculate_selected(
-    config: &Config,
-    name: &str,
-    block: &Block,
-) -> Result<BlockFingerprint, LayoutError> {
-    let resolved = layout::fingerprint::plan_layout(config, [(name, block)], true)?;
-    let value = resolved.fingerprints[name];
-    Ok(BlockFingerprint {
-        block: name.to_owned(),
-        value,
-    })
+    calculate_selected(config, Some(name), None)?
+        .pop()
+        .ok_or(LayoutError::NoBlocksProvided)
 }
 
 /// Load a layout and calculate the selected block fingerprints.
 pub fn load(selector: &BlockSelector) -> Result<Vec<BlockFingerprint>, LayoutError> {
     let config = layout::load_layout(&selector.layout)?;
-    if let Some(name) = &selector.block {
-        let block = config.blocks.get(name).ok_or_else(|| {
-            LayoutError::BlockNotFound(format!(
-                "'{name}' in '{}'. Available blocks: {}",
-                selector.layout.display(),
-                config.blocks.keys().cloned().collect::<Vec<_>>().join(", ")
-            ))
-        })?;
-        return Ok(vec![calculate_selected(&config, name, block)?]);
+    calculate_selected(&config, selector.block.as_deref(), Some(&selector.layout))
+}
+
+fn calculate_selected(
+    config: &Config,
+    name: Option<&str>,
+    path: Option<&Path>,
+) -> Result<Vec<BlockFingerprint>, LayoutError> {
+    let roots = select_blocks(config, name, path)?;
+    if path.is_some() && roots.is_empty() {
+        return Err(LayoutError::NoBlocksProvided);
     }
-    calculate(&config)
+    let resolved = plan_layout(
+        config,
+        roots.iter().map(|(name, block)| (name.as_str(), block)),
+        true,
+    )?;
+    Ok(roots
+        .keys()
+        .map(|name| BlockFingerprint {
+            block: name.clone(),
+            value: resolved.fingerprints[name.as_str()],
+        })
+        .collect())
 }

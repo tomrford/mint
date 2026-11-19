@@ -7,13 +7,13 @@ pub(crate) mod fingerprint;
 pub mod header;
 pub(crate) mod resolved;
 pub mod scalar_type;
+pub(crate) mod selection;
 pub mod settings;
 pub(crate) mod used_values;
 pub mod value;
 
 use block::Config;
 use error::LayoutError;
-use std::collections::hash_map::Entry;
 use std::path::Path;
 
 /// Largest resolved block payload Mint materializes in octets.
@@ -47,10 +47,8 @@ pub fn parse_toml_layout(text: &str) -> Result<Config, LayoutError> {
 }
 
 fn parse_toml_layout_with_context(text: &str, context: &str) -> Result<Config, LayoutError> {
-    let mut cfg: Config = toml::from_str(text)
-        .map_err(|e| LayoutError::FileError(format!("failed to parse {}: {}", context, e)))?;
-    promote_block_header_consts(&mut cfg)?;
-    Ok(cfg)
+    toml::from_str(text)
+        .map_err(|e| LayoutError::FileError(format!("failed to parse {}: {}", context, e)))
 }
 
 pub(crate) fn validate_c_identifier(name: &str, kind: &str) -> Result<(), String> {
@@ -131,38 +129,3 @@ const C_KEYWORDS: &[&str] = &[
     "volatile",
     "while",
 ];
-
-fn promote_block_header_consts(cfg: &mut Config) -> Result<(), LayoutError> {
-    for (block_name, block) in &cfg.blocks {
-        insert_promoted_const(
-            &mut cfg.mint.consts,
-            format!("{block_name}.start_address"),
-            block.header.start_address,
-        )?;
-        insert_promoted_const(
-            &mut cfg.mint.consts,
-            format!("{block_name}.length"),
-            block.header.length,
-        )?;
-    }
-    Ok(())
-}
-
-fn insert_promoted_const(
-    consts: &mut std::collections::HashMap<String, value::ValueSource>,
-    name: String,
-    value: u32,
-) -> Result<(), LayoutError> {
-    match consts.entry(name) {
-        Entry::Occupied(entry) => Err(LayoutError::FileError(format!(
-            "[mint.const] key '{}' collides with auto-promoted block header const",
-            entry.key()
-        ))),
-        Entry::Vacant(entry) => {
-            entry.insert(value::ValueSource::Single(value::DataValue::U64(
-                u64::from(value),
-            )));
-            Ok(())
-        }
-    }
-}

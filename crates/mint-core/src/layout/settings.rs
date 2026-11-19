@@ -13,6 +13,7 @@ pub struct MintConfig {
     pub header: HeaderConfig,
     #[serde(default)]
     pub checksum: HashMap<String, ChecksumConfig>,
+    /// Explicit `[mint.const]` values. Block header constants are read from their headers.
     #[serde(rename = "const", default)]
     pub consts: HashMap<String, ValueSource>,
 }
