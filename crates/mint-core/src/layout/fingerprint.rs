@@ -1,88 +1,12 @@
 use super::abi::Endianness;
-use super::block::{Block, Config};
 use super::entry::{EntrySource, RefSource, RefTarget, SizeSource};
 use super::error::LayoutError;
-use super::resolved::{LeafBinding, PlannedBlock, ResolvedLayout, ResolvedNode, TargetKind};
+use super::resolved::{ResolvedLayout, ResolvedNode, TargetKind};
 use super::scalar_type::ScalarType;
-use indexmap::IndexMap;
-use std::collections::{HashMap, HashSet};
 
 const HASH_CONTEXT: &str = "mint block ABI fingerprint v2";
 
-pub(crate) struct PlannedLayout<'a> {
-    pub(crate) config: &'a Config,
-    pub(crate) blocks: HashMap<&'a str, PlannedBlock<'a>>,
-    pub(crate) fingerprints: IndexMap<String, u64>,
-}
-
-/// Validate selected blocks and resolve the shapes needed for their fingerprints.
-pub(crate) fn plan_layout<'a>(
-    config: &'a Config,
-    roots: impl IntoIterator<Item = (&'a str, &'a Block)>,
-    hash_roots: bool,
-) -> Result<PlannedLayout<'a>, LayoutError> {
-    let available = || config.blocks.keys().cloned().collect::<Vec<_>>().join(", ");
-    let mut resolved_roots = HashMap::new();
-    let mut hash_names = HashSet::new();
-
-    for (root_name, block) in roots {
-        let planned = ResolvedLayout::new(&block.data, config.mint.abi)
-            .and_then(|resolved| resolved.prepare(root_name, block, &config.mint))
-            .map_err(|source| in_block(root_name, source))?;
-        for field in &planned.fields {
-            let LeafBinding::Fingerprint(target_name) = field.binding else {
-                continue;
-            };
-            if !config.blocks.contains_key(target_name) {
-                return Err(in_block(
-                    root_name,
-                    LayoutError::BlockNotFound(format!(
-                        "fingerprint target '{target_name}' from block '{root_name}'. Available blocks: {}",
-                        available()
-                    )),
-                ));
-            }
-            hash_names.insert(target_name);
-        }
-        resolved_roots.insert(root_name, planned);
-    }
-
-    if hash_roots {
-        hash_names.extend(resolved_roots.keys().copied());
-    }
-
-    let mut fingerprints = IndexMap::with_capacity(hash_names.len());
-    for (name, block) in &config.blocks {
-        if !hash_names.contains(name.as_str()) {
-            continue;
-        }
-        let target;
-        let resolved = match resolved_roots.get(name.as_str()) {
-            Some(planned) => &planned.resolved,
-            None => {
-                target = ResolvedLayout::new(&block.data, config.mint.abi)
-                    .map_err(|source| in_block(name, source))?;
-                &target
-            }
-        };
-        let value = fingerprint(resolved).map_err(|source| in_block(name, source))?;
-        fingerprints.insert(name.clone(), value);
-    }
-    Ok(PlannedLayout {
-        config,
-        blocks: resolved_roots,
-        fingerprints,
-    })
-}
-
-fn in_block(block: &str, source: LayoutError) -> LayoutError {
-    LayoutError::InBlock {
-        block: block.to_owned(),
-        source: Box::new(source),
-    }
-}
-
-fn fingerprint(resolved: &ResolvedLayout<'_>) -> Result<u64, LayoutError> {
+pub(crate) fn fingerprint(resolved: &ResolvedLayout<'_>) -> Result<u64, LayoutError> {
     let mut hasher = blake3::Hasher::new_derive_key(HASH_CONTEXT);
     let abi = resolved.abi();
     hasher.update(&[match abi.endianness() {

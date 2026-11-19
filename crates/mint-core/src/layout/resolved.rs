@@ -1,11 +1,12 @@
 use super::MAX_RESOLVED_BLOCK_SIZE;
 use super::abi::{Abi, ScalarAbi};
-use super::block::{Block, Entry};
+use super::block::{Block, Config, Entry};
 use super::entry::{EntrySource, LeafEntry, RefSource, RefTarget, SizeSource};
 use super::error::{LayoutError, in_field_path};
 use super::scalar_type::ScalarType;
-use super::settings::{ChecksumConfig, MintConfig};
+use super::settings::ChecksumConfig;
 use super::value::ValueSource;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -19,11 +20,11 @@ pub(crate) struct ResolvedCoordinates {
 pub(crate) struct ResolvedLayout<'a> {
     pub(crate) root: ResolvedNode<'a>,
     nodes: HashMap<String, ResolvedTarget>,
-    total_size: usize,
     abi: Abi,
 }
 
 pub(crate) struct PlannedBlock<'a> {
+    pub(crate) block: &'a Block,
     pub(crate) resolved: ResolvedLayout<'a>,
     pub(crate) allocation: Range<u64>,
     pub(crate) fields: Vec<PlannedField<'a>>,
@@ -36,7 +37,7 @@ pub(crate) struct PlannedField<'a> {
 
 pub(crate) enum LeafBinding<'a> {
     Source,
-    Literal(&'a ValueSource),
+    Literal(Cow<'a, ValueSource>),
     Ref(u64),
     RefList(Vec<u64>),
     Checksum(&'a ChecksumConfig),
@@ -47,9 +48,10 @@ impl<'a> ResolvedLayout<'a> {
     pub(crate) fn prepare(
         self,
         name: &'a str,
-        block: &Block,
-        settings: &'a MintConfig,
+        block: &'a Block,
+        config: &'a Config,
     ) -> Result<PlannedBlock<'a>, LayoutError> {
+        let settings = &config.mint;
         let total_size = self.total_size();
         if total_size > block.header.length as usize {
             return Err(LayoutError::InvalidLayout(format!(
@@ -93,11 +95,12 @@ impl<'a> ResolvedLayout<'a> {
             &self.root,
             name,
             block.header.start_address,
-            settings,
+            config,
             &mut Vec::new(),
             &mut fields,
         )?;
         Ok(PlannedBlock {
+            block,
             resolved: self,
             allocation: output_start..output_end,
             fields,
@@ -121,16 +124,11 @@ impl<'a> ResolvedLayout<'a> {
             )));
         }
 
-        Ok(Self {
-            root,
-            nodes,
-            total_size: cursor,
-            abi,
-        })
+        Ok(Self { root, nodes, abi })
     }
 
     pub(crate) fn total_size(&self) -> usize {
-        self.total_size
+        self.root.coordinates().size
     }
 
     pub(crate) fn ref_target(
@@ -184,7 +182,7 @@ impl<'a> ResolvedLayout<'a> {
         node: &'b ResolvedNode<'a>,
         block_name: &'a str,
         start_address: u32,
-        settings: &'a MintConfig,
+        config: &'a Config,
         path: &mut Vec<&'b str>,
         fields: &mut Vec<PlannedField<'a>>,
     ) -> Result<(), LayoutError> {
@@ -195,16 +193,33 @@ impl<'a> ResolvedLayout<'a> {
                 leaf,
             } => {
                 let field_path = path.join(".");
-                let binding = self
-                    .bind_leaf(
-                        &field_path,
-                        *coordinates,
-                        leaf,
-                        block_name,
-                        start_address,
-                        settings,
-                    )
-                    .map_err(|error| in_field_path(&field_path, error))?;
+                let bind = || match &leaf.source {
+                    EntrySource::Const(key) => {
+                        let value = config.const_value(key)?;
+                        leaf.validate_literal("const", &value)?;
+                        Ok(LeafBinding::Literal(value))
+                    }
+                    EntrySource::Value(value) => {
+                        leaf.validate_literal("value", value)?;
+                        Ok(LeafBinding::Literal(Cow::Borrowed(value)))
+                    }
+                    EntrySource::Checksum(_) if coordinates.offset == 0 => {
+                        Err(LayoutError::InvalidLayout(
+                            "Checksum must follow at least one data byte.".to_owned(),
+                        ))
+                    }
+                    EntrySource::Checksum(key) => {
+                        config.mint.checksum_config(key).map(LeafBinding::Checksum)
+                    }
+                    EntrySource::Ref(source) => {
+                        self.bind_ref(&field_path, source, leaf, start_address)
+                    }
+                    EntrySource::Fingerprint(target) => {
+                        Ok(LeafBinding::Fingerprint(target.block_name(block_name)))
+                    }
+                    EntrySource::Name(_) | EntrySource::Bitmap(_) => Ok(LeafBinding::Source),
+                };
+                let binding = bind().map_err(|error| in_field_path(&field_path, error))?;
                 fields.push(PlannedField {
                     leaf: ResolvedLeafEntry {
                         path: field_path,
@@ -218,43 +233,12 @@ impl<'a> ResolvedLayout<'a> {
             ResolvedNode::Branch { children, .. } => {
                 for (name, child) in children {
                     path.push(name.as_str());
-                    self.plan_node(child, block_name, start_address, settings, path, fields)?;
+                    self.plan_node(child, block_name, start_address, config, path, fields)?;
                     path.pop();
                 }
             }
         }
         Ok(())
-    }
-
-    fn bind_leaf(
-        &self,
-        path: &str,
-        coordinates: ResolvedCoordinates,
-        leaf: &'a LeafEntry,
-        block_name: &'a str,
-        start_address: u32,
-        settings: &'a MintConfig,
-    ) -> Result<LeafBinding<'a>, LayoutError> {
-        match &leaf.source {
-            EntrySource::Const(key) => {
-                let value = LeafEntry::const_value(key, &settings.consts)?;
-                leaf.validate_literal("const", value)?;
-                Ok(LeafBinding::Literal(value))
-            }
-            EntrySource::Value(value) => {
-                leaf.validate_literal("value", value)?;
-                Ok(LeafBinding::Literal(value))
-            }
-            EntrySource::Checksum(_) if coordinates.offset == 0 => Err(LayoutError::InvalidLayout(
-                "Checksum must follow at least one data byte.".to_owned(),
-            )),
-            EntrySource::Checksum(key) => settings.checksum_config(key).map(LeafBinding::Checksum),
-            EntrySource::Ref(source) => self.bind_ref(path, source, leaf, start_address),
-            EntrySource::Fingerprint(target) => {
-                Ok(LeafBinding::Fingerprint(target.block_name(block_name)))
-            }
-            EntrySource::Name(_) | EntrySource::Bitmap(_) => Ok(LeafBinding::Source),
-        }
     }
 
     fn bind_ref(

@@ -5,9 +5,10 @@ use super::header::Header;
 use super::resolved::{LeafBinding, PlannedBlock, ResolvedLeafEntry};
 use super::settings::MintConfig;
 use super::used_values::ValueCollector;
-use super::value::DataValue;
+use super::value::{DataValue, ValueSource};
 use crate::data::DataSource;
 use crate::output::checksum;
+use std::borrow::Cow;
 
 use indexmap::IndexMap;
 use serde::de::{Error as _, MapAccess, Visitor};
@@ -28,6 +29,51 @@ pub(crate) struct BuildOutput {
 pub struct Config {
     pub mint: MintConfig,
     pub blocks: IndexMap<String, Block>,
+}
+
+const HEADER_CONSTS: [&str; 2] = ["start_address", "length"];
+
+impl Config {
+    fn header_const(&self, name: &str) -> Option<u32> {
+        let (block, field) = name.rsplit_once('.')?;
+        let header = &self.blocks.get(block)?.header;
+        match field {
+            "start_address" => Some(header.start_address),
+            "length" => Some(header.length),
+            _ => None,
+        }
+    }
+
+    /// Look up an explicit `[mint.const]` or live `<block>.start_address` / `<block>.length` const.
+    pub fn const_value(&self, name: &str) -> Result<Cow<'_, ValueSource>, LayoutError> {
+        if name.is_empty() {
+            return Err(LayoutError::DataValueExportFailed(
+                "Const name must not be empty.".into(),
+            ));
+        }
+        if let Some(value) = self.header_const(name) {
+            return Ok(Cow::Owned(ValueSource::Single(DataValue::U64(u64::from(
+                value,
+            )))));
+        }
+        self.mint
+            .consts
+            .get(name)
+            .map(Cow::Borrowed)
+            .ok_or_else(|| {
+                let mut available = self.mint.consts.keys().cloned().collect::<Vec<_>>();
+                available.extend(
+                    self.blocks
+                        .keys()
+                        .flat_map(|block| HEADER_CONSTS.map(|field| format!("{block}.{field}"))),
+                );
+                available.sort_unstable();
+                LayoutError::DataValueExportFailed(format!(
+                    "Const '{name}' not found in [mint.const]. Available: [{}]",
+                    available.join(", ")
+                ))
+            })
+    }
 }
 
 impl<'de> Deserialize<'de> for Config {
@@ -64,7 +110,19 @@ impl<'de> Deserialize<'de> for Config {
                 }
 
                 let mint = mint.ok_or_else(|| M::Error::missing_field("mint"))?;
-                Ok(Config { mint, blocks })
+                let config = Config { mint, blocks };
+                if let Some(key) = config
+                    .mint
+                    .consts
+                    .keys()
+                    .filter(|key| config.header_const(key).is_some())
+                    .min()
+                {
+                    return Err(M::Error::custom(format!(
+                        "[mint.const] key '{key}' collides with auto-promoted block header const"
+                    )));
+                }
+                Ok(config)
             }
         }
 
@@ -114,7 +172,7 @@ impl Block {
     pub(crate) fn emit(
         &self,
         plan: &PlannedBlock<'_>,
-        fingerprints: &IndexMap<String, u64>,
+        fingerprints: &IndexMap<&str, u64>,
         data_source: Option<&dyn DataSource>,
         strict: bool,
         value_sink: &mut ValueCollector,

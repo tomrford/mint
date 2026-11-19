@@ -13,6 +13,8 @@ pub struct MintConfig {
     pub header: HeaderConfig,
     #[serde(default)]
     pub checksum: HashMap<String, ChecksumConfig>,
+    /// Explicit `[mint.const]` values. Use [`Config::const_value`](super::block::Config::const_value)
+    /// to resolve both explicit and live block header constants.
     #[serde(rename = "const", default)]
     pub consts: HashMap<String, ValueSource>,
 }
