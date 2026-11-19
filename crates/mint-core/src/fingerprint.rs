@@ -27,15 +27,21 @@ pub fn calculate(config: &Config) -> Result<Vec<BlockFingerprint>, LayoutError> 
 /// Calculate one block's fingerprint, fully validating that block and resolving
 /// the ABIs of its fingerprint targets.
 pub fn calculate_block(config: &Config, name: &str) -> Result<BlockFingerprint, LayoutError> {
-    calculate_selected(config, Some(name), None)?
-        .pop()
-        .ok_or(LayoutError::NoBlocksProvided)
+    let Some(fingerprint) = calculate_selected(config, Some(name), None)?.pop() else {
+        unreachable!("named block selection always yields one block");
+    };
+    Ok(fingerprint)
 }
 
 /// Load a layout and calculate the selected block fingerprints.
 pub fn load(selector: &BlockSelector) -> Result<Vec<BlockFingerprint>, LayoutError> {
     let config = layout::load_layout(&selector.layout)?;
-    calculate_selected(&config, selector.block.as_deref(), Some(&selector.layout))
+    let fingerprints =
+        calculate_selected(&config, selector.block.as_deref(), Some(&selector.layout))?;
+    if fingerprints.is_empty() {
+        return Err(LayoutError::NoBlocksProvided);
+    }
+    Ok(fingerprints)
 }
 
 fn calculate_selected(
@@ -44,9 +50,6 @@ fn calculate_selected(
     path: Option<&Path>,
 ) -> Result<Vec<BlockFingerprint>, LayoutError> {
     let roots = select_blocks(config, name, path)?;
-    if path.is_some() && roots.is_empty() {
-        return Err(LayoutError::NoBlocksProvided);
-    }
     let resolved = plan_layout(
         config,
         roots.iter().map(|(name, block)| (name.as_str(), block)),

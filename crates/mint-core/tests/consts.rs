@@ -38,6 +38,9 @@ base = { const = "block.start_address", type = "u32" }
 len = { const = "block.length", type = "u32" }
 "#,
     );
+    let path = common::write_layout_file("const_shapes", &toml);
+    let bytes = common::build_block(&path, "block", false, None).expect("build succeeds");
+
     let mut expected = Vec::new();
     expected.extend(0xDEADBEEFu32.to_le_bytes());
     expected.push(1);
@@ -45,26 +48,43 @@ len = { const = "block.length", type = "u32" }
     expected.extend(3.5f32.to_le_bytes());
     expected.extend([b'A', b'B', 0xFF, 0xFF]);
     expected.extend([192, 168, 1, 10]);
-    expected.extend(0x2000u32.to_le_bytes());
-    expected.extend(0x80u32.to_le_bytes());
+    expected.extend(0x1000u32.to_le_bytes());
+    expected.extend(0x40u32.to_le_bytes());
 
-    let mut config = mint_core::layout::parse_toml_layout(&toml).expect("layout parses");
-    config.blocks["block"].header.start_address = 0x2000;
-    config.blocks["block"].header.length = 0x80;
+    assert_eq!(bytes, expected);
+}
+
+#[test]
+fn header_consts_follow_edited_block_headers() {
     use mint_core::build::{
         BlockSelector, BuildFromLayoutsRequest, NamedLayout, build_from_layouts,
     };
+
+    let toml = const_layout(
+        r#"
+base = { const = "block.start_address", type = "u32" }
+len = { const = "block.length", type = "u32" }
+"#,
+    );
+    let mut config = mint_core::layout::parse_toml_layout(&toml).expect("layout parses");
+    config.blocks["block"].header.start_address = 0x2000;
+    config.blocks["block"].header.length = 0x80;
+
     let artifact = build_from_layouts(BuildFromLayoutsRequest {
         layouts: vec![NamedLayout {
-            name: "const_shapes".into(),
+            name: "edited_consts".into(),
             config,
         }],
-        blocks: vec![BlockSelector::all("const_shapes")],
+        blocks: vec![BlockSelector::all("edited_consts")],
         data_source: None,
         strict: false,
         capture_values: false,
     })
     .expect("edited layout builds");
+
+    let mut expected = Vec::new();
+    expected.extend(0x2000u32.to_le_bytes());
+    expected.extend(0x80u32.to_le_bytes());
     assert_eq!(artifact.ranges[0].start_address, 0x2000);
     assert_eq!(artifact.ranges[0].bytestream, expected);
 }

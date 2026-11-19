@@ -82,13 +82,17 @@ impl<'a> LayoutSelection<'a> {
     ) -> Result<Self, LayoutError> {
         let mut indexed = IndexMap::new();
         for (name, config) in layouts {
-            if indexed.contains_key(&name) {
-                return Err(LayoutError::FileError(format!(
-                    "duplicate layout name '{}'",
-                    name.display()
-                )));
+            match indexed.entry(name) {
+                indexmap::map::Entry::Occupied(entry) => {
+                    return Err(LayoutError::FileError(format!(
+                        "duplicate layout name '{}'",
+                        entry.key().display()
+                    )));
+                }
+                indexmap::map::Entry::Vacant(entry) => {
+                    entry.insert(config);
+                }
             }
-            indexed.insert(name, config);
         }
         let selectors = selectors
             .iter()
@@ -243,10 +247,8 @@ pub(crate) fn plan_layout<'a>(
         .map(|(name, block)| {
             let digest = match blocks.get(name) {
                 Some(planned) => fingerprint(&planned.resolved),
-                None => fingerprint(
-                    &ResolvedLayout::new(&block.data, config.mint.abi)
-                        .map_err(|source| in_block(name, source))?,
-                ),
+                None => ResolvedLayout::new(&block.data, config.mint.abi)
+                    .and_then(|resolved| fingerprint(&resolved)),
             };
             digest
                 .map(|value| (name, value))
