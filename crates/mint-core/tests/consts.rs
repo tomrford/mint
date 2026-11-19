@@ -1,11 +1,6 @@
 #[path = "common/mod.rs"]
 mod common;
 
-fn build_block(name: &str, toml: &str) -> Vec<u8> {
-    let path = common::write_layout_file(name, toml);
-    common::build_block(&path, "block", false, None).expect("build succeeds")
-}
-
 fn const_layout(data: &str) -> String {
     format!(
         r#"
@@ -32,10 +27,8 @@ padding = 0xFF
 
 #[test]
 fn consts_reuse_value_source_shapes() {
-    let bytes = build_block(
-        "const_shapes",
-        &const_layout(
-            r#"
+    let toml = const_layout(
+        r#"
 magic = { const = "magic", type = "u32" }
 enabled = { const = "enabled", type = "u8" }
 voltage = { const = "voltage", type = "f32" }
@@ -44,8 +37,9 @@ octets = { const = "octets", type = "u8", size = 4 }
 base = { const = "block.start_address", type = "u32" }
 len = { const = "block.length", type = "u32" }
 "#,
-        ),
     );
+    let path = common::write_layout_file("const_shapes", &toml);
+    let bytes = common::build_block(&path, "block", false, None).expect("build succeeds");
 
     let mut expected = Vec::new();
     expected.extend(0xDEADBEEFu32.to_le_bytes());
@@ -58,6 +52,27 @@ len = { const = "block.length", type = "u32" }
     expected.extend(0x40u32.to_le_bytes());
 
     assert_eq!(bytes, expected);
+
+    let mut config = mint_core::layout::parse_toml_layout(&toml).expect("layout parses");
+    config.blocks["block"].header.start_address = 0x2000;
+    config.blocks["block"].header.length = 0x80;
+    let artifact =
+        mint_core::build::build_from_layouts(mint_core::build::BuildFromLayoutsRequest {
+            layouts: vec![mint_core::build::NamedLayout {
+                name: "edited_consts".into(),
+                config,
+            }],
+            blocks: vec![mint_core::build::BlockSelector::all("edited_consts")],
+            data_source: None,
+            strict: false,
+            capture_values: false,
+        })
+        .expect("edited layout builds");
+    let end = expected.len();
+    expected[end - 8..end - 4].copy_from_slice(&0x2000u32.to_le_bytes());
+    expected[end - 4..end].copy_from_slice(&0x80u32.to_le_bytes());
+    assert_eq!(artifact.ranges[0].start_address, 0x2000);
+    assert_eq!(artifact.ranges[0].bytestream, expected);
 }
 
 #[test]

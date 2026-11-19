@@ -1,56 +1,51 @@
-use crate::build::{BlockSelector, load_layouts, plan_layouts, resolve_blocks};
 use crate::error::MintError;
 use crate::layout::abi::ScalarAbi;
-use crate::layout::block::Block;
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
-use crate::layout::fingerprint;
 use crate::layout::resolved::ResolvedNode;
+use crate::layout::selection::{BlockSelector, LayoutSelection, SelectedBlock};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Generate a complete C11 header for the selected layout blocks.
 pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
-    let (blocks, layouts) = load_layouts(blocks)?;
-    let resolved = resolve_blocks(&blocks, &layouts)?;
-    let plans = plan_layouts(&resolved, |block_name, layout_file, source| {
-        MintError::InHeaderBlock {
+    let selection = LayoutSelection::files(blocks)?;
+    let prepared =
+        selection.prepare(|block_name, layout_file, source| MintError::InHeaderBlock {
             block_name,
             layout_file,
             source,
-        }
-    })?;
-    let mut rendered = Vec::with_capacity(resolved.len());
+        })?;
+    let blocks = prepared.blocks();
+    let mut rendered = Vec::with_capacity(blocks.len());
     let mut names = NameRegistry::default();
-    let mut guard_parts = Vec::with_capacity(resolved.len());
-    let mut includes: Option<(&PathBuf, &[String])> = None;
+    let mut guard_parts = Vec::with_capacity(blocks.len());
+    let mut includes: Option<(&Path, &[String])> = None;
 
-    for selected in resolved {
-        let plan = &plans[selected.layout];
-        let layout = plan.config;
-        let configured_includes = &layout.mint.header.includes;
+    for selected in blocks {
+        let configured_includes = &selected.layout.config.mint.header.includes;
         if let Some((first_path, first_includes)) = &includes {
             if *first_includes != configured_includes.as_slice() {
                 return Err(header_error(format!(
                     "[mint.header].includes must match across selected layouts: '{}' and '{}' have different include lists",
                     first_path.display(),
-                    selected.layout.display()
+                    selected.path.display()
                 ))
                 .into());
             }
         } else {
             for include in configured_includes {
                 validate_include(include).map_err(|message| {
-                    header_error(format!("{}: {message}", selected.layout.display()))
+                    header_error(format!("{}: {message}", selected.path.display()))
                 })?;
             }
-            includes = Some((selected.layout, configured_includes));
+            includes = Some((selected.path, configured_includes));
         }
-        let result = render_block(selected.name, selected.block, plan, &mut names);
+        let result = render_block(&selected, &mut names);
         let block_output = result.map_err(|source| MintError::InHeaderBlock {
             block_name: selected.name.to_owned(),
-            layout_file: selected.layout.display().to_string(),
+            layout_file: selected.path.display().to_string(),
             source: Box::new(source.into()),
         })?;
         guard_parts.push(block_output.macro_prefix.clone());
@@ -170,16 +165,16 @@ impl NameRegistry {
 }
 
 fn render_block(
-    block_name: &str,
-    block: &Block,
-    fingerprints: &fingerprint::PlannedLayout<'_>,
+    selected: &SelectedBlock<'_>,
     names: &mut NameRegistry,
 ) -> Result<RenderedBlock, LayoutError> {
+    let block_name = selected.name;
+    let block = selected.plan.block;
     let typedef_name = format!("{block_name}_t");
     let macro_prefix = to_upper_snake(block_name, "block name")?;
     names.add_block_prefix(&macro_prefix, block_name)?;
 
-    let root = &fingerprints.blocks[block_name].resolved.root;
+    let root = &selected.plan.resolved.root;
 
     let ResolvedNode::Branch {
         children: source, ..
@@ -211,7 +206,7 @@ fn render_block(
         source,
         block_name,
         &macro_prefix,
-        &fingerprints.fingerprints,
+        &selected.layout.fingerprints,
         names,
         &mut path,
         &mut macros,
@@ -236,7 +231,7 @@ fn collect_macros(
     fields: &[(String, ResolvedNode<'_>)],
     block_name: &str,
     block_prefix: &str,
-    fingerprints: &IndexMap<String, u64>,
+    fingerprints: &IndexMap<&str, u64>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
     output: &mut Vec<MacroDefinition>,
@@ -279,7 +274,7 @@ fn collect_leaf_macros(
     leaf: &LeafEntry,
     block_name: &str,
     block_prefix: &str,
-    fingerprints: &IndexMap<String, u64>,
+    fingerprints: &IndexMap<&str, u64>,
     names: &mut NameRegistry,
     path: &[String],
     output: &mut Vec<MacroDefinition>,

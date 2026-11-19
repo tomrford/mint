@@ -501,3 +501,26 @@ schema = { fingerprint = "large", type = "u64" }
         "{error}"
     );
 }
+
+#[test]
+fn fingerprint_load_rejects_empty_layout_files() {
+    use mint_core::layout::error::LayoutError;
+
+    let toml = "[mint]\nabi = \"generic-le\"\n";
+    let config = layout::parse_toml_layout(toml).expect("empty layout parses");
+    assert!(
+        fingerprint::calculate(&config)
+            .expect("in-memory calculation handles empty layouts")
+            .is_empty()
+    );
+
+    let path = common::write_layout_file("empty_fingerprint_layout", toml);
+    assert!(matches!(
+        fingerprint::load(&BlockSelector::all(&path)),
+        Err(LayoutError::NoBlocksProvided)
+    ));
+    assert!(matches!(
+        fingerprint::load(&BlockSelector::named(&path, "missing")),
+        Err(LayoutError::BlockNotFound(_))
+    ));
+}
