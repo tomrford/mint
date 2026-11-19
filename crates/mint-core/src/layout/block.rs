@@ -5,6 +5,7 @@ use super::header::Header;
 use super::resolved::{LeafBinding, PlannedBlock, ResolvedLeafEntry};
 use super::settings::MintConfig;
 use super::used_values::ValueCollector;
+use super::value::DataValue;
 use crate::data::DataSource;
 use crate::output::checksum;
 
@@ -161,10 +162,16 @@ impl Block {
                             unreachable!("ref list shape was validated during resolution");
                         };
                         for (index, &address) in addresses.iter().enumerate() {
-                            slot.write_element(index, slot.encode_bits(address, config.endianness));
+                            let encoded = DataValue::U64(address).encode(
+                                leaf.scalar_type,
+                                config.endianness,
+                                true,
+                            )?;
+                            slot.write_element(index, encoded);
                         }
                         // Unused entries encode address zero.
-                        let zero = slot.encode_bits(0, config.endianness);
+                        let zero =
+                            DataValue::U64(0).encode(leaf.scalar_type, config.endianness, true)?;
                         for index in addresses.len()..capacity {
                             slot.write_element(index, zero);
                         }
@@ -178,7 +185,9 @@ impl Block {
                     LeafBinding::Ref(address) => *address,
                     LeafBinding::Fingerprint(target) => fingerprints[*target],
                 };
-                slot.write_scalar(slot.encode_bits(value, config.endianness));
+                let encoded =
+                    DataValue::U64(value).encode(leaf.scalar_type, config.endianness, true)?;
+                slot.write_scalar(encoded);
                 value_sink.record_value(path, || Ok(value.into()))
             };
             emit().map_err(|error| in_field_path(path, error))?;

@@ -1,4 +1,4 @@
-use super::abi::{EncodedScalar, EndianBytes, Endianness, ScalarAbi};
+use super::abi::{EncodedScalar, EndianBytes, ScalarAbi};
 use super::block::BuildConfig;
 use super::conversions::clamp_bitfield_value;
 use super::error::LayoutError;
@@ -656,7 +656,14 @@ impl LeafEntry {
             offset += field.bits;
         }
 
-        slot.write_scalar(slot.encode_bits(accumulator as u64, config.endianness));
+        // Bitmap storage is an integer type, so its width is 1, 2, 4 or 8 octets.
+        slot.write_scalar(match slot.abi.storage_size {
+            1 => (accumulator as u8).to_endian_bytes(config.endianness),
+            2 => (accumulator as u16).to_endian_bytes(config.endianness),
+            4 => (accumulator as u32).to_endian_bytes(config.endianness),
+            8 => (accumulator as u64).to_endian_bytes(config.endianness),
+            width => unreachable!("bitmap integer storage width must be 1, 2, 4 or 8, got {width}"),
+        });
         Ok(())
     }
 
@@ -755,15 +762,6 @@ pub(crate) struct Slot<'a> {
 impl<'a> Slot<'a> {
     pub(crate) fn new(bytes: &'a mut [u8], abi: ScalarAbi) -> Self {
         Self { bytes, abi }
-    }
-
-    pub(crate) fn encode_bits(&self, value: u64, endianness: Endianness) -> EncodedScalar {
-        match self.abi.storage_size {
-            1 => (value as u8).to_endian_bytes(endianness),
-            2 => (value as u16).to_endian_bytes(endianness),
-            4 => (value as u32).to_endian_bytes(endianness),
-            _ => value.to_endian_bytes(endianness),
-        }
     }
 
     pub(crate) fn write_scalar(&mut self, value: EncodedScalar) {

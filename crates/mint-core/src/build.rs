@@ -423,13 +423,11 @@ fn build_single_bytestream(
             &mut collector,
         )?;
 
-        let data_range = DataRange {
-            start_address: block.header.start_address,
-            address_unit_bits: job.plan.resolved.abi().address_unit_bits(),
-            reserved_size: build_output.bytestream.len() as u32,
-            allocated_size: block.header.length,
-            bytestream: build_output.bytestream,
-        };
+        let data_range = output::bytestream_to_datarange(
+            build_output.bytestream,
+            &block.header,
+            job.plan.resolved.abi(),
+        )?;
 
         let stat = BlockStat {
             layout: selected.layout.clone(),
@@ -471,7 +469,7 @@ fn check_allocations(jobs: &[BlockJob<'_>]) -> Result<(), MintError> {
     }
 
     let mut sorted = jobs.iter().collect::<Vec<_>>();
-    sorted.sort_unstable_by_key(|job| job.plan.allocation.start);
+    sorted.sort_by_key(|job| job.plan.allocation.start);
     for pair in sorted.windows(2) {
         let first = pair[0];
         let second = pair[1];
