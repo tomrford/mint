@@ -227,7 +227,7 @@ includes = ['"platform/types.h"', '<limits.h>', '<stddef.h>']
 
 Each entry keeps its quotes or angle brackets, names a non-empty header without control characters, backslashes or nested delimiters, and is passed to the compiler unchanged. `includes = []` emits none. The included headers must still provide the fixed-width types, `CHAR_BIT`, `offsetof` and integer constant macros such as `UINT64_C` that the header uses. Includes do not affect binary output or fingerprints.
 
-Beyond [validation](#validation), header generation rejects block or macro names that collide once converted to upper snake case, fields that collide with a generated macro, and blocks from several layouts whose include lists differ. Nothing is written unless the whole header renders.
+Beyond [validation](#validation), header generation rejects block or macro names that collide once converted to upper snake case, fields named `CHAR_BIT` or matching a generated macro, and differing include lists. At least one supported C ABI must match the resolved struct sizes and field offsets of all selected blocks. Nothing is written unless the whole header renders.
 
 ## ABI fingerprints
 

@@ -1,11 +1,12 @@
 use crate::error::MintError;
-use crate::layout::abi::ScalarAbi;
+use crate::layout::abi::{Abi, ScalarAbi};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
-use crate::layout::resolved::ResolvedNode;
-use crate::layout::selection::{BlockSelector, LayoutSelection, SelectedBlock};
+use crate::layout::resolved::{ResolvedLayout, ResolvedNode};
+use crate::layout::selection::{BlockSelector, LayoutSelection, PreparedSelection, SelectedBlock};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::path::Path;
 
 /// Generate a complete C11 header for the selected layout blocks.
@@ -17,10 +18,12 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
             layout_file,
             source,
         })?;
+    validate_common_c_layout(&prepared)?;
     let blocks = prepared.blocks();
     let mut rendered = Vec::with_capacity(blocks.len());
     let mut names = NameRegistry::default();
-    let mut guard_parts = Vec::with_capacity(blocks.len());
+    let mut guard = String::from("MINT");
+    let mut macros = String::new();
     let mut includes: Option<(&Path, &[String])> = None;
 
     for selected in blocks {
@@ -42,17 +45,23 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
             }
             includes = Some((selected.path, configured_includes));
         }
-        let result = render_block(&selected, &mut names);
+        let result = render_block(&selected, &mut names, &mut macros);
         let block_output = result.map_err(|source| MintError::InHeaderBlock {
             block_name: selected.name.to_owned(),
             layout_file: selected.path.display().to_string(),
             source: Box::new(source.into()),
         })?;
-        guard_parts.push(block_output.macro_prefix.clone());
+        guard.push('_');
+        guard.push_str(&block_output.macro_prefix);
         rendered.push(block_output);
     }
 
-    let guard = format!("MINT_{}_H", guard_parts.join("_"));
+    guard.push_str("_H");
+    if names.members.contains("CHAR_BIT") {
+        return Err(
+            header_error("field 'CHAR_BIT' collides with the required CHAR_BIT macro").into(),
+        );
+    }
     for member in &names.members {
         if member == &guard || names.macros.contains_key(member) {
             return Err(
@@ -70,20 +79,7 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
         }
     }
 
-    let macros = rendered
-        .iter()
-        .flat_map(|block| block.macros.iter())
-        .collect::<Vec<_>>();
-    if !macros.is_empty() {
-        output.push('\n');
-        for (index, definition) in macros.iter().enumerate() {
-            if index > 0 && definition.group_start {
-                output.push('\n');
-            }
-            output.push_str(&definition.text);
-            output.push('\n');
-        }
-    }
+    output.push_str(&macros);
 
     for block in &rendered {
         output.push('\n');
@@ -97,6 +93,39 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
 
     output.push_str(&format!("\n#endif /* {guard} */\n"));
     Ok(output)
+}
+
+fn validate_common_c_layout(prepared: &PreparedSelection<'_>) -> Result<(), LayoutError> {
+    let mut blocks = prepared.blocks();
+    let Some(first) = blocks.next() else {
+        return Ok(());
+    };
+    let rules = |abi: Abi| (abi.family(), abi.address_unit_bits());
+    let first_rules = rules(first.plan.resolved.abi());
+    if blocks.all(|selected| rules(selected.plan.resolved.abi()) == first_rules) {
+        return Ok(());
+    }
+
+    for (index, abi) in Abi::ALL.into_iter().enumerate() {
+        if Abi::ALL[..index]
+            .iter()
+            .any(|&other| rules(abi) == rules(other))
+        {
+            continue;
+        }
+        if prepared.blocks().all(|selected| {
+            let expected = &selected.plan.resolved;
+            rules(expected.abi()) == rules(abi)
+                || ResolvedLayout::new(&selected.plan.block.data, abi)
+                    .is_ok_and(|candidate| expected.same_c_layout(&candidate))
+        }) {
+            return Ok(());
+        }
+    }
+
+    Err(header_error(
+        "selected blocks require incompatible C ABI layouts",
+    ))
 }
 
 fn validate_include(include: &str) -> Result<(), String> {
@@ -124,14 +153,8 @@ fn validate_include(include: &str) -> Result<(), String> {
 
 struct RenderedBlock {
     macro_prefix: String,
-    macros: Vec<MacroDefinition>,
     typedef: String,
     assertions: String,
-}
-
-struct MacroDefinition {
-    text: String,
-    group_start: bool,
 }
 
 #[derive(Default)]
@@ -167,6 +190,7 @@ impl NameRegistry {
 fn render_block(
     selected: &SelectedBlock<'_>,
     names: &mut NameRegistry,
+    macros: &mut String,
 ) -> Result<RenderedBlock, LayoutError> {
     let block_name = selected.name;
     let block = selected.plan.block;
@@ -183,10 +207,9 @@ fn render_block(
         unreachable!("resolution rejects block data that is not a table")
     };
 
-    let mut macros = Vec::new();
     add_macro(
         names,
-        &mut macros,
+        macros,
         format!("{macro_prefix}_START_ADDRESS"),
         format!("0x{:X}u", block.header.start_address),
         format!("block header '{block_name}.start_address'"),
@@ -194,7 +217,7 @@ fn render_block(
     )?;
     add_macro(
         names,
-        &mut macros,
+        macros,
         format!("{macro_prefix}_LENGTH"),
         format!("0x{:X}u", block.header.length),
         format!("block header '{block_name}.length'"),
@@ -209,7 +232,7 @@ fn render_block(
         &selected.layout.fingerprints,
         names,
         &mut path,
-        &mut macros,
+        macros,
     )?;
 
     let mut typedef = String::from("typedef struct {\n");
@@ -220,7 +243,6 @@ fn render_block(
 
     Ok(RenderedBlock {
         macro_prefix,
-        macros,
         typedef,
         assertions,
     })
@@ -234,7 +256,7 @@ fn collect_macros(
     fingerprints: &IndexMap<&str, u64>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
-    output: &mut Vec<MacroDefinition>,
+    output: &mut String,
 ) -> Result<(), LayoutError> {
     for (name, node) in fields {
         names.members.insert(name.clone());
@@ -277,7 +299,7 @@ fn collect_leaf_macros(
     fingerprints: &IndexMap<&str, u64>,
     names: &mut NameRegistry,
     path: &[String],
-    output: &mut Vec<MacroDefinition>,
+    output: &mut String,
     scalar_abi: ScalarAbi,
 ) -> Result<(), LayoutError> {
     let size = leaf.size;
@@ -374,17 +396,17 @@ fn collect_leaf_macros(
 
 fn add_macro(
     names: &mut NameRegistry,
-    output: &mut Vec<MacroDefinition>,
+    output: &mut String,
     name: String,
     value: String,
     origin: String,
     group_start: bool,
 ) -> Result<(), LayoutError> {
     names.add_macro(&name, origin)?;
-    output.push(MacroDefinition {
-        text: format!("#define {name} {value}"),
-        group_start,
-    });
+    if group_start {
+        output.push('\n');
+    }
+    let _ = writeln!(output, "#define {name} {value}");
     Ok(())
 }
 
@@ -445,17 +467,18 @@ fn render_layout_assertions(
     root: &ResolvedNode<'_>,
 ) -> String {
     let mut output = String::new();
-    let mut path = Vec::new();
-    render_node_assertions(block_name, typedef_name, root, &mut path, &mut output);
-
-    let root_size = match root {
-        ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
-            coordinates.size
-        }
-    };
-    output.push_str(&format!(
-        "_Static_assert(sizeof({typedef_name}) * CHAR_BIT == {root_size}u * 8u, \"Mint ABI size mismatch for {typedef_name}\");\n"
-    ));
+    render_node_assertions(
+        block_name,
+        typedef_name,
+        root,
+        &mut String::new(),
+        &mut output,
+    );
+    let root_size = root.coordinates().size;
+    let _ = writeln!(
+        output,
+        "_Static_assert(sizeof({typedef_name}) * CHAR_BIT == {root_size}u * 8u, \"Mint ABI size mismatch for {typedef_name}\");"
+    );
     output
 }
 
@@ -463,26 +486,26 @@ fn render_node_assertions(
     block_name: &str,
     typedef_name: &str,
     node: &ResolvedNode<'_>,
-    path: &mut Vec<String>,
+    path: &mut String,
     output: &mut String,
 ) {
     let ResolvedNode::Branch { children, .. } = node else {
         return;
     };
 
+    let parent_len = path.len();
     for (name, child) in children {
-        path.push(name.clone());
-        let offset = match child {
-            ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
-                coordinates.offset
-            }
-        };
-        let member = path.join(".");
-        output.push_str(&format!(
-            "_Static_assert(offsetof({typedef_name}, {member}) * CHAR_BIT == {offset}u * 8u, \"Mint ABI offset mismatch for {block_name}.{member}\");\n"
-        ));
+        if parent_len != 0 {
+            path.push('.');
+        }
+        path.push_str(name);
+        let offset = child.coordinates().offset;
+        let _ = writeln!(
+            output,
+            "_Static_assert(offsetof({typedef_name}, {path}) * CHAR_BIT == {offset}u * 8u, \"Mint ABI offset mismatch for {block_name}.{path}\");"
+        );
         render_node_assertions(block_name, typedef_name, child, path, output);
-        path.pop();
+        path.truncate(parent_len);
     }
 }
 

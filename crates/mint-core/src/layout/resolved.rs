@@ -131,6 +131,16 @@ impl<'a> ResolvedLayout<'a> {
         self.root.coordinates().size
     }
 
+    pub(crate) fn same_c_layout(&self, other: &Self) -> bool {
+        self.total_size() == other.total_size()
+            && self.nodes.iter().all(|(path, expected)| {
+                other.nodes.get(path).is_some_and(|actual| {
+                    expected.coordinates.offset == actual.coordinates.offset
+                        && expected.coordinates.size == actual.coordinates.size
+                })
+            })
+    }
+
     pub(crate) fn ref_target(
         &self,
         path: &str,
@@ -298,7 +308,7 @@ pub(crate) enum ResolvedNode<'a> {
 }
 
 impl ResolvedNode<'_> {
-    fn coordinates(&self) -> ResolvedCoordinates {
+    pub(crate) fn coordinates(&self) -> ResolvedCoordinates {
         match self {
             Self::Branch { coordinates, .. } | Self::Leaf { coordinates, .. } => *coordinates,
         }
