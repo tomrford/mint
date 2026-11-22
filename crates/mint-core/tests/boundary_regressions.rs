@@ -223,3 +223,75 @@ fn excel_rejects_ambiguous_names_and_incomplete_matrices() {
         assert!(message.contains(expected), "{fixture}: {message}");
     }
 }
+
+#[test]
+fn excel_loads_array_sheets_lazily_and_surfaces_sheet_read_errors() {
+    let source = ExcelDataSource::from_path(
+        "tests/data/lazy-sheets.xlsx",
+        ExcelDataSourceOptions::new(vec!["Default".to_owned()]),
+    )
+    .expect("unreferenced broken sheet should not block opening Main");
+
+    let config = layout::parse_toml_layout(
+        r#"
+[mint]
+abi = "generic-le"
+[block.header]
+start_address = 0x1000
+length = 8
+padding = 0x00
+[block.data]
+scalar = { name = "ScalarVal", type = "u16" }
+first = { name = "GoodArr", type = "u8", size = 2 }
+second = { name = "GoodArr", type = "u8", size = 2 }
+"#,
+    )
+    .expect("layout parses");
+    let artifact = build::build_from_layouts(BuildFromLayoutsRequest {
+        layouts: vec![NamedLayout {
+            name: PathBuf::from("lazy.toml"),
+            config,
+        }],
+        blocks: vec![BlockSelector::all("lazy.toml")],
+        data_source: Some(&source),
+        strict: true,
+        capture_values: false,
+    })
+    .expect("building only referenced sheets should succeed");
+    assert_eq!(artifact.ranges[0].bytestream, [42, 0, 10, 20, 10, 20]);
+    let hex = artifact.render(OutputFormat::Hex, 16).expect("HEX renders");
+    assert_eq!(hex, ":061000002A000A140A1484\n:00000001FF");
+
+    let bad_array = source
+        .retrieve_1d_array_or_string("BadArr")
+        .expect_err("corrupt referenced array sheet should surface its parse error");
+    let message = common::error_chain(&bad_array);
+    assert!(
+        message.contains("failed to read sheet 'Broken'"),
+        "expected sheet read error, got: {message}"
+    );
+
+    let main_ref = source
+        .retrieve_1d_array_or_string("MainRef")
+        .expect_err("main sheet should not be usable as an array sheet");
+    let message = common::error_chain(&main_ref);
+    assert!(
+        message.contains("Sheet not found: 'Main'. Available sheets: Broken, Good"),
+        "{message}"
+    );
+
+    let bad_main = match ExcelDataSource::from_path(
+        "tests/data/lazy-sheets.xlsx",
+        ExcelDataSourceOptions {
+            main_sheet: "Broken".to_owned(),
+            variants: vec!["Default".to_owned()],
+        },
+    ) {
+        Err(error) => common::error_chain(&error),
+        Ok(_) => panic!("corrupt main sheet should fail"),
+    };
+    assert!(
+        bad_main.contains("failed to read sheet 'Broken'"),
+        "expected main sheet read error, got: {bad_main}"
+    );
+}

@@ -1,6 +1,9 @@
 use calamine::{Data, Range, Reader, Xlsx, open_workbook};
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use super::DataSource;
 use super::error::DataError;
@@ -21,12 +24,18 @@ impl ExcelDataSourceOptions {
     }
 }
 
+struct WorkbookSheets {
+    workbook: Option<Xlsx<BufReader<File>>>,
+    loaded: HashMap<String, Arc<Range<Data>>>,
+}
+
 /// Excel-backed data source for variants.
 pub struct ExcelDataSource {
     /// Row index of each name; the first row wins for repeated blank names.
     name_rows: HashMap<String, usize>,
     variant_columns: Vec<Vec<Data>>,
-    sheets: HashMap<String, Range<Data>>,
+    array_sheet_names: Vec<String>,
+    sheets: Mutex<WorkbookSheets>,
 }
 
 impl ExcelDataSource {
@@ -40,16 +49,19 @@ impl ExcelDataSource {
         })?;
 
         let main_sheet_name = options.main_sheet.as_str();
-        let worksheets = workbook.worksheets();
-        let main_sheet = worksheets
-            .iter()
-            .find_map(|(name, sheet)| (name == main_sheet_name).then_some(sheet))
-            .ok_or_else(|| {
-                DataError::MiscError(format!(
-                    "main sheet '{main_sheet_name}' not found. Available sheets: {}",
-                    Self::sheet_names(&worksheets)
-                ))
-            })?;
+        let sheet_names = workbook.sheet_names();
+        if !sheet_names.iter().any(|name| name == main_sheet_name) {
+            return Err(DataError::MiscError(format!(
+                "main sheet '{main_sheet_name}' not found. Available sheets: {}",
+                sheet_names.join(", ")
+            )));
+        }
+        let main_sheet = workbook.worksheet_range(main_sheet_name).map_err(|error| {
+            DataError::FileError(format!(
+                "failed to read sheet '{main_sheet_name}' from {}: {error}",
+                path.display()
+            ))
+        })?;
 
         let rows: Vec<_> = main_sheet.rows().collect();
         let (headers, data_rows) = match rows.split_first() {
@@ -81,10 +93,13 @@ impl ExcelDataSource {
             &options.variants,
         )?;
 
-        let sheets = worksheets
+        let mut array_sheet_names: Vec<_> = sheet_names
             .into_iter()
-            .filter(|(name, _)| name != main_sheet_name)
+            .filter(|name| name != main_sheet_name)
             .collect();
+        array_sheet_names.sort_unstable();
+        array_sheet_names.dedup();
+        let workbook = (!array_sheet_names.is_empty()).then_some(workbook);
 
         let mut name_rows = HashMap::with_capacity(names.len());
         for (row, name) in names.into_iter().enumerate() {
@@ -94,7 +109,11 @@ impl ExcelDataSource {
         Ok(Self {
             name_rows,
             variant_columns,
-            sheets,
+            array_sheet_names,
+            sheets: Mutex::new(WorkbookSheets {
+                workbook,
+                loaded: HashMap::new(),
+            }),
         })
     }
 
@@ -114,24 +133,45 @@ impl ExcelDataSource {
         ))
     }
 
-    fn array_sheet(&self, sheet_name: &str) -> Result<&Range<Data>, DataError> {
-        self.sheets.get(sheet_name).ok_or_else(|| {
-            let mut available: Vec<_> = self.sheets.keys().map(String::as_str).collect();
-            available.sort_unstable();
-            DataError::RetrievalError(format!(
+    fn array_sheet(&self, sheet_name: &str) -> Result<Arc<Range<Data>>, DataError> {
+        if self
+            .array_sheet_names
+            .binary_search_by(|name| name.as_str().cmp(sheet_name))
+            .is_err()
+        {
+            return Err(DataError::RetrievalError(format!(
                 "Sheet not found: '{}'. Available sheets: {}",
                 sheet_name,
-                available.join(", ")
-            ))
-        })
-    }
+                self.array_sheet_names.join(", ")
+            )));
+        }
 
-    fn sheet_names(sheets: &[(String, Range<Data>)]) -> String {
-        sheets
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
+        let mut state = self
+            .sheets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(sheet) = state.loaded.get(sheet_name) {
+            return Ok(Arc::clone(sheet));
+        }
+
+        let Some(workbook) = state.workbook.as_mut() else {
+            return Err(DataError::RetrievalError(format!(
+                "Sheet not found: '{}'. Available sheets: {}",
+                sheet_name,
+                self.array_sheet_names.join(", ")
+            )));
+        };
+        let range = workbook.worksheet_range(sheet_name).map_err(|error| {
+            DataError::FileError(format!("failed to read sheet '{sheet_name}': {error}"))
+        })?;
+        let sheet = Arc::new(range);
+        state
+            .loaded
+            .insert(sheet_name.to_owned(), Arc::clone(&sheet));
+        if state.loaded.len() == self.array_sheet_names.len() {
+            state.workbook = None;
+        }
+        Ok(sheet)
     }
 
     fn header_names(headers: &[Data]) -> String {
