@@ -8,24 +8,31 @@ use std::path::PathBuf;
 mod common;
 
 #[test]
-fn output_rejects_mixed_addressable_unit_widths() {
-    let artifact = BuildArtifact {
-        ranges: [8, 16]
-            .map(|address_unit_bits| DataRange {
-                start_address: 0,
-                address_unit_bits,
-                bytestream: vec![0, 0],
-                reserved_size: 2,
-                allocated_size: 4,
-            })
-            .to_vec(),
-        stats: Default::default(),
-        used_values: None,
+fn output_rejects_invalid_target_address_units() {
+    let range = |address_unit_bits, bytestream: Vec<u8>| DataRange {
+        start_address: 0x100,
+        address_unit_bits,
+        reserved_size: bytestream.len() as u32,
+        bytestream,
+        allocated_size: 4,
     };
-    let error = artifact
-        .render(OutputFormat::Hex, 16)
-        .expect_err("mixed address models should fail");
-    assert!(error.to_string().contains("cannot mix"));
+    for (ranges, expected) in [
+        (
+            vec![range(8, vec![0, 0]), range(16, vec![0, 0])],
+            "cannot mix",
+        ),
+        (vec![range(16, vec![0xff])], "bytestream length 1 octets"),
+    ] {
+        let artifact = BuildArtifact {
+            ranges,
+            stats: Default::default(),
+            used_values: None,
+        };
+        let error = artifact
+            .render(OutputFormat::Hex, 16)
+            .expect_err("invalid target address units should fail");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
 }
 
 #[test]
