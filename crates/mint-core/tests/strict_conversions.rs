@@ -30,7 +30,7 @@ padding = 0x00
 }
 
 #[test]
-fn non_strict_integer_conversions_saturate() {
+fn non_strict_conversions_saturate() {
     let bytes = build_inline(
         r#"
 overflow.u8_high = { value = 256, type = "u8" }
@@ -39,16 +39,21 @@ overflow.i8_high = { value = 128, type = "i8" }
 overflow.i8_low = { value = -129, type = "i8" }
 overflow.u8_float_trunc = { value = 1.5, type = "u8" }
 overflow.u8_float_high = { value = 300.0, type = "u8" }
+overflow.f32_high = { value = 1e39, type = "f32" }
+overflow.f32_low = { value = -1e39, type = "f32" }
 "#,
         false,
         None,
     )
     .expect("non-strict converts");
 
+    let mut expected = vec![0xff, 0x00, 0x7f, 0x80, 0x01, 0xff, 0x00, 0x00];
+    expected.extend_from_slice(&f32::MAX.to_le_bytes());
+    expected.extend_from_slice(&f32::MIN.to_le_bytes());
     assert_eq!(
-        &bytes[..6],
-        &[0xff, 0x00, 0x7f, 0x80, 0x01, 0xff],
-        "non-strict integer conversions should saturate, while floats still truncate"
+        &bytes[..16],
+        expected.as_slice(),
+        "non-strict integer and f32 conversions should saturate, while floats to ints truncate"
     );
 }
 
@@ -58,6 +63,10 @@ fn strict_conversions_reject_lossy_inline_values() {
         (
             r#"bad = { value = 16777217.0, type = "f32" }"#,
             "lossy float conversion to f32",
+        ),
+        (
+            r#"bad = { value = 1e39, type = "f32" }"#,
+            "out of range for f32",
         ),
         (
             r#"bad = { value = 1.5, type = "u8" }"#,

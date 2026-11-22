@@ -71,7 +71,9 @@ macro_rules! impl_float_try_from_data_value {
                     }
                     DataValue::U64(val) => Ok(*val as $t),
                     DataValue::I64(val) => Ok(*val as $t),
-                    DataValue::F64(val) => Ok(*val as $t),
+                    DataValue::F64(val) => {
+                        Ok((*val).clamp(f64::from(<$t>::MIN), f64::from(<$t>::MAX)) as $t)
+                    }
                     DataValue::Str(_) => {
                         return Err(LayoutError::DataValueExportFailed(
                             "Cannot convert string to scalar type.".to_owned(),

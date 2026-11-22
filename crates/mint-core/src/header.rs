@@ -1,5 +1,5 @@
 use crate::error::MintError;
-use crate::layout::abi::ScalarAbi;
+use crate::layout::abi::{Abi, ScalarAbi};
 use crate::layout::entry::{BitmapFieldSource, EntrySource, LeafEntry, SizeSource};
 use crate::layout::error::LayoutError;
 use crate::layout::resolved::ResolvedNode;
@@ -24,9 +24,27 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     let mut macros = String::new();
     let mut typedefs = String::new();
     let mut assertions = String::new();
+    let mut abi_layout: Option<(&Path, Abi)> = None;
     let mut includes: Option<(&Path, &[String])> = None;
 
     for selected in blocks {
+        let abi = selected.plan.resolved.abi();
+        if let Some((first_path, first_abi)) = abi_layout {
+            if (first_abi.family(), first_abi.address_unit_bits())
+                != (abi.family(), abi.address_unit_bits())
+            {
+                return Err(header_error(format!(
+                    "cannot combine incompatible ABIs in one header: '{}' uses '{}' and '{}' uses '{}'",
+                    first_path.display(),
+                    first_abi.name(),
+                    selected.path.display(),
+                    abi.name()
+                ))
+                .into());
+            }
+        } else {
+            abi_layout = Some((selected.path, abi));
+        }
         let configured_includes = &selected.layout.config.mint.header.includes;
         if let Some((first_path, first_includes)) = &includes {
             if *first_includes != configured_includes.as_slice() {
@@ -62,6 +80,11 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
     }
 
     guard.push_str("_H");
+    if names.members.contains("CHAR_BIT") {
+        return Err(
+            header_error("field 'CHAR_BIT' collides with the required CHAR_BIT macro").into(),
+        );
+    }
     for member in &names.members {
         if member == &guard || names.macros.contains_key(member) {
             return Err(
