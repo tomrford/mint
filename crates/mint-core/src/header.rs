@@ -6,6 +6,7 @@ use crate::layout::resolved::ResolvedNode;
 use crate::layout::selection::{BlockSelector, LayoutSelection, SelectedBlock};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::path::Path;
 
 /// Generate a complete C11 header for the selected layout blocks.
@@ -18,9 +19,11 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
             source,
         })?;
     let blocks = prepared.blocks();
-    let mut rendered = Vec::with_capacity(blocks.len());
     let mut names = NameRegistry::default();
-    let mut guard_parts = Vec::with_capacity(blocks.len());
+    let mut guard = String::from("MINT");
+    let mut macros = String::new();
+    let mut typedefs = String::new();
+    let mut assertions = String::new();
     let mut includes: Option<(&Path, &[String])> = None;
 
     for selected in blocks {
@@ -42,17 +45,23 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
             }
             includes = Some((selected.path, configured_includes));
         }
-        let result = render_block(&selected, &mut names);
-        let block_output = result.map_err(|source| MintError::InHeaderBlock {
+        let macro_prefix = render_block(
+            &selected,
+            &mut names,
+            &mut macros,
+            &mut typedefs,
+            &mut assertions,
+        )
+        .map_err(|source| MintError::InHeaderBlock {
             block_name: selected.name.to_owned(),
             layout_file: selected.path.display().to_string(),
             source: Box::new(source.into()),
         })?;
-        guard_parts.push(block_output.macro_prefix.clone());
-        rendered.push(block_output);
+        guard.push('_');
+        guard.push_str(&macro_prefix);
     }
 
-    let guard = format!("MINT_{}_H", guard_parts.join("_"));
+    guard.push_str("_H");
     for member in &names.members {
         if member == &guard || names.macros.contains_key(member) {
             return Err(
@@ -60,42 +69,23 @@ pub fn generate(blocks: &[BlockSelector]) -> Result<String, MintError> {
             );
         }
     }
-    let mut output = format!("#ifndef {guard}\n#define {guard}\n");
+    let mut output = String::with_capacity(
+        macros.len() + typedefs.len() + assertions.len() + guard.len() * 3 + 64,
+    );
+    let _ = writeln!(output, "#ifndef {guard}\n#define {guard}");
     if let Some((_, includes)) = includes
         && !includes.is_empty()
     {
         output.push('\n');
         for include in includes {
-            output.push_str(&format!("#include {include}\n"));
+            let _ = writeln!(output, "#include {include}");
         }
     }
 
-    let macros = rendered
-        .iter()
-        .flat_map(|block| block.macros.iter())
-        .collect::<Vec<_>>();
-    if !macros.is_empty() {
-        output.push('\n');
-        for (index, definition) in macros.iter().enumerate() {
-            if index > 0 && definition.group_start {
-                output.push('\n');
-            }
-            output.push_str(&definition.text);
-            output.push('\n');
-        }
-    }
-
-    for block in &rendered {
-        output.push('\n');
-        output.push_str(&block.typedef);
-    }
-
-    for block in &rendered {
-        output.push('\n');
-        output.push_str(&block.assertions);
-    }
-
-    output.push_str(&format!("\n#endif /* {guard} */\n"));
+    output.push_str(&macros);
+    output.push_str(&typedefs);
+    output.push_str(&assertions);
+    let _ = writeln!(output, "\n#endif /* {guard} */");
     Ok(output)
 }
 
@@ -120,18 +110,6 @@ fn validate_include(include: &str) -> Result<(), String> {
             "invalid [mint.header].includes entry {include:?}: expected a non-empty header name enclosed in double quotes or angle brackets, without control characters, backslashes or nested delimiters"
         ))
     }
-}
-
-struct RenderedBlock {
-    macro_prefix: String,
-    macros: Vec<MacroDefinition>,
-    typedef: String,
-    assertions: String,
-}
-
-struct MacroDefinition {
-    text: String,
-    group_start: bool,
 }
 
 #[derive(Default)]
@@ -167,7 +145,10 @@ impl NameRegistry {
 fn render_block(
     selected: &SelectedBlock<'_>,
     names: &mut NameRegistry,
-) -> Result<RenderedBlock, LayoutError> {
+    macros: &mut String,
+    typedefs: &mut String,
+    assertions: &mut String,
+) -> Result<String, LayoutError> {
     let block_name = selected.name;
     let block = selected.plan.block;
     let typedef_name = format!("{block_name}_t");
@@ -183,10 +164,9 @@ fn render_block(
         unreachable!("resolution rejects block data that is not a table")
     };
 
-    let mut macros = Vec::new();
     add_macro(
         names,
-        &mut macros,
+        macros,
         format!("{macro_prefix}_START_ADDRESS"),
         format!("0x{:X}u", block.header.start_address),
         format!("block header '{block_name}.start_address'"),
@@ -194,7 +174,7 @@ fn render_block(
     )?;
     add_macro(
         names,
-        &mut macros,
+        macros,
         format!("{macro_prefix}_LENGTH"),
         format!("0x{:X}u", block.header.length),
         format!("block header '{block_name}.length'"),
@@ -209,21 +189,17 @@ fn render_block(
         &selected.layout.fingerprints,
         names,
         &mut path,
-        &mut macros,
+        macros,
     )?;
 
-    let mut typedef = String::from("typedef struct {\n");
-    render_fields(source, 1, &macro_prefix, &mut path, &mut typedef)?;
-    typedef.push_str(&format!("}} {typedef_name};\n"));
+    typedefs.push_str("\ntypedef struct {\n");
+    render_fields(source, 1, &macro_prefix, &mut path, typedefs)?;
+    let _ = writeln!(typedefs, "}} {typedef_name};");
 
-    let assertions = render_layout_assertions(block_name, &typedef_name, root);
+    assertions.push('\n');
+    render_layout_assertions(block_name, &typedef_name, root, assertions);
 
-    Ok(RenderedBlock {
-        macro_prefix,
-        macros,
-        typedef,
-        assertions,
-    })
+    Ok(macro_prefix)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -234,7 +210,7 @@ fn collect_macros(
     fingerprints: &IndexMap<&str, u64>,
     names: &mut NameRegistry,
     path: &mut Vec<String>,
-    output: &mut Vec<MacroDefinition>,
+    output: &mut String,
 ) -> Result<(), LayoutError> {
     for (name, node) in fields {
         names.members.insert(name.clone());
@@ -277,7 +253,7 @@ fn collect_leaf_macros(
     fingerprints: &IndexMap<&str, u64>,
     names: &mut NameRegistry,
     path: &[String],
-    output: &mut Vec<MacroDefinition>,
+    output: &mut String,
     scalar_abi: ScalarAbi,
 ) -> Result<(), LayoutError> {
     let size = leaf.size;
@@ -374,17 +350,17 @@ fn collect_leaf_macros(
 
 fn add_macro(
     names: &mut NameRegistry,
-    output: &mut Vec<MacroDefinition>,
+    output: &mut String,
     name: String,
     value: String,
     origin: String,
     group_start: bool,
 ) -> Result<(), LayoutError> {
     names.add_macro(&name, origin)?;
-    output.push(MacroDefinition {
-        text: format!("#define {name} {value}"),
-        group_start,
-    });
+    if group_start {
+        output.push('\n');
+    }
+    let _ = writeln!(output, "#define {name} {value}");
     Ok(())
 }
 
@@ -443,46 +419,40 @@ fn render_layout_assertions(
     block_name: &str,
     typedef_name: &str,
     root: &ResolvedNode<'_>,
-) -> String {
-    let mut output = String::new();
-    let mut path = Vec::new();
-    render_node_assertions(block_name, typedef_name, root, &mut path, &mut output);
-
-    let root_size = match root {
-        ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
-            coordinates.size
-        }
-    };
-    output.push_str(&format!(
-        "_Static_assert(sizeof({typedef_name}) * CHAR_BIT == {root_size}u * 8u, \"Mint ABI size mismatch for {typedef_name}\");\n"
-    ));
-    output
+    output: &mut String,
+) {
+    render_node_assertions(block_name, typedef_name, root, &mut String::new(), output);
+    let root_size = root.coordinates().size;
+    let _ = writeln!(
+        output,
+        "_Static_assert(sizeof({typedef_name}) * CHAR_BIT == {root_size}u * 8u, \"Mint ABI size mismatch for {typedef_name}\");"
+    );
 }
 
 fn render_node_assertions(
     block_name: &str,
     typedef_name: &str,
     node: &ResolvedNode<'_>,
-    path: &mut Vec<String>,
+    path: &mut String,
     output: &mut String,
 ) {
     let ResolvedNode::Branch { children, .. } = node else {
         return;
     };
 
+    let parent_len = path.len();
     for (name, child) in children {
-        path.push(name.clone());
-        let offset = match child {
-            ResolvedNode::Branch { coordinates, .. } | ResolvedNode::Leaf { coordinates, .. } => {
-                coordinates.offset
-            }
-        };
-        let member = path.join(".");
-        output.push_str(&format!(
-            "_Static_assert(offsetof({typedef_name}, {member}) * CHAR_BIT == {offset}u * 8u, \"Mint ABI offset mismatch for {block_name}.{member}\");\n"
-        ));
+        if parent_len != 0 {
+            path.push('.');
+        }
+        path.push_str(name);
+        let offset = child.coordinates().offset;
+        let _ = writeln!(
+            output,
+            "_Static_assert(offsetof({typedef_name}, {path}) * CHAR_BIT == {offset}u * 8u, \"Mint ABI offset mismatch for {block_name}.{path}\");"
+        );
         render_node_assertions(block_name, typedef_name, child, path, output);
-        path.pop();
+        path.truncate(parent_len);
     }
 }
 

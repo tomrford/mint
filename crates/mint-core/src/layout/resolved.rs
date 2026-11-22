@@ -298,7 +298,7 @@ pub(crate) enum ResolvedNode<'a> {
 }
 
 impl ResolvedNode<'_> {
-    fn coordinates(&self) -> ResolvedCoordinates {
+    pub(crate) fn coordinates(&self) -> ResolvedCoordinates {
         match self {
             Self::Branch { coordinates, .. } | Self::Leaf { coordinates, .. } => *coordinates,
         }
