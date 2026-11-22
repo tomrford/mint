@@ -98,9 +98,9 @@ Booleans are stored in integer types as 1 or 0.
 
 ### Value conversion
 
-Values from every source are converted to the field type when the block is built. A fixed-point value is encoded as `round_ties_even(value * 2^F)`. Non-finite floats are always rejected.
+Values from every source are converted to the field type when the block is built. A fixed-point value is encoded as `round_ties_even(value * 2^F)`. Non-finite float inputs are always rejected.
 
-Without `--strict`, conversions are lenient: floats truncate toward zero, out-of-range integers saturate to the type's range, out-of-range fixed-point values clamp to the storage range, and bitmap values saturate to their bit width. With `--strict`, integer and bitmap overflow, fractions converted to integers, and inexact integer-to-float and `f64`-to-`f32` conversions are errors. Fixed-point values are rounded first. Strict mode rejects a rounded result outside the storage range.
+Without `--strict`, conversions are lenient: floats converted to integers truncate toward zero, out-of-range integers and `f32` values saturate to the type's range, out-of-range fixed-point values clamp to the storage range, and bitmap values saturate to their bit width. With `--strict`, integer and bitmap overflow, fractions converted to integers, and inexact integer-to-float and `f64`-to-`f32` conversions are errors. Fixed-point values are rounded first. Strict mode rejects a rounded result outside the storage range.
 
 | Value and type | Default | `--strict` |
 | --- | --- | --- |
@@ -110,6 +110,7 @@ Without `--strict`, conversions are lenient: floats truncate toward zero, out-of
 | `300.5` into `uq8.8` | `0xFFFF` | error |
 | `1.3` into `uq8.8` | `0x014D` | `0x014D` |
 | `3.3` into `f32` | nearest `f32` | error |
+| `1e39` into `f32` | `f32::MAX` | error |
 
 ### Values, consts and data-source lookups
 
@@ -227,7 +228,7 @@ includes = ['"platform/types.h"', '<limits.h>', '<stddef.h>']
 
 Each entry keeps its quotes or angle brackets, names a non-empty header without control characters, backslashes or nested delimiters, and is passed to the compiler unchanged. `includes = []` emits none. The included headers must still provide the fixed-width types, `CHAR_BIT`, `offsetof` and integer constant macros such as `UINT64_C` that the header uses. Includes do not affect binary output or fingerprints.
 
-Beyond [validation](#validation), header generation rejects block or macro names that collide once converted to upper snake case, fields that collide with a generated macro, and blocks from several layouts whose include lists differ. Nothing is written unless the whole header renders.
+Beyond [validation](#validation), header generation rejects block or macro names that collide once converted to upper snake case, fields named `CHAR_BIT` or matching a generated macro, blocks from layouts with incompatible ABI layout rules or addressable-unit widths, and differing include lists. Nothing is written unless the whole header renders.
 
 ## ABI fingerprints
 

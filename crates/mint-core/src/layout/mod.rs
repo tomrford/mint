@@ -54,7 +54,7 @@ fn parse_toml_layout_with_context(text: &str, context: &str) -> Result<Config, L
 pub(crate) fn validate_c_identifier(name: &str, kind: &str) -> Result<(), String> {
     if name.contains('.') {
         return Err(format!(
-            "quoted dotted {kind} name '{name}' builds as a flat field with no C struct equivalent; use a nested table instead"
+            "quoted dotted {kind} name '{name}' would create a flat field with no C struct equivalent; use a nested table instead"
         ));
     }
 

@@ -474,7 +474,21 @@ nested.value = { const = "missing", type = "u32" }
 
 #[test]
 fn rejects_fields_that_collide_with_generated_macros_or_the_guard() {
-    for member in ["B_X_LEN", "B_START_ADDRESS", "MINT_B_H"] {
+    for (member, expected) in [
+        ("B_X_LEN", "field 'B_X_LEN' collides with a generated macro"),
+        (
+            "B_START_ADDRESS",
+            "field 'B_START_ADDRESS' collides with a generated macro",
+        ),
+        (
+            "MINT_B_H",
+            "field 'MINT_B_H' collides with a generated macro",
+        ),
+        (
+            "CHAR_BIT",
+            "field 'CHAR_BIT' collides with the required CHAR_BIT macro",
+        ),
+    ] {
         let message = error(
             "header-member-macro",
             &format!(
@@ -490,9 +504,45 @@ x = {{ value = [1, 2], type = "u8", size = 2 }}
 "#
             ),
         );
+        assert!(message.contains(expected), "{message}");
+    }
+}
+
+#[test]
+fn combined_layouts_require_compatible_abi_rules() {
+    let layout = |block, abi| {
+        common::write_layout_file(
+            block,
+            &format!(
+                r#"
+[mint]
+abi = "{abi}"
+[{block}.header]
+start_address = 0
+length = 16
+[{block}.data]
+value = {{ value = 2, type = "u16" }}
+"#
+            ),
+        )
+    };
+    let generic = layout("generic", "generic-le");
+    let arm = layout("arm", "arm-aapcs32-le");
+    let tricore = layout("tricore", "tricore-eabi-le");
+    let c28x = layout("c28x", "ti-c28x-eabi");
+
+    for (first, second) in [(&generic, &tricore), (&tricore, &c28x)] {
+        let err =
+            mint_core::header::generate(&[BlockSelector::all(first), BlockSelector::all(second)])
+                .expect_err("incompatible ABIs should be rejected in one header");
         assert!(
-            message.contains(&format!("field '{member}' collides with a generated macro")),
-            "{message}"
+            common::error_chain(&err).contains("cannot combine incompatible ABIs in one header"),
+            "{err}"
         );
     }
+
+    let header =
+        mint_core::header::generate(&[BlockSelector::all(generic), BlockSelector::all(arm)])
+            .expect("ABIs sharing layout family and address-unit width combine cleanly");
+    assert!(header.contains("} generic_t;") && header.contains("} arm_t;"));
 }
