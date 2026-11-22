@@ -100,7 +100,7 @@ Booleans are stored in integer types as 1 or 0.
 
 Values from every source are converted to the field type when the block is built. A fixed-point value is encoded as `round_ties_even(value * 2^F)`. Non-finite float inputs are always rejected.
 
-Without `--strict`, conversions are lenient: floats truncate toward zero, out-of-range integers and `f32` values saturate to the type's range, out-of-range fixed-point values clamp to the storage range, and bitmap values saturate to their bit width. With `--strict`, integer and bitmap overflow, fractions converted to integers, and inexact integer-to-float and `f64`-to-`f32` conversions are errors. Fixed-point values are rounded first. Strict mode rejects a rounded result outside the storage range.
+Without `--strict`, conversions are lenient: floats converted to integers truncate toward zero, out-of-range integers and `f32` values saturate to the type's range, out-of-range fixed-point values clamp to the storage range, and bitmap values saturate to their bit width. With `--strict`, integer and bitmap overflow, fractions converted to integers, and inexact integer-to-float and `f64`-to-`f32` conversions are errors. Fixed-point values are rounded first. Strict mode rejects a rounded result outside the storage range.
 
 | Value and type | Default | `--strict` |
 | --- | --- | --- |
